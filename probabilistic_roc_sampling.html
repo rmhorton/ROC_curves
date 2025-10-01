@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Probabilistic ROC Animation with Sampling</title>
+<style>
+  :root { --w: 720px; --h: 480px; }
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; margin: 18px; }
+  h2 { margin: 0 0 8px; }
+  #stage { position: relative; width: var(--w); height: var(--h); border: 1px solid #ddd; background: #fff; }
+  #legend { margin-top: 10px; font-size: 13px; }
+  .legend-row { display: flex; align-items: center; gap: 8px; margin: 2px 0; }
+  .swatch-square { width: 16px; height: 16px; border: 1px solid #333; }
+  .swatch-circle { width: 16px; height: 16px; border-radius: 50%; border: 1px solid #333; }
+  #replay, #randomBtn { margin-top: 8px; font-size: 13px; cursor: pointer; color: #0366d6; }
+  #controls { margin-top: 12px; font-size: 13px; }
+  #aucDisplay { margin-top: 8px; font-weight: bold; }
+  #aucSample { margin-top: 4px; font-weight: bold; display: none; }
+  svg { display: block; }
+  .pt { paint-order: stroke; }
+  #randomBtn { display: none; }
+</style>
+</head>
+<body>
+<h2>Probabilistic ROC — Animated Construction</h2>
+<div id="stage">
+  <svg id="svg" width="100%" height="100%" viewBox="0 0 720 480"></svg>
+</div>
+<div id="legend">
+  <h3>Legend</h3>
+  <div class="legend-row"><div class="swatch-square" style="background:lightyellow"></div>Heatmap cell: positive score &gt; negative score</div>
+  <div class="legend-row"><div class="swatch-square" style="background:orange"></div>Heatmap cell: tie (scores equal)</div>
+  <div class="legend-row"><div class="swatch-square" style="background:red"></div>Heatmap cell: negative score &gt; positive score</div>
+  <div class="legend-row"><div class="swatch-circle" style="background:#2ca02c"></div>Positive case (circle)</div>
+  <div class="legend-row"><div class="swatch-circle" style="background:#d62728"></div>Negative case (circle)</div>
+  <p style="max-width:720px">Columns represent <b>negative cases</b>, ordered by score with highest at the left. Rows represent <b>positive cases</b>, ordered by score with highest at the bottom. The AUC equals the probability that a random positive outscores a random negative, with ties counting as 1/2. The blue ROC curve traces the boundary between outcomes, with diagonal segments through tie blocks.</p>
+  <div id="aucDisplay">AUC calculation: 0 / 0 = 0</div>
+  <div id="aucSample">AUC from sampling: 0 / 0 = 0</div>
+  <div id="replay" role="button" tabindex="0">Replay animation</div>
+  <div id="randomBtn" role="button" tabindex="0">Random Sample</div>
+</div>
+<div id="controls">
+  <label for="speedSlider">Animation speed:</label>
+  <input type="range" id="speedSlider" min="0.25" max="2" step="0.05" value="1"> <span id="speedValue">1.0×</span>
+</div>
+<script>
+(function(){
+  let speedFactor = 1.0;
+  const strokeW = 2, margin = 60; // increased margin
+  let sortDelay = 6000, cellFillDelay = 200;
+  const circleR = 16;
+  const posColor = '#2ca02c', negColor = '#d62728';
+
+  const labelsRaw = [1,1,1,1,0,1,1,0,1,0,1,0,1,0,0,1,0,0,0,0];
+  const scoresRaw = [20.0,19.0,18.0,17.0,16.0,15.0,14.0,13.0,11.5,11.5,10.0,9.0,8.0,7.0,6.0,5.0,4.0,3.0,2.0,1.0];
+
+  const svg = document.getElementById('svg');
+  const W = svg.viewBox.baseVal.width, H = svg.viewBox.baseVal.height;
+  const innerW = W - 2*margin, innerH = H - 2*margin;
+
+  const gCells = mk('g'), gGrid = mk('g'), gPts = mk('g'), gROC = mk('g'), gSamples = mk('g');
+  svg.append(gCells, gGrid, gPts, gROC, gSamples);
+
+  const aucDisplay = document.getElementById('aucDisplay');
+  const aucSample = document.getElementById('aucSample');
+  const randomBtn = document.getElementById('randomBtn');
+
+  let sampleNumerator = 0, sampleDenominator = 0;
+  let sampleDots = [];
+
+  function mk(tag, attrs={}) { const el = document.createElementNS('http://www.w3.org/2000/svg', tag); for(const k in attrs) el.setAttribute(k, attrs[k]); return el; }
+  function lerp(a,b,t){ return a+(b-a)*t; }
+
+  const order = scoresRaw.map((s,i)=>[s,i]).sort((a,b)=>b[0]-a[0]).map(x=>x[1]);
+  const labels = order.map(i => labelsRaw[i]===1);
+  const scores = order.map(i => scoresRaw[i]);
+
+  const posIdx = [], negIdx = [];
+  for(let i=0;i<labels.length;i++) (labels[i]?posIdx:negIdx).push(i);
+  const n_pos = posIdx.length, n_neg = negIdx.length;
+
+  const cellW = innerW / n_neg, cellH = innerH / n_pos;
+  const pos_scores = posIdx.map(i=>scores[i]);
+  const neg_scores = negIdx.map(i=>scores[i]);
+
+  const M = Array.from({length:n_pos},()=>Array(n_neg).fill(0));
+  for(let r=0;r<n_pos;r++) for(let c=0;c<n_neg;c++) {
+    const diff = pos_scores[r] - neg_scores[c];
+    const s = Math.sign(diff);
+    M[r][c] = (1+s)/2;
+  }
+
+  const cx0=W/2, cy0=H/2, jitter=60;
+  const nodes = order.map((_,i)=>{
+    const isPos = labels[i];
+    const g = mk('g');
+    const circle = mk('circle',{r:circleR,cx:cx0+(Math.random()*2-1)*jitter,cy:cy0+(Math.random()*2-1)*jitter,fill:isPos?posColor:negColor,stroke:'#222','stroke-width':1});
+    const label = mk('text',{x:circle.getAttribute('cx'),y:circle.getAttribute('cy'),'text-anchor':'middle','dominant-baseline':'central','font-size':'13','fill':'white'});
+    label.textContent = scores[i];
+    g.append(circle,label); gPts.appendChild(g);
+    return {circle,label,isPos,score:scores[i]};
+  });
+
+  function negXsnap(c){ return margin + cellW*(c+0.5); }
+  function negYs(){ return margin + innerH + 30; } // moved further down
+  function posYs(r){ return margin + innerH - cellH*(r+0.5); } // aligned with rows
+  function posXsnap(){ return margin - 30; }
+
+  function animateLaneSort(done){
+    const T = sortDelay/speedFactor, t0 = performance.now();
+    function step(t){
+      const u=Math.min(1,(t-t0)/T);
+      negIdx.forEach((idx,c)=>{ const n=nodes[idx]; n.circle.setAttribute('cx',lerp(+n.circle.getAttribute('cx'),negXsnap(c),u)); n.circle.setAttribute('cy',lerp(+n.circle.getAttribute('cy'),negYs(),u)); n.label.setAttribute('x',n.circle.getAttribute('cx')); n.label.setAttribute('y',n.circle.getAttribute('cy')); });
+      posIdx.forEach((idx,r)=>{ const n=nodes[idx]; n.circle.setAttribute('cx',lerp(+n.circle.getAttribute('cx'),posXsnap(),u)); n.circle.setAttribute('cy',lerp(+n.circle.getAttribute('cy'),posYs(r),u)); n.label.setAttribute('x',n.circle.getAttribute('cx')); n.label.setAttribute('y',n.circle.getAttribute('cy')); });
+      if(u<1) requestAnimationFrame(step); else done();
+    }
+    requestAnimationFrame(step);
+  }
+
+  function drawGrid(){
+    gGrid.appendChild(mk('rect',{x:margin,y:margin,width:innerW,height:innerH,fill:'none',stroke:'#888','stroke-width':1}));
+    for(let c=0;c<=n_neg;c++) gGrid.appendChild(mk('line',{x1:margin+c*cellW,y1:margin,x2:margin+c*cellW,y2:margin+innerH,stroke:'#eee'}));
+    for(let r=0;r<=n_pos;r++) gGrid.appendChild(mk('line',{x1:margin,y1:margin+r*cellH,x2:margin+innerW,y2:margin+r*cellH,stroke:'#eee'}));
+  }
+
+  function fillCellsSequential(done){
+    let r=0,c=0,num=0,den=n_pos*n_neg;
+    function paintNext(){
+      if(r>=n_pos){done();return;}
+      const val=M[r][c], fill=(val===1?'lightyellow':val===0.5?'orange':'red');
+      if(val===1) num++; else if(val===0.5) num+=0.5;
+      aucDisplay.textContent=`AUC calculation: ${num.toFixed(1)} / ${den} = ${(num/den).toFixed(4)}`;
+      const rect=mk('rect',{x:margin+c*cellW,y:margin+(n_pos-1-r)*cellH,width:cellW,height:cellH,fill,stroke:'black','stroke-width':1});
+      gCells.appendChild(rect);
+      c++; if(c>=n_neg){c=0;r++;}
+      setTimeout(paintNext,cellFillDelay/speedFactor);
+    }
+    paintNext();
+  }
+
+  function computeROCPoints(){
+    const grouped={};
+    for(let i=0;i<labels.length;i++){const sc=scores[i]; if(!grouped[sc]) grouped[sc]={pos:0,neg:0}; if(labels[i]) grouped[sc].pos++; else grouped[sc].neg++;}
+    const uniq=Object.keys(grouped).map(parseFloat).sort((a,b)=>b-a);
+    const pts=[[0,0]]; let fp=0,tp=0;
+    for(const sc of uniq){fp+=grouped[sc].neg;tp+=grouped[sc].pos;pts.push([fp,tp]);}
+    return pts;
+  }
+
+  function drawROC(){
+    const pts=computeROCPoints();
+    const offset=strokeW/2;
+    const pixelPts=pts.map(([fp,tp])=>`${margin+(fp/n_neg)*innerW+offset},${margin+innerH-(tp/n_pos)*innerH+offset}`).join(' ');
+    gROC.appendChild(mk('polyline',{points:pixelPts,fill:'none',stroke:'blue','stroke-width':strokeW}));
+    pts.forEach(([fp,tp])=>gROC.appendChild(mk('circle',{cx:margin+(fp/n_neg)*innerW+offset,cy:margin+innerH-(tp/n_pos)*innerH+offset,r:3.5,fill:'blue'})));
+  }
+
+  function randomSample(){
+    if(n_pos===0||n_neg===0) return;
+    sampleDots.forEach(dot=>dot.setAttribute('fill','#ccc'));
+    const r=Math.floor(Math.random()*n_pos), c=Math.floor(Math.random()*n_neg);
+    const cx=margin+c*cellW+Math.random()*cellW, cy=margin+(n_pos-1-r)*cellH+Math.random()*cellH;
+    const dot=mk('circle',{cx,cy,r:4,fill:'black'});
+    gSamples.appendChild(dot); sampleDots=[dot];
+    sampleDenominator++;
+    const val=M[r][c]; if(val===1) sampleNumerator++; else if(val===0.5) sampleNumerator+=0.5;
+    aucSample.textContent=`AUC from sampling: ${sampleNumerator.toFixed(1)} / ${sampleDenominator} = ${(sampleNumerator/sampleDenominator).toFixed(4)}`;
+  }
+
+  function run(){
+    gCells.replaceChildren(); gGrid.replaceChildren(); gROC.replaceChildren(); gSamples.replaceChildren();
+    aucDisplay.textContent=`AUC calculation: 0 / ${n_pos*n_neg} = 0.0000`;
+    aucSample.textContent=`AUC from sampling: 0 / 0 = 0`;
+    sampleNumerator=0; sampleDenominator=0; sampleDots=[];
+    randomBtn.style.display = 'none';
+    aucSample.style.display = 'none';
+    drawGrid();
+    animateLaneSort(()=>{});
+    fillCellsSequential(()=>{ drawROC(); randomBtn.style.display = 'block'; aucSample.style.display = 'block'; });
+  }
+
+  run();
+  document.getElementById('replay').addEventListener('click',run);
+  document.getElementById('randomBtn').addEventListener('click',randomSample);
+
+  const slider=document.getElementById('speedSlider');
+  const speedValue=document.getElementById('speedValue');
+  slider.addEventListener('input',()=>{speedFactor=parseFloat(slider.value);speedValue.textContent=speedFactor.toFixed(2)+'×';});
+})();
+</script>
+</body>
+</html>
