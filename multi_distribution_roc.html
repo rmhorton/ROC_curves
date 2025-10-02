@@ -2,8 +2,9 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Multi-Distribution ROC Explorer</title>
+  <title>Multi-Distribution ROC Explorer 2</title>
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jstat@latest/dist/jstat.min.js"></script>
   <style>
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:18px}
     .controls{display:grid;grid-template-columns:repeat(2,minmax(300px,480px));gap:12px 24px;margin-bottom:12px}
@@ -12,13 +13,16 @@
     .row{display:flex;align-items:center;gap:8px;margin:6px 0}
     .row label{flex:0 0 120px}
     .row input[type=range]{flex:1}
-    .val{display:inline-block;min-width:48px;text-align:right;font-variant-numeric:tabular-nums}
-    .plots{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start}
+    .plots{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start;margin-bottom:60px}
     #distPlot,#rocPlot{min-width:360px;width:48%;flex:1;height:420px}
+    #thresholdArea{display:flex;gap:40px;align-items:flex-start;margin:40px 0 20px 0}
+    #thresholdControl,#prevalenceControl{flex:1}
+    table{border-collapse:collapse;margin-top:10px}
+    th,td{border:1px solid #ccc;padding:4px 8px;text-align:center}
   </style>
 </head>
 <body>
-  <h2>Multi-Distribution ROC Explorer</h2>
+  <h2>Multi-Distribution ROC Explorer 2</h2>
   <p>Select distributions for positives and negatives and adjust their parameters. The ROC curve is computed from the CDFs (no sampling).</p>
 
   <div class="controls">
@@ -55,77 +59,28 @@
     <div id="rocPlot"></div>
   </div>
 
+  <div id="thresholdArea">
+    <div id="thresholdControl">
+      <label>Threshold: <input type="range" id="thresholdSlider" step="0.01" value="0.5"></label>
+      <span id="thresholdVal">0.50</span>
+      <div id="metrics"></div>
+    </div>
+    <div id="prevalenceControl">
+      <label>Prevalence: <input type="range" id="prevalenceSlider" min="0" max="1" step="0.01" value="0.5"></label>
+      <span id="prevalenceVal">0.50</span>
+      <div id="metricsPrev"></div>
+    </div>
+  </div>
+
   <script>
-    function normalPDF(x, mean, sd){ return (1/(sd*Math.sqrt(2*Math.PI)))*Math.exp(-0.5*((x-mean)/sd)**2); }
-    function normalCDF(x, mean, sd){ return 0.5*(1+erf((x-mean)/(sd*Math.sqrt(2)))); }
-    function erf(x){ const sign=x>=0?1:-1; x=Math.abs(x); const a1=0.254829592,a2=-0.284496736,a3=1.421413741,a4=-1.453152027,a5=1.061405429,p=0.3275911; const t=1/(1+p*x); const y=1-((((((a5*t+a4)*t)+a3)*t+a2)*t+a1)*t*Math.exp(-x*x)); return sign*y; }
-
-    function betaPDF(x,a,b){ if(x<=0||x>=1) return 0; return Math.exp((a-1)*Math.log(x)+(b-1)*Math.log(1-x)+logGamma(a+b)-logGamma(a)-logGamma(b)); }
-    function betaCDF(x,a,b){ const N=200, dx=x/N; let area=0; for(let i=0;i<N;i++){ const xi=i*dx+dx/2; area+=betaPDF(xi,a,b)*dx; } return area; }
-    function logGamma(z){ const g=7; const C=[0.99999999999980993,676.5203681218851,-1259.1392167224028,771.32342877765313,-176.61502916214059,12.507343278686905,-0.13857109526572012,9.9843695780195716e-6,1.5056327351493116e-7]; if(z<0.5) return Math.log(Math.PI)-Math.log(Math.sin(Math.PI*z))-logGamma(1-z); z-=1; let x=C[0]; for(let i=1;i<C.length;i++){ x+=C[i]/(z+i);} const t=z+g+0.5; return 0.5*Math.log(2*Math.PI)+(z+0.5)*Math.log(t)-t+Math.log(x); }
-
-    function exponentialPDF(x,lambda){ return x<0?0:lambda*Math.exp(-lambda*x); }
-    function exponentialCDF(x,lambda){ return x<0?0:1-Math.exp(-lambda*x); }
-
-    function gammaPDF(x,k,theta){ if(x<0) return 0; return (1/(Math.pow(theta,k)*gammaFunc(k)))*Math.pow(x,k-1)*Math.exp(-x/theta); }
-    function gammaCDF(x,k,theta){ const N=200, dx=x/N; let area=0; for(let i=0;i<N;i++){ const xi=i*dx+dx/2; area+=gammaPDF(xi,k,theta)*dx; } return area; }
-    function gammaFunc(z){ return Math.exp(logGamma(z)); }
-
-    function uniformPDF(x,a,b){ return (x>=a&&x<=b)?1/(b-a):0; }
-    function uniformCDF(x,a,b){ if(x<a) return 0; if(x>b) return 1; return (x-a)/(b-a); }
-
-    function aucFromROC(fpr,tpr){ let area=0; for(let i=1;i<fpr.length;i++){ const dx=fpr[i]-fpr[i-1]; area+=dx*(tpr[i]+tpr[i-1])/2; } return area; }
-
     function getDistFuncs(type,params){
       switch(type){
-        case 'normal': return {pdf:(x)=>normalPDF(x,params.mean,params.sd),cdf:(x)=>normalCDF(x,params.mean,params.sd), domain:[params.mean-4*params.sd,params.mean+4*params.sd]};
-        case 'beta': return {pdf:(x)=>betaPDF(x,params.a,params.b),cdf:(x)=>betaCDF(x,params.a,params.b), domain:[0,1]};
-        case 'exponential': return {pdf:(x)=>exponentialPDF(x,params.lambda),cdf:(x)=>exponentialCDF(x,params.lambda), domain:[0,5/params.lambda]};
-        case 'gamma': return {pdf:(x)=>gammaPDF(x,params.k,params.theta),cdf:(x)=>gammaCDF(x,params.k,params.theta), domain:[0,5*params.k*params.theta]};
-        case 'uniform': return {pdf:(x)=>uniformPDF(x,params.a,params.b),cdf:(x)=>uniformCDF(x,params.a,params.b), domain:[params.a,params.b]};
+        case 'normal': return {pdf:(x)=>jStat.normal.pdf(x,params.mean,params.sd),cdf:(x)=>jStat.normal.cdf(x,params.mean,params.sd), domain:[params.mean-4*params.sd,params.mean+4*params.sd]};
+        case 'beta': return {pdf:(x)=>jStat.beta.pdf(x,params.a,params.b),cdf:(x)=>jStat.beta.cdf(x,params.a,params.b), domain:[0,1]};
+        case 'exponential': return {pdf:(x)=>jStat.exponential.pdf(x,params.lambda),cdf:(x)=>jStat.exponential.cdf(x,params.lambda), domain:[0,5/params.lambda]};
+        case 'gamma': return {pdf:(x)=>jStat.gamma.pdf(x,params.k,params.theta),cdf:(x)=>jStat.gamma.cdf(x,params.k,params.theta), domain:[0,5*params.k*params.theta]};
+        case 'uniform': return {pdf:(x)=>jStat.uniform.pdf(x,params.a,params.b),cdf:(x)=>jStat.uniform.cdf(x,params.a,params.b), domain:[params.a,params.b]};
       }
-    }
-
-    function update(){
-      const posType=document.getElementById('posDist').value;
-      const negType=document.getElementById('negDist').value;
-      const posParams=getParams('pos');
-      const negParams=getParams('neg');
-      const pos=getDistFuncs(posType,posParams);
-      const neg=getDistFuncs(negType,negParams);
-
-      let minX=Math.min(pos.domain[0],neg.domain[0]);
-      let maxX=Math.max(pos.domain[1],neg.domain[1]);
-
-      // Ensure full finite range for Beta and Uniform
-      if(posType==='beta') { minX=Math.min(minX,0); maxX=Math.max(maxX,1); }
-      if(negType==='beta') { minX=Math.min(minX,0); maxX=Math.max(maxX,1); }
-      if(posType==='uniform') { minX=Math.min(minX,posParams.a); maxX=Math.max(maxX,posParams.b); }
-      if(negType==='uniform') { minX=Math.min(minX,negParams.a); maxX=Math.max(maxX,negParams.b); }
-
-      const N=500; const xs=Array.from({length:N},(_,i)=>minX+(maxX-minX)*i/(N-1));
-
-      const posPDF=xs.map(x=>pos.pdf(x));
-      const negPDF=xs.map(x=>neg.pdf(x));
-      const posCDF=xs.map(x=>pos.cdf(x));
-      const negCDF=xs.map(x=>neg.cdf(x));
-
-      Plotly.newPlot('distPlot',[
-        {x:xs,y:posPDF,mode:'lines',name:'Positive PDF',line:{width:3},fill:'tozeroy',fillcolor:'rgba(31,119,180,0.2)'},
-        {x:xs,y:negPDF,mode:'lines',name:'Negative PDF',line:{width:3},fill:'tozeroy',fillcolor:'rgba(255,127,14,0.2)'}
-      ],{title:'Score Distributions',xaxis:{title:'Score',range:[minX-0.05*(maxX-minX),maxX+0.05*(maxX-minX)]},yaxis:{title:'Density'},margin:{l:60,r:40,t:40,b:60},legend:{orientation:'h',y:-0.25}});
-
-      const TPR=posCDF.map(v=>1-v);
-      const FPR=negCDF.map(v=>1-v);
-      const pairs=FPR.map((x,i)=>[x,TPR[i]]).sort((a,b)=>a[0]-b[0]);
-      const fpr=pairs.map(p=>p[0]);
-      const tpr=pairs.map(p=>p[1]);
-      const auc=aucFromROC(fpr,tpr);
-
-      Plotly.newPlot('rocPlot',[
-        {x:fpr,y:tpr,mode:'lines',name:'ROC',line:{width:3}},
-        {x:[0,1],y:[0,1],mode:'lines',name:'Random',line:{dash:'dash'}}
-      ],{title:`ROC Curve (AUC=${auc.toFixed(3)})`,xaxis:{title:'False Positive Rate',range:[-0.02,1.02]},yaxis:{title:'True Positive Rate',range:[-0.02,1.02]},margin:{l:60,r:40,t:40,b:60},legend:{orientation:'h',y:-0.25}});
     }
 
     function getParams(prefix){
@@ -161,8 +116,89 @@
       container.querySelectorAll('input').forEach(inp=>inp.addEventListener('input',update));
     }
 
+    function aucFromROC(fpr,tpr){ let area=0; for(let i=1;i<fpr.length;i++){ const dx=fpr[i]-fpr[i-1]; area+=dx*(tpr[i]+tpr[i-1])/2; } return area; }
+
+    function update(){
+      const posType=document.getElementById('posDist').value;
+      const negType=document.getElementById('negDist').value;
+      const posParams=getParams('pos');
+      const negParams=getParams('neg');
+      const pos=getDistFuncs(posType,posParams);
+      const neg=getDistFuncs(negType,negParams);
+
+      let minX=Math.min(pos.domain[0],neg.domain[0]);
+      let maxX=Math.max(pos.domain[1],neg.domain[1]);
+      if(posType==='beta'||negType==='beta'){minX=0;maxX=1;}
+
+      const slider=document.getElementById('thresholdSlider');
+      slider.min=minX; slider.max=maxX;
+      const threshold=parseFloat(slider.value);
+      document.getElementById('thresholdVal').textContent=threshold.toFixed(2);
+
+      const N=500; const xs=Array.from({length:N},(_,i)=>minX+(maxX-minX)*i/(N-1));
+      const posPDF=xs.map(x=>pos.pdf(x));
+      const negPDF=xs.map(x=>neg.pdf(x));
+      const posCDF=xs.map(x=>pos.cdf(x));
+      const negCDF=xs.map(x=>neg.cdf(x));
+
+      // Base outlines only
+      let traces=[
+        {x:xs,y:posPDF,mode:'lines',name:'Positive PDF',line:{width:3,color:'blue'},fill:null},
+        {x:xs,y:negPDF,mode:'lines',name:'Negative PDF',line:{width:3,color:'orange'},fill:null},
+        {x:[threshold,threshold],y:[0,Math.max(...posPDF.concat(negPDF))],mode:'lines',name:'Threshold',line:{color:'black',dash:'dot'}}
+      ];
+
+      // Shaded regions
+      const posLeft=xs.filter(x=>x<=threshold);
+      const posRight=xs.filter(x=>x>=threshold);
+      const negLeft=xs.filter(x=>x<=threshold);
+      const negRight=xs.filter(x=>x>=threshold);
+      const posPDFLeft=posLeft.map(x=>pos.pdf(x));
+      const posPDFRight=posRight.map(x=>pos.pdf(x));
+      const negPDFLeft=negLeft.map(x=>neg.pdf(x));
+      const negPDFRight=negRight.map(x=>neg.pdf(x));
+
+      traces.push({x:posLeft,y:posPDFLeft,mode:'lines',fill:'tozeroy',fillcolor:'rgba(200,50,50,0.3)',line:{color:'transparent'},name:'FN'});
+      traces.push({x:posRight,y:posPDFRight,mode:'lines',fill:'tozeroy',fillcolor:'rgba(50,200,50,0.3)',line:{color:'transparent'},name:'TP'});
+      traces.push({x:negLeft,y:negPDFLeft,mode:'lines',fill:'tozeroy',fillcolor:'rgba(50,200,50,0.3)',line:{color:'transparent'},name:'TN'});
+      traces.push({x:negRight,y:negPDFRight,mode:'lines',fill:'tozeroy',fillcolor:'rgba(200,50,50,0.3)',line:{color:'transparent'},name:'FP'});
+
+      Plotly.newPlot('distPlot',traces,{title:'Score Distributions',xaxis:{title:'Score',range:[minX,maxX]},yaxis:{title:'Density'}});
+
+      const TPR=posCDF.map(v=>1-v);
+      const FPR=negCDF.map(v=>1-v);
+      const pairs=xs.map((x,i)=>({thr:x,fpr:FPR[i],tpr:TPR[i]})).sort((a,b)=>a.fpr-b.fpr);
+      const fpr=pairs.map(p=>p.fpr);
+      const tpr=pairs.map(p=>p.tpr);
+      const auc=aucFromROC(fpr,tpr);
+      let thrPoint=pairs.reduce((prev,curr)=>Math.abs(curr.thr-threshold)<Math.abs(prev.thr-threshold)?curr:prev,pairs[0]);
+
+      Plotly.newPlot('rocPlot',[
+        {x:fpr,y:tpr,mode:'lines',name:'ROC',line:{width:3}},
+        {x:[0,1],y:[0,1],mode:'lines',name:'Random',line:{dash:'dash'}},
+        {x:[thrPoint.fpr],y:[thrPoint.tpr],mode:'markers',name:'Threshold Point',marker:{color:'red',size:10}}
+      ],{title:`ROC Curve (AUC=${auc.toFixed(3)})`,xaxis:{title:'False Positive Rate',range:[-0.02,1.02]},yaxis:{title:'True Positive Rate',range:[-0.02,1.02]}});
+
+      const sensitivity=thrPoint.tpr;
+      const specificity=1-thrPoint.fpr;
+      document.getElementById('metrics').innerHTML=
+        `<table><tr><th>Sensitivity</th><th>Specificity</th></tr>
+        <tr><td>${sensitivity.toFixed(3)}</td><td>${specificity.toFixed(3)}</td></tr></table>`;
+
+      const prevalence=parseFloat(document.getElementById('prevalenceSlider').value);
+      document.getElementById('prevalenceVal').textContent=prevalence.toFixed(2);
+      const ppv=(sensitivity*prevalence)/((sensitivity*prevalence)+(1-specificity)*(1-prevalence));
+      const npv=(specificity*(1-prevalence))/(((1-sensitivity)*prevalence)+(specificity*(1-prevalence)));
+      const accuracy=sensitivity*prevalence+specificity*(1-prevalence);
+      document.getElementById('metricsPrev').innerHTML=
+        `<table><tr><th>PPV</th><th>NPV</th><th>Accuracy</th></tr>
+        <tr><td>${ppv.toFixed(3)}</td><td>${npv.toFixed(3)}</td><td>${accuracy.toFixed(3)}</td></tr></table>`;
+    }
+
     document.getElementById('posDist').addEventListener('change',()=>{renderParamControls('pos');update();});
     document.getElementById('negDist').addEventListener('change',()=>{renderParamControls('neg');update();});
+    document.getElementById('thresholdSlider').addEventListener('input',update);
+    document.getElementById('prevalenceSlider').addEventListener('input',update);
 
     renderParamControls('pos');
     renderParamControls('neg');
