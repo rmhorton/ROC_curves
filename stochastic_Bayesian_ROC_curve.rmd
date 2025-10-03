@@ -1,0 +1,156 @@
+---
+title: "Computing a Stochastic Bayesian ROC Curve in JAGS"
+author: "Bob and ChatGPT"
+date: "2025-10-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Model Code
+
+```{r model_code}
+
+model_code <- "model {
+  # Likelihood
+  for (i in 1:N0) {
+    y0[i] ~ dnorm(mu0, tau0)   # scores for negatives
+  }
+  for (j in 1:N1) {
+    y1[j] ~ dnorm(mu1, tau1)   # scores for positives
+  }
+
+  # Priors (weakly-informative)
+  mu0    ~ dnorm(0, 1.0E-6)
+  mu1    ~ dnorm(0, 1.0E-6)
+  sigma0 ~ dunif(0, 1000)
+  sigma1 ~ dunif(0, 1000)
+  tau0 <- pow(sigma0, -2)
+  tau1 <- pow(sigma1, -2)
+
+  # ROC on a supplied grid of thresholds t[1:K]
+  # Convention: higher score => more likely positive
+  for (k in 1:K) {
+    # True Positive Rate and False Positive Rate at threshold t[k]
+    tpr[k] <- 1 - phi((t[k] - mu1) * sqrt(tau1))
+    fpr[k] <- 1 - phi((t[k] - mu0) * sqrt(tau0))
+  }
+
+  # Binormal AUC (closed form)
+  auc <- phi( (mu1 - mu0) / sqrt( (1 / tau0) + (1 / tau1) ) )
+
+  # Youden's J for each threshold
+  for (k in 1:K) {
+    youden[k] <- tpr[k] - fpr[k]
+  }
+
+  # ---- Argmax without which_max() ----
+  # Running maximum and its index
+  best[1] <- youden[1]
+  idx[1]  <- 1
+  for (k in 2:K) {
+    better[k] <- step(youden[k] - best[k-1])      # 1 if new >= old, else 0
+    best[k]   <- better[k]*youden[k] + (1-better[k])*best[k-1]
+    idx[k]    <- better[k]*k + (1-better[k])*idx[k-1]
+  }
+  k_star <- idx[K]
+  t_star <- t[k_star]
+  # ------------------------------------
+}" |> textConnection()
+
+
+# install.packages("jagsUI")  # if needed
+library(jagsUI)
+
+# Your data: vectors of scores for negatives and positives
+# Replace with your real data:
+set.seed(1)
+y0 <- rnorm(150, mean = 0, sd = 1.0)   # negatives
+y1 <- rnorm(120, mean = 1.0, sd = 1.2) # positives
+
+# Threshold grid (use a generous range that covers the observed scores)
+all_y <- c(y0, y1)
+K     <- 101
+tgrid <- seq(min(all_y) - 0.5*sd(all_y), max(all_y) + 0.5*sd(all_y), length.out = K)
+
+# JAGS data list
+jags_data <- list(
+  N0 = length(y0),
+  N1 = length(y1),
+  y0 = y0,
+  y1 = y1,
+  K  = K,
+  t  = tgrid
+)
+
+# Parameters to monitor
+params <- c("mu0","mu1","sigma0","sigma1","auc","tpr","fpr","t_star","k_star")
+
+# Initial values (diffuse)
+inits <- function() list(
+  mu0 = mean(y0), mu1 = mean(y1),
+  sigma0 = sd(y0) + 0.1, sigma1 = sd(y1) + 0.1
+)
+
+# Fit
+fit <- jags(
+  data     = jags_data,
+  inits    = inits,
+  parameters.to.save = params,
+  model.file = model_code,
+  n.chains  = 3,
+  n.adapt   = 1000,
+  n.iter    = 6000,
+  n.burnin  = 2000,
+  n.thin    = 2,
+  parallel  = FALSE
+)
+
+print(fit, digits = 3)
+
+```
+
+## Results
+
+
+```{r results}
+
+# Posterior summaries for ROC
+# jagsUI returns arrays tpr[k], fpr[k] in 'fit$sims.list'
+tpr_sims <- fit$sims.list$tpr   # MCMC x K
+fpr_sims <- fit$sims.list$fpr   # MCMC x K
+auc_sims <- fit$sims.list$auc
+
+# Pointwise posterior means and 95% credible bands
+tpr_mean <- apply(tpr_sims, 2, mean)
+tpr_lo   <- apply(tpr_sims, 2, quantile, 0.025)
+tpr_hi   <- apply(tpr_sims, 2, quantile, 0.975)
+
+fpr_mean <- apply(fpr_sims, 2, mean)
+fpr_lo   <- apply(fpr_sims, 2, quantile, 0.025)
+fpr_hi   <- apply(fpr_sims, 2, quantile, 0.975)
+
+cat(sprintf("Posterior mean AUC = %.3f (95%% CrI: %.3f–%.3f)\n",
+            mean(auc_sims), quantile(auc_sims,0.025), quantile(auc_sims,0.975)))
+
+# Simple ROC plot with credible ribbon
+op <- par(mar=c(4,4,1,1))
+plot(fpr_mean, tpr_mean, type="l", xlab="False Positive Rate", ylab="True Positive Rate")
+# Add a light credible band (polygon)
+ord <- order(fpr_mean)
+polygon(c(fpr_mean[ord], rev(fpr_mean[ord])),
+        c(tpr_lo[ord],   rev(tpr_hi[ord])),
+        border = NA, col = adjustcolor("gray80", 0.8))
+lines(fpr_mean[ord], tpr_mean[ord])
+abline(0,1,lty=3)
+par(op)
+
+# Posterior over optimal threshold by Youden's J
+t_star_sims <- fit$sims.list$t_star
+cat(sprintf("Youden-optimal threshold (posterior median): %.3f\n",
+            median(t_star_sims)))
+
+```
+
