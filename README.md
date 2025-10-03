@@ -7,8 +7,8 @@
 
 * HTML prototypes of interactive visualizations to add to the [TurtleROC](https://github.com/rmhorton/TurtleROC) package:
 
-	- [multi_distribution_roc](https://github.com/rmhorton/ROC_curves/blob/master/multi_distribution_roc.html) creates continuous ROC curves based on the cumulative probability distribution functions for positive and negative cases.
-		+ [multi_distribution_roc_discussion](https://github.com/rmhorton/ROC_curves/blob/master/multi_distribution_roc_discussion.md) Notes on possible features and improvements to this app.
+	- [Continuous ROC curves](https://github.com/rmhorton/ROC_curves/blob/master/multi_distribution_roc.html) based on the cumulative probability distribution functions for positive and negative cases.
+		+ [Notes](https://github.com/rmhorton/ROC_curves/blob/master/multi_distribution_roc_discussion.md) on possible features and improvements to this app.
 	- [Wilcoxon-Mann-Whitney U statistic meetos AUC](https://github.com/rmhorton/ROC_curves/blob/master/U_stat_meets_AUC_with_sounds.html)
 	- [Probabilistic interpretation](https://github.com/rmhorton/ROC_curves/blob/master/probabilistic_roc_sampling.html) of AUC
 	
