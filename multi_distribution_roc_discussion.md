@@ -80,6 +80,7 @@ Expanding beyond Beta and Normal can make the app much more versatile for teachi
 
 * Decide on additional distributions to include.
 * Bullet-proof the distribution parameters (e.g., prevent negative values when they don't make sense)
+* Add an option for alternative (m, k) parameterization of beta function: alpha = m * k; beta = (1 - m) * k
 * Multi-language support?
 	- Minimize in-app documentation
 	- pass in a dictionary for labels
