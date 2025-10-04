@@ -32,11 +32,20 @@
   </div>
 </div>
 <script>
-const rocCurves = {
-  randomForest: Array.from({ length: 50 }, (_, i) => ({ fpr: i / 50, tpr: Math.pow(i / 50, 0.6) })),
-  logistic: Array.from({ length: 50 }, (_, i) => ({ fpr: i / 50, tpr: Math.pow(i / 50, 0.8) })),
-  svm: Array.from({ length: 50 }, (_, i) => ({ fpr: i / 50, tpr: Math.pow(i / 50, 0.4) }))
-};
+let rocCurves = {};
+
+function loadROCData(data) {
+  rocCurves = data;
+  const rocSelect = document.getElementById('rocSelect');
+  rocSelect.innerHTML = '';
+  Object.keys(rocCurves).forEach(k => {
+    const opt = document.createElement('option');
+    opt.text = k;
+    rocSelect.appendChild(opt);
+  });
+  rocSelect.selectedIndex = 0;
+  draw();
+}
 
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
@@ -46,10 +55,6 @@ const pPosLabel = document.getElementById('pPosLabel');
 const rocSelect = document.getElementById('rocSelect');
 const slidersDiv = document.getElementById('sliders');
 const bestUtilityDiv = document.getElementById('bestUtility');
-
-['randomForest','logistic','svm'].forEach(k=>{
-  const opt=document.createElement('option'); opt.text=k; rocSelect.appendChild(opt);
-});
 
 const values={TP:50,FP:-70,TN:0,FN:0};
 for (const k of ['TP','FP','TN','FN']) {
@@ -69,7 +74,8 @@ function hslToRgb(h,s,l){const a=s*Math.min(l,1-l);const f=n=>{const k=(n+h*12)%
 function heatColor(s){const h=240-240*s;const [r,g,b]=hslToRgb(h/360,0.6,0.85);return [r,g,b];}
 
 function draw(){
-  const rocName=rocSelect.value||'randomForest';
+  const rocName=rocSelect.value;
+  if(!rocName || !rocCurves[rocName]) return;
   const roc=rocCurves[rocName];
   const pPos=parseFloat(pPosSlider.value);pPosLabel.textContent=pPos.toFixed(2);
   const N=1000;const {TP,FP,TN,FN}=values;const width=canvas.width,height=canvas.height;
@@ -94,12 +100,9 @@ function draw(){
     const y0=height*(1-tpr0),y1=height*(1-tpr1);
     ctx.beginPath();ctx.moveTo(0,y0);ctx.lineTo(width,y1);ctx.stroke();
 
-    // label placement
     const angle=Math.atan2(y1-y0,width);
-    let xLabel=30; // base left margin
-    let fpr=xLabel/width; let tpr=(level-a-b*fpr)/c; let yLabel=height*(1-tpr);
-    if(yLabel<10||yLabel>height-10){ // move to bottom edge if offscreen
-      yLabel=height-15; fpr=(level-a-b*(yLabel/height))/c; xLabel=fpr*width; }
+    let xLabel=30; let fpr=xLabel/width; let tpr=(level-a-b*fpr)/c; let yLabel=height*(1-tpr);
+    if(yLabel<10||yLabel>height-10){yLabel=height-15; fpr=(level-a-b*(yLabel/height))/c; xLabel=fpr*width; }
     ctx.save();ctx.translate(xLabel,yLabel);ctx.rotate(angle);
     ctx.fillText(Math.round(level),0,0);ctx.restore();
   }
@@ -123,7 +126,7 @@ canvas.addEventListener('mousemove',e=>{
   const pPos=parseFloat(pPosSlider.value);const N=1000;const {TP,FP,TN,FN}=values;
   const ap=N*pPos,an=N*(1-pPos);const tp=tpr*ap,fn=(1-tpr)*ap,fp=fpr*an,tn=an-fp;
   const u=FP*fp+TN*tn+TP*tp+FN*fn;
-  const tooltipWidth=120, tooltipHeight=40; // estimate to avoid overlap
+  const tooltipWidth=120, tooltipHeight=40;
   tooltip.style.left=(x - tooltipWidth - 10)+'px';
   tooltip.style.top=(y - tooltipHeight - 10)+'px';
   tooltip.textContent=`FPR: ${fpr.toFixed(2)}, TPR: ${tpr.toFixed(2)}, U: ${Math.round(u)}`;
@@ -131,8 +134,13 @@ canvas.addEventListener('mousemove',e=>{
 });
 canvas.addEventListener('mouseleave',()=>tooltip.style.display='none');
 
-window.onload=()=>{draw();};
-draw(); // ensure immediate render
+window.addEventListener('DOMContentLoaded', () => {
+  loadROCData({
+    randomForest: [{fpr:0,tpr:0},{fpr:0.5,tpr:0.8},{fpr:1,tpr:1}],
+    logistic: [{fpr:0,tpr:0},{fpr:0.5,tpr:0.7},{fpr:1,tpr:1}],
+    svm: [{fpr:0,tpr:0},{fpr:0.5,tpr:0.6},{fpr:1,tpr:1}]
+  });
+});
 </script>
 </body>
 </html>
