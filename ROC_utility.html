@@ -77,6 +77,7 @@ function draw(){
   const rocName=rocSelect.value;
   if(!rocName || !rocCurves[rocName]) return;
   const roc=rocCurves[rocName];
+  const fpr=roc.fpr, tpr=roc.tpr, lower=roc.tpr_lower, upper=roc.tpr_upper;
   const pPos=parseFloat(pPosSlider.value);pPosLabel.textContent=pPos.toFixed(2);
   const N=1000;const {TP,FP,TN,FN}=values;const width=canvas.width,height=canvas.height;
 
@@ -86,7 +87,7 @@ function draw(){
   const {a,b,c}=constants(pPos);
   const img=ctx.createImageData(width,height);
   const data=img.data;let minU=Infinity,maxU=-Infinity;const utilities=[];
-  for(let j=0;j<height;j++){const tpr=1-j/height;for(let i=0;i<width;i++){const fpr=i/width;const u=utility(fpr,tpr,pPos);utilities.push(u);if(u<minU)minU=u;if(u>maxU)maxU=u;}}
+  for(let j=0;j<height;j++){const tprVal=1-j/height;for(let i=0;i<width;i++){const fprVal=i/width;const u=utility(fprVal,tprVal,pPos);utilities.push(u);if(u<minU)minU=u;if(u>maxU)maxU=u;}}
   const scale=v=>(v-minU)/(maxU-minU);
   let k=0;for(let j=0;j<height;j++){for(let i=0;i<width;i++){const s=scale(utilities[j*width+i]);const [r,g,b2]=heatColor(s);data[k++]=r;data[k++]=g;data[k++]=b2;data[k++]=255;}}
   ctx.putImageData(img,0,0);
@@ -101,8 +102,8 @@ function draw(){
     ctx.beginPath();ctx.moveTo(0,y0);ctx.lineTo(width,y1);ctx.stroke();
 
     const angle=Math.atan2(y1-y0,width);
-    let xLabel=30; let fpr=xLabel/width; let tpr=(level-a-b*fpr)/c; let yLabel=height*(1-tpr);
-    if(yLabel<10||yLabel>height-10){yLabel=height-15; fpr=(level-a-b*(yLabel/height))/c; xLabel=fpr*width; }
+    let xLabel=30; let fprVal=xLabel/width; let tprVal=(level-a-b*fprVal)/c; let yLabel=height*(1-tprVal);
+    if(yLabel<10||yLabel>height-10){yLabel=height-15; fprVal=(level-a-b*(yLabel/height))/c; xLabel=fprVal*width; }
     ctx.save();ctx.translate(xLabel,yLabel);ctx.rotate(angle);
     ctx.fillText(Math.round(level),0,0);ctx.restore();
   }
@@ -115,9 +116,46 @@ function draw(){
 
   let bestU=-Infinity,bestPt=null;
   ctx.beginPath();ctx.strokeStyle='blue';ctx.lineWidth=2;
-  roc.forEach((p,i)=>{const x=p.fpr*width,y=height*(1-p.tpr);if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);const u=utility(p.fpr,p.tpr,pPos);if(u>bestU){bestU=u;bestPt={x,y};}});
+
+  // Draw credible interval ribbon if present
+  if (lower && upper) {
+    ctx.beginPath();
+    ctx.moveTo(fpr[0]*width, height*(1-upper[0]));
+    for (let i=1;i<fpr.length;i++) ctx.lineTo(fpr[i]*width, height*(1-upper[i]));
+    for (let i=fpr.length-1;i>=0;i--) ctx.lineTo(fpr[i]*width, height*(1-lower[i]));
+    ctx.closePath();
+    ctx.fillStyle='rgba(0,0,255,0.2)';
+    ctx.fill();
+    ctx.beginPath();
+    ctx.strokeStyle='rgba(0,0,180,0.6)'; ctx.lineWidth=1;
+    for (let i=0;i<fpr.length;i++) {
+      if (i===0) ctx.moveTo(fpr[i]*width, height*(1-upper[i]));
+      else ctx.lineTo(fpr[i]*width, height*(1-upper[i]));
+    }
+    ctx.stroke();
+    ctx.beginPath();
+    for (let i=0;i<fpr.length;i++) {
+      if (i===0) ctx.moveTo(fpr[i]*width, height*(1-lower[i]));
+      else ctx.lineTo(fpr[i]*width, height*(1-lower[i]));
+    }
+    ctx.stroke();
+  }
+
+  // Draw main ROC curve
+  ctx.beginPath();
+  roc.fpr.forEach((f,i)=>{
+    const x=f*width,y=height*(1-roc.tpr[i]);
+    if(i===0)ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    const u=utility(f,roc.tpr[i],pPos);
+    if(u>bestU){bestU=u;bestPt={x,y};}
+  });
   ctx.stroke();
-  if(bestPt){ctx.beginPath();ctx.arc(bestPt.x,bestPt.y,6,0,2*Math.PI);ctx.fillStyle='yellow';ctx.strokeStyle='red';ctx.fill();ctx.stroke();bestUtilityDiv.textContent='Best utility = '+Math.round(bestU);}
+
+  if(bestPt){
+    ctx.beginPath();ctx.arc(bestPt.x,bestPt.y,6,0,2*Math.PI);
+    ctx.fillStyle='yellow';ctx.strokeStyle='red';ctx.fill();ctx.stroke();
+    bestUtilityDiv.textContent='Best utility = '+Math.round(bestU);
+  }
 }
 
 canvas.addEventListener('mousemove',e=>{
@@ -136,9 +174,26 @@ canvas.addEventListener('mouseleave',()=>tooltip.style.display='none');
 
 window.addEventListener('DOMContentLoaded', () => {
   loadROCData({
-    randomForest: [{fpr:0,tpr:0},{fpr:0.5,tpr:0.8},{fpr:1,tpr:1}],
-    logistic: [{fpr:0,tpr:0},{fpr:0.5,tpr:0.7},{fpr:1,tpr:1}],
-    svm: [{fpr:0,tpr:0},{fpr:0.5,tpr:0.6},{fpr:1,tpr:1}]
+    randomForest: {
+      name: 'randomForest', type: 'ROC',
+      fpr: [0,0.2,0.4,0.6,0.8,1],
+      tpr: [0,0.5,0.7,0.85,0.9,1],
+      metadata: {auc: 0.87, method: 'randomForest'}
+    },
+    logistic: {
+      name: 'logistic', type: 'ROC',
+      fpr: [0,0.2,0.4,0.6,0.8,1],
+      tpr: [0,0.4,0.65,0.8,0.9,1],
+      metadata: {auc: 0.84, method: 'logistic regression'}
+    },
+    bayesian_model: {
+      name: 'bayesian_model', type: 'ROC',
+      fpr: [0,0.2,0.4,0.6,0.8,1],
+      tpr: [0,0.45,0.7,0.85,0.9,1],
+      tpr_lower: [0,0.35,0.6,0.75,0.85,0.95],
+      tpr_upper: [0,0.55,0.8,0.9,0.95,1],
+      metadata: {auc: 0.86, method: 'Bayesian binormal', credible_level: 0.95}
+    }
   });
 });
 </script>
