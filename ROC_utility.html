@@ -20,9 +20,6 @@
     <label>Reference model
       <select id="rocSelect"></select>
     </label>
-    <label>Proportion positive: <span id="pPosLabel"></span>
-      <input type="range" id="pPos" min="0.01" max="0.99" step="0.01" value="0.5">
-    </label>
     <div id="sliders"></div>
     <div id="bestUtility" style="margin-top:1em;font-weight:bold;"></div>
   </div>
@@ -33,6 +30,15 @@
 </div>
 <script>
 let rocCurves = {};
+
+// --- Slider configuration data structure ---
+const sliderConfig = {
+  P_POS: {label: "Proportion positive", min: 0.01, max: 0.99, step: 0.01, value: 0.5},
+  TP:    {label: "Value of true positive", min: -100, max: 100, step: 1, value: 50},
+  FP:    {label: "Value of false positive", min: -100, max: 100, step: 1, value: -70},
+  TN:    {label: "Value of true negative", min: -100, max: 100, step: 1, value: 0},
+  FN:    {label: "Value of false negative", min: -100, max: 100, step: 1, value: 0}
+};
 
 function loadROCData(data) {
   rocCurves = data;
@@ -50,25 +56,35 @@ function loadROCData(data) {
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
 const tooltip = document.getElementById('tooltip');
-const pPosSlider = document.getElementById('pPos');
-const pPosLabel = document.getElementById('pPosLabel');
 const rocSelect = document.getElementById('rocSelect');
 const slidersDiv = document.getElementById('sliders');
 const bestUtilityDiv = document.getElementById('bestUtility');
 
-const values={TP:50,FP:-70,TN:0,FN:0};
-for (const k of ['TP','FP','TN','FN']) {
-  const label=document.createElement('label');
-  label.innerHTML=`${k} value: <span id="${k}Val">${values[k]}</span>`;
-  const range=document.createElement('input');
-  range.type='range'; range.min=-100; range.max=100; range.step=1; range.value=values[k];
-  range.oninput=()=>{values[k]=+range.value;document.getElementById(k+'Val').textContent=range.value;draw();};
+const values = {};
+
+// --- Dynamically create sliders based on sliderConfig ---
+for (const key in sliderConfig) {
+  const cfg = sliderConfig[key];
+  values[key] = cfg.value;
+  const label = document.createElement('label');
+  label.innerHTML = `${cfg.label}: <span id="${key}Val">${cfg.value}</span>`;
+  const range = document.createElement('input');
+  range.type = 'range';
+  range.min = cfg.min;
+  range.max = cfg.max;
+  range.step = cfg.step;
+  range.value = cfg.value;
+  range.id = key;
+  range.oninput = () => {
+    values[key] = +range.value;
+    document.getElementById(key + 'Val').textContent = range.value;
+    draw();
+  };
   label.appendChild(range);
   slidersDiv.appendChild(label);
 }
 
-pPosSlider.oninput=()=>{draw();};
-rocSelect.onchange=()=>{draw();};
+rocSelect.onchange = () => draw();
 
 function hslToRgb(h,s,l){const a=s*Math.min(l,1-l);const f=n=>{const k=(n+h*12)%12;const color=l-a*Math.max(Math.min(k-3,9-k,1),-1);return Math.round(255*color);};return [f(0),f(8),f(4)];}
 function heatColor(s){const h=240-240*s;const [r,g,b]=hslToRgb(h/360,0.6,0.85);return [r,g,b];}
@@ -78,7 +94,7 @@ function draw(){
   if(!rocName || !rocCurves[rocName]) return;
   const roc=rocCurves[rocName];
   const fpr=roc.fpr, tpr=roc.tpr, lower=roc.tpr_lower, upper=roc.tpr_upper;
-  const pPos=parseFloat(pPosSlider.value);pPosLabel.textContent=pPos.toFixed(2);
+  const pPos=values.P_POS;
   const N=1000;const {TP,FP,TN,FN}=values;
   const width=canvas.width, height=canvas.height;
 
@@ -112,7 +128,6 @@ function draw(){
     const yA=yScale(tpr0), yB=yScale(tpr1);
     ctx.beginPath(); ctx.moveTo(xScale(0),yA); ctx.lineTo(xScale(1),yB); ctx.stroke();
 
-    // Label positioning proportional to margin
     const tprLeft=(level-a)/c;
     const fprBottom=(level-a)/b;
     const offsetX = labelOffset * plotW; const offsetY = labelOffset * plotH;
@@ -153,7 +168,7 @@ canvas.addEventListener('mousemove',e=>{
   const width=canvas.width,height=canvas.height,margin=0.05,x0=margin*width,y0=margin*height,plotW=width*(1-2*margin),plotH=height*(1-2*margin);
   if(x<x0||x>x0+plotW||y<y0||y>y0+plotH){tooltip.style.display='none';return;}
   const fpr=(x-x0)/plotW,tpr=1-(y-y0)/plotH;
-  const pPos=parseFloat(pPosSlider.value);const N=1000;const {TP,FP,TN,FN}=values;const ap=N*pPos,an=N*(1-pPos),tp=tpr*ap,fn=(1-tpr)*ap,fp=fpr*an,tn=an-fp;const u=FP*fp+TN*tn+TP*tp+FN*fn;
+  const pPos=values.P_POS;const N=1000;const {TP,FP,TN,FN}=values;const ap=N*pPos,an=N*(1-pPos),tp=tpr*ap,fn=(1-tpr)*ap,fp=fpr*an,tn=an-fp;const u=FP*fp+TN*tn+TP*tp+FN*fn;
   const tooltipWidth=140,tooltipHeight=48;
   tooltip.style.left=(x-tooltipWidth-10)+'px'; tooltip.style.top=(y-tooltipHeight-10)+'px'; tooltip.textContent=`FPR: ${fpr.toFixed(2)}, TPR: ${tpr.toFixed(2)}, U: ${Math.round(u)}`; tooltip.style.display='block';
 });
