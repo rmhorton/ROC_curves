@@ -11,5 +11,6 @@
 		+ [Notes](https://github.com/rmhorton/ROC_curves/blob/master/multi_distribution_roc_discussion.md) on possible features and improvements to this app.
 	- [Wilcoxon-Mann-Whitney U statistic meetos AUC](https://github.com/rmhorton/ROC_curves/blob/master/U_stat_meets_AUC_with_sounds.html)
 	- [Probabilistic interpretation](https://github.com/rmhorton/ROC_curves/blob/master/probabilistic_roc_sampling.html) of AUC
+	- [ROC Utility](https://github.com/rmhorton/ROC_curves/blob/master/ROC_utility.html) app showing cost-based utility on the background of the ROC plane.
 	
 * [ChatGPT-written tutorial](https://github.com/rmhorton/ROC_curves/blob/master/JAGS_ROC_Tutorial.Rmd) on stochastic Bayesian modelling of ROC curves in JAGS and R. There is an [HTML version](https://github.com/rmhorton/ROC_curves/blob/master/JAGS_ROC_Tutorial.html) if you just to read it without running it first.
