@@ -1,5 +1,7 @@
 # Other Probability Distributions to Consider for Educational ROC Apps
 
+## ChatGPT suggestions
+
 Expanding beyond Beta and Normal can make the app much more versatile for teaching **how score distributions affect ROC curves**. Here are some probability distributions that could be useful, along with comments on their applicability:
 
 ---
@@ -63,6 +65,38 @@ Expanding beyond Beta and Normal can make the app much more versatile for teachi
 * **Why useful:** Flexible family widely used in survival analysis and reliability engineering.
 * **Educational value:** Shows how shape parameters control skewness and tail behavior, affecting sensitivity/specificity trade-offs.
 * **Real-world examples:** Modeling lifetimes of mechanical components, wind speed distributions, and survival times in biomedical studies.
+
+
+## Distributions used in "Signal Detection Theory and ROC Analysis" (Egan, 1975)
+
+### Normal-Normal ROCs
+Chapter 3
+
+### Power Law ROCs
+Chapter 4
+
+* Negative exponential family
+* Rayleigh family
+
+### Chi-Square ROCs
+Chapter 5
+
+### ROCs and the Bernoulli trials Process
+Chapter 6
+
+* Binomial distribution
+* Geometric distribution
+* Negative binomial distribution
+
+### Rocs and the Poisson Random Process
+
+* Poisson distribution
+* Gamma distribution
+
+### Appendix D
+
+* Trianglar distribution
+* Rectangular (uniform) distribution
 
 ---
 
