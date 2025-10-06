@@ -122,6 +122,7 @@ Chapter 6
 * Better colors? What does it look like when a partially transparent false negative area overlaps a false positive area?
 * D3 vs plotly (Plotly has built in pop up controls to take screenshot etc., maybe make that optional to reduce clutter?)
 * compare in detail to the old [Kennis Research Shiny app](https://kennis-research.shinyapps.io/ROC-Curves/)
+* Put the controls for the distribution of negatives on the left and the controls for the positives on the right. This way they will correspond better to the locations of the peaks on the x-axis of the plot.
 
 ## ChatGPT's Ideas: Additional Feature Suggestions for the ROC Explorer
 
