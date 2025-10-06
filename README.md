@@ -14,3 +14,8 @@
 	- [ROC Utility](https://github.com/rmhorton/ROC_curves/blob/master/ROC_utility.html) app showing cost-based utility on the background of the ROC plane.
 	
 * [ChatGPT-written tutorial](https://github.com/rmhorton/ROC_curves/blob/master/JAGS_ROC_Tutorial.Rmd) on stochastic Bayesian modelling of ROC curves in JAGS and R. There is an [HTML version](https://github.com/rmhorton/ROC_curves/blob/master/JAGS_ROC_Tutorial.html) if you just to read it without running it first.
+
+
+## To Do
+
+* Turtle plots: "What would the ROC curve look like for beads sorted like this?" Show bead sorting, either as one line, or separated by color.
