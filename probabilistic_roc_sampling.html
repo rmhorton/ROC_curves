@@ -42,6 +42,9 @@
 
 <script>
 
+// JavaScript logic for Probabilistic ROC Sampling app
+// (from previous combined version, now split for clarity)
+
 document.addEventListener('DOMContentLoaded', () => {
 (function(){
   const svg = document.getElementById('svg');
@@ -137,8 +140,54 @@ document.addEventListener('DOMContentLoaded', () => {
   function rowsSortedDescending(){for(let r=1;r<n_pos;r++){const lower=posTaken[r-1],upper=posTaken[r];if(lower==null||upper==null)return false;const a=nodes[lower].score,b=nodes[upper].score;if(a<b)return false;}return true;}
   function colsSortedDescending(){for(let c=1;c<n_neg;c++){if(negTaken[c-1]==null||negTaken[c]==null)return false;const a=nodes[negTaken[c-1]].score,b=nodes[negTaken[c]].score;if(a<b)return false;}return true;}
   function computeROCPoints(){const grouped={};for(let i=0;i<labels.length;i++){const sc=scores[i];(grouped[sc]||(grouped[sc]={pos:0,neg:0}));if(labels[i])grouped[sc].pos++;else grouped[sc].neg++;}const uniq=Object.keys(grouped).map(parseFloat).sort((a,b)=>b-a);const pts=[[0,0]];let fp=0,tp=0;for(const sc of uniq){fp+=grouped[sc].neg;tp+=grouped[sc].pos;pts.push([fp,tp]);}return pts;}
-  function drawOrClearROC(){gROC.innerHTML='';const filled=allAnchorsFilled(),rowOK=rowsSortedDescending(),colOK=colsSortedDescending(),isValid=filled&&rowOK&&colOK;if(!isValid){randomBtn.style.display='none';aucSample.style.display='none';rocReady.style.display='none';return;}const pts=computeROCPoints();const off=strokeW/2;const toXY=([fp,tp])=>[margin+(fp/n_neg)*innerW+off,margin+innerH-(tp/n_pos)*innerH+off];const points=pts.map(p=>toXY(p).join(',')).join(' ');gROC.appendChild(mk('polyline',{points,fill:'none',stroke:'blue','stroke-width':strokeW}));pts.forEach(p=>{const[x,y]=toXY(p);gROC.appendChild(mk('circle',{cx:x,cy:y,r:3.5,fill:'blue'}));});randomBtn.style.display='inline-block';aucSample.style.display='block';rocReady.style.display='block';}
-  function updateAfterChange(){redrawMatrix();drawOrClearROC();}
+  function drawOrClearROC(){
+    gROC.innerHTML='';
+    const filled = allAnchorsFilled();
+
+    if (!filled) {
+      randomBtn.style.display = 'none';
+      aucSample.style.display = 'none';
+      rocReady.style.display = 'none';
+      return;
+    }
+
+    // show sampling button when all anchors filled
+    randomBtn.style.display = 'inline-block';
+    aucSample.style.display = 'block';
+
+    const rowOK = rowsSortedDescending(), colOK = colsSortedDescending();
+    const isValid = rowOK && colOK;
+
+    if (!isValid) {
+      rocReady.style.display = 'none';
+      gROC.innerHTML = '';
+      return;
+    }
+
+    const pts = computeROCPoints();
+    const off = strokeW / 2;
+    const toXY = ([fp,tp]) => [margin + (fp/n_neg) * innerW + off, margin + innerH - (tp/n_pos) * innerH + off];
+    const points = pts.map(p => toXY(p).join(',')).join(' ');
+    gROC.appendChild(mk('polyline',{points,fill:'none',stroke:'blue','stroke-width':strokeW}));
+    pts.forEach(p => {const [x,y] = toXY(p); gROC.appendChild(mk('circle',{cx:x,cy:y,r:3.5,fill:'blue'}));});
+
+    rocReady.style.display = 'block';
+  }
+
+  function updateAfterChange() {
+    // reset sampling if arrangement changes after sampling has begun
+    if (sampleDenominator > 0 || sampleDots.length > 0) {
+      // remove all dots from the SVG, not just black ones
+      gSamples.innerHTML = '';
+      sampleDots = [];
+      sampleNumerator = 0;
+      sampleDenominator = 0;
+      aucSample.textContent = 'AUC from sampling: 0 / 0 = 0';
+    }
+
+    redrawMatrix();
+    drawOrClearROC();
+  }
 
   // --- auto arrange ---
   function autoArrange(){
@@ -160,6 +209,7 @@ document.addEventListener('DOMContentLoaded', () => {
   try{redrawMatrix();}catch(e){console.error('Initial draw failed:',e);}
 })();
 });
+
 
 </script>
 </body>
