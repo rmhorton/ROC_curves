@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>Probabilistic ROC Sampling — Final Single-File Live App</title>
+<title>Probabilistic ROC Sampling — Auto Arrange + Manual Drag</title>
 <style>
   :root { --w: 720px; --h: 480px; }
   body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; margin: 18px; }
@@ -20,8 +20,11 @@
 </style>
 </head>
 <body>
-<h2>Probabilistic ROC Sampling — Live Update</h2>
-<div id="stage"><svg id="svg" width="100%" height="100%" viewBox="0 0 720 480"></svg></div>
+<h2>Probabilistic ROC Sampling — Auto Arrange + Manual Drag</h2>
+
+<div id="stage">
+  <svg id="svg" width="100%" height="100%" viewBox="0 0 720 480"></svg>
+</div>
 
 <div id="legend">
   <h3>Legend</h3>
@@ -34,117 +37,130 @@
   <div id="aucSample" style="margin-top:4px;font-weight:bold;">AUC from sampling: 0 / 0 = 0</div>
   <div id="rocReady">✅ ROC Ready</div>
   <button id="randomBtn">Random Sample</button>
+  <button id="autoArrangeBtn">Auto Arrange</button>
 </div>
 
 <script>
-(function(){
-  const svg=document.getElementById('svg');
-  const W=svg.viewBox.baseVal.width,H=svg.viewBox.baseVal.height;
-  const margin=60,strokeW=2;const innerW=W-2*margin,innerH=H-2*margin;
-  const circleR=16,diamondSize=44,posColor='#2ca02c',negColor='#d62728';
-  const labelsRaw=[1,1,1,1,0,1,1,0,1,0,1,0,1,0,0,1,0,0,0,0];
-  const scoresRaw=[20,19,18,17,16,15,14,13,11.5,11.5,10,9,8,7,6,5,4,3,2,1];
-  const order=scoresRaw.map((s,i)=>[s,i]).sort((a,b)=>b[0]-a[0]).map(x=>x[1]);
-  const labels=order.map(i=>!!labelsRaw[i]);const scores=order.map(i=>scoresRaw[i]);
-  const posIdx=[],negIdx=[];for(let i=0;i<labels.length;i++)(labels[i]?posIdx:negIdx).push(i);
-  const n_pos=posIdx.length,n_neg=negIdx.length;
-  const cellW=innerW/n_neg,cellH=innerH/n_pos;
 
-  const gGrid=mk('g'),gCells=mk('g'),gAnchors=mk('g'),gPts=mk('g'),gROC=mk('g'),gSamples=mk('g');
+document.addEventListener('DOMContentLoaded', () => {
+(function(){
+  const svg = document.getElementById('svg');
+  if (!svg) { console.error('SVG not found'); return; }
+
+  // --- initialization constants ---
+  const W = svg.viewBox.baseVal.width, H = svg.viewBox.baseVal.height;
+  const margin = 60, strokeW = 2;
+  const innerW = W - 2 * margin, innerH = H - 2 * margin;
+  const circleR = 16, diamondSize = 44;
+  const posColor = '#2ca02c', negColor = '#d62728';
+
+  // --- data ---
+  const labelsRaw = [1,1,1,1,0,1,1,0,1,0,1,0,1,0,0,1,0,0,0,0];
+  const scoresRaw = [20,19,18,17,16,15,14,13,11.5,11.5,10,9,8,7,6,5,4,3,2,1];
+  const order = scoresRaw.map((s,i)=>[s,i]).sort((a,b)=>b[0]-a[0]).map(x=>x[1]);
+  const labels = order.map(i=>!!labelsRaw[i]);
+  const scores = order.map(i=>scoresRaw[i]);
+  const posIdx=[],negIdx=[];
+  for(let i=0;i<labels.length;i++) (labels[i]?posIdx:negIdx).push(i);
+  const n_pos = posIdx.length, n_neg = negIdx.length;
+  const cellW = innerW / n_neg, cellH = innerH / n_pos;
+
+  // --- SVG groups ---
+  const gGrid = mk('g'), gCells = mk('g'), gAnchors = mk('g'), gPts = mk('g'), gROC = mk('g'), gSamples = mk('g');
   svg.append(gGrid,gCells,gAnchors,gPts,gROC,gSamples);
 
-  const aucDisplay=document.getElementById('aucDisplay');
-  const aucSample=document.getElementById('aucSample');
-  const randomBtn=document.getElementById('randomBtn');
-  const rocReady=document.getElementById('rocReady');
+  // --- DOM references ---
+  const aucDisplay = document.getElementById('aucDisplay');
+  const aucSample = document.getElementById('aucSample');
+  const randomBtn = document.getElementById('randomBtn');
+  const rocReady = document.getElementById('rocReady');
 
+  // --- helpers ---
   function mk(t,a={}){const e=document.createElementNS('http://www.w3.org/2000/svg',t);for(const k in a)e.setAttribute(k,a[k]);return e;}
   function diamondPoints(cx,cy,s){return `${cx},${cy-s} ${cx+s},${cy} ${cx},${cy+s} ${cx-s},${cy}`;}
-  function getCircleCenter(e){return[+e.getAttribute('cx'),+e.getAttribute('cy')];}
-  function getDiamondCenter(e){const pts=e.getAttribute('points').split(' ')[0].split(',');const cx=+pts[0],yTop=+pts[1];return[cx,yTop+diamondSize/2];}
+  function getCircleCenter(e){return [+e.getAttribute('cx'),+e.getAttribute('cy')];}
+  function getDiamondCenter(e){const pts=e.getAttribute('points').split(' ')[0].split(',');const cx=+pts[0],yTop=+pts[1];return [cx,yTop+diamondSize/2];}
   function setCenter(n,x,y){if(n.isPos){n.shape.setAttribute('cx',x);n.shape.setAttribute('cy',y);}else{n.shape.setAttribute('points',diamondPoints(x,y,diamondSize/2));}n.label.setAttribute('x',x);n.label.setAttribute('y',y);}
 
+  // --- draw grid and anchors ---
   gGrid.appendChild(mk('rect',{x:margin,y:margin,width:innerW,height:innerH,fill:'none',stroke:'#888','stroke-width':1}));
-  for(let c=0;c<=n_neg;c++)gGrid.appendChild(mk('line',{x1:margin+c*cellW,y1:margin,x2:margin+c*cellW,y2:margin+innerH,stroke:'#eee'}));
-  for(let r=0;r<=n_pos;r++)gGrid.appendChild(mk('line',{x1:margin,y1:margin+r*cellH,x2:margin+innerW,y2:margin+r*cellH,stroke:'#eee'}));
+  for(let c=0;c<=n_neg;c++) gGrid.appendChild(mk('line',{x1:margin+c*cellW,y1:margin,x2:margin+c*cellW,y2:margin+innerH,stroke:'#eee'}));
+  for(let r=0;r<=n_pos;r++) gGrid.appendChild(mk('line',{x1:margin,y1:margin+r*cellH,x2:margin+innerW,y2:margin+r*cellH,stroke:'#eee'}));
 
   const posAnchors=Array.from({length:n_pos},(_,r)=>[margin-30,margin+innerH-cellH*(r+0.5)]);
   const negAnchors=Array.from({length:n_neg},(_,c)=>[margin+cellW*(c+0.5),margin+innerH+30]);
-  const posTaken=Array(n_pos).fill(null);const negTaken=Array(n_neg).fill(null);
+  const posTaken=Array(n_pos).fill(null), negTaken=Array(n_neg).fill(null);
 
   posAnchors.forEach(([x,y])=>gAnchors.appendChild(mk('circle',{cx:x,cy:y,r:12,fill:'none',stroke:'#ccc','stroke-dasharray':'2 2'})));
   negAnchors.forEach(([x,y])=>gAnchors.appendChild(mk('polygon',{points:diamondPoints(x,y,12),fill:'none',stroke:'#ccc','stroke-dasharray':'2 2'})));
 
-  const nodes=[];const cx0=W/2,cy0=H/2,jitter=60;
+  // --- create draggable nodes ---
+  const nodes=[]; const cx0=W/2,cy0=H/2,jitter=60;
   for(let i=0;i<labels.length;i++){
-    const isPos=labels[i];const x=cx0+(Math.random()*2-1)*jitter;const y=cy0+(Math.random()*2-1)*jitter;const g=mk('g');
-    if(isPos){const shape=mk('circle',{cx:x,cy:y,r:16,fill:posColor,stroke:'#222'});const label=mk('text',{x,y,'text-anchor':'middle','dominant-baseline':'central','font-size':'13',fill:'white'});label.textContent=scores[i];g.append(shape,label);gPts.append(g);nodes.push({id:i,isPos:true,shape,label,score:scores[i],anchorIndex:null});}
-    else{const shape=mk('polygon',{points:diamondPoints(x,y,diamondSize/2),fill:negColor,stroke:'#222'});const label=mk('text',{x,y,'text-anchor':'middle','dominant-baseline':'central','font-size':'13',fill:'white'});label.textContent=scores[i];g.append(shape,label);gPts.append(g);nodes.push({id:i,isPos:false,shape,label,score:scores[i],anchorIndex:null});}
-  }
-
-  nodes.forEach(n=>{let dragging=false,sx=0,sy=0;n.shape.addEventListener('pointerdown',e=>{dragging=true;n.shape.setPointerCapture(e.pointerId);sx=e.clientX;sy=e.clientY;});n.shape.addEventListener('pointermove',e=>{if(!dragging)return;const dx=e.clientX-sx,dy=e.clientY-sy;sx=e.clientX;sy=e.clientY;const c=n.isPos?getCircleCenter(n.shape):getDiamondCenter(n.shape);setCenter(n,c[0]+dx,c[1]+dy);});n.shape.addEventListener('pointerup',e=>{if(!dragging)return;dragging=false;n.shape.releasePointerCapture(e.pointerId);snapOrSwap(n);});});
-
-  function nearestAnchor(n){const anchors=n.isPos?posAnchors:negAnchors;const[x,y]=n.isPos?getCircleCenter(n.shape):getDiamondCenter(n.shape);let best=-1,bestD=Infinity;for(let i=0;i<anchors.length;i++){const[ax,ay]=anchors[i];const d=(x-ax)**2+(y-ay)**2;if(d<bestD){bestD=d;best=i;}}return{index:best,dist2:bestD};}
-  function snapOrSwap(n){const anchors=n.isPos?posAnchors:negAnchors;const taken=n.isPos?posTaken:negTaken;const{index:i,dist2}=nearestAnchor(n);if(i<0||dist2>1600)return;const[ax,ay]=anchors[i];const old=n.anchorIndex;const occ=taken[i];if(occ!=null&&occ!==n.id){const other=nodes[occ];const otherOld=old;if(old!=null){const[ox,oy]=anchors[old];setCenter(other,ox,oy);other.anchorIndex=old;taken[old]=occ;}else{other.anchorIndex=null;}setCenter(n,ax,ay);n.anchorIndex=i;taken[i]=n.id;}else{if(old!=null)taken[old]=null;setCenter(n,ax,ay);n.anchorIndex=i;taken[i]=n.id;}updateAfterChange();}
-
-  function redrawMatrix(){gCells.innerHTML='';let num=0,den=n_pos*n_neg;for(let r=0;r<n_pos;r++){for(let c=0;c<n_neg;c++){const posId=posTaken[r],negId=negTaken[c];if(posId==null||negId==null)continue;const v=(1+Math.sign(nodes[posId].score-nodes[negId].score))/2;const fill=v===1?'lightyellow':v===0.5?'orange':'red';if(v===1)num++;else if(v===0.5)num+=0.5;const rect=mk('rect',{x:margin+c*cellW,y:margin+(n_pos-1-r)*cellH,width:cellW,height:cellH,fill,stroke:'black','stroke-width':1});gCells.appendChild(rect);}}aucDisplay.textContent=`AUC calculation: ${num.toFixed(1)} / ${den} = ${(num/den).toFixed(4)}`;}
-
-  let rocValid=false;
-  function allAnchorsFilled(){return posTaken.every(v=>v!=null)&&negTaken.every(v=>v!=null);}
-  function rowsSortedDescending(){for(let r=1;r<n_pos;r++){const lower=posTaken[r-1];const upper=posTaken[r];if(lower==null||upper==null)return false;const a=nodes[lower].score;const b=nodes[upper].score;if(a<b)return false;}return true;}
-  function colsSortedDescending(){for(let c=1;c<n_neg;c++){if(negTaken[c-1]==null||negTaken[c]==null)return false;const a=nodes[negTaken[c-1]].score,b=nodes[negTaken[c]].score;if(a<b)return false;}return true;}
-
-  function computeROCPoints(){const grouped={};for(let i=0;i<labels.length;i++){const sc=scores[i];(grouped[sc]||(grouped[sc]={pos:0,neg:0}));if(labels[i])grouped[sc].pos++;else grouped[sc].neg++;}const uniq=Object.keys(grouped).map(parseFloat).sort((a,b)=>b-a);const pts=[[0,0]];let fp=0,tp=0;for(const sc of uniq){fp+=grouped[sc].neg;tp+=grouped[sc].pos;pts.push([fp,tp]);}return pts;}
-
-  function drawOrClearROC(){
-    gROC.innerHTML='';
-    const filled=allAnchorsFilled();
-    const rowOK=rowsSortedDescending();
-    const colOK=colsSortedDescending();
-    const isValid=filled&&rowOK&&colOK;
-    console.log('ROC check:',{filled,rowOK,colOK,isValid});
-    if(!isValid){rocValid=false;randomBtn.style.display='none';aucSample.style.display='none';rocReady.style.display='none';return;}
-
-    const pts=computeROCPoints();
-    const off=strokeW/2;
-    const toXY=([fp,tp])=>[margin+(fp/n_neg)*innerW+off,margin+innerH-(tp/n_pos)*innerH+off];
-    const points=pts.map(p=>toXY(p).join(',')).join(' ');
-    gROC.appendChild(mk('polyline',{points,fill:'none',stroke:'blue','stroke-width':strokeW}));
-    pts.forEach(p=>{const[x,y]=toXY(p);gROC.appendChild(mk('circle',{cx:x,cy:y,r:3.5,fill:'blue'}));});
-
-    if(!rocValid){
-      // only reset once when ROC first becomes valid
-      sampleDots.forEach(d=>d.setAttribute('fill','#ccc'));
-      sampleDots=[];
-      sampleNum=0;
-      sampleDen=0;
-      aucSample.textContent=`AUC from sampling: 0 / 0 = 0`;
+    const isPos=labels[i]; const x=cx0+(Math.random()*2-1)*jitter; const y=cy0+(Math.random()*2-1)*jitter;
+    const g=mk('g');
+    if(isPos){
+      const shape=mk('circle',{cx:x,cy:y,r:circleR,fill:posColor,stroke:'#222'});
+      const label=mk('text',{x,y,'text-anchor':'middle','dominant-baseline':'central','font-size':'13',fill:'white'});
+      label.textContent=scores[i];
+      g.append(shape,label); gPts.append(g);
+      nodes.push({id:i,isPos:true,shape,label,score:scores[i],anchorIndex:null});
+    } else {
+      const shape=mk('polygon',{points:diamondPoints(x,y,diamondSize/2),fill:negColor,stroke:'#222'});
+      const label=mk('text',{x,y,'text-anchor':'middle','dominant-baseline':'central','font-size':'13',fill:'white'});
+      label.textContent=scores[i];
+      g.append(shape,label); gPts.append(g);
+      nodes.push({id:i,isPos:false,shape,label,score:scores[i],anchorIndex:null});
     }
-
-    rocValid=true;
-    randomBtn.style.display='inline-block';
-    aucSample.style.display='block';
-    rocReady.style.display='block';
   }
 
-  function updateAfterChange(){redrawMatrix();drawOrClearROC();}
-
-  let sampleDots=[],sampleNum=0,sampleDen=0;
-  randomBtn.addEventListener('click',()=>{
-    if(!rocValid)return;
-    sampleDots.forEach(d=>d.setAttribute('fill','#ccc'));
-    const r=Math.floor(Math.random()*n_pos),c=Math.floor(Math.random()*n_neg);
-    const cx=margin+c*cellW+Math.random()*cellW,cy=margin+(n_pos-1-r)*cellH+Math.random()*cellH;
-    const dot=mk('circle',{cx,cy,r:4,fill:'black'});
-    gSamples.appendChild(dot);sampleDots=[dot];sampleDen++;
-    const posId=posTaken[r],negId=negTaken[c];if(posId==null||negId==null){aucSample.textContent=`AUC from sampling: ${sampleNum.toFixed(1)} / ${sampleDen} = ${(sampleNum/sampleDen).toFixed(4)}`;return;}
-    const v=(1+Math.sign(nodes[posId].score-nodes[negId].score))/2;if(v===1)sampleNum++;else if(v===0.5)sampleNum+=0.5;
-    aucSample.textContent=`AUC from sampling: ${sampleNum.toFixed(1)} / ${sampleDen} = ${(sampleNum/sampleDen).toFixed(4)}`;
+  // --- drag-and-drop handlers ---
+  let drag=null;
+  svg.addEventListener('mousedown',e=>{const target=nodes.find(n=>n.shape===e.target);if(!target)return;drag=target;drag.shape.setAttribute('stroke','black');drag.shape.setAttribute('stroke-width',3);});
+  svg.addEventListener('mousemove',e=>{if(!drag)return;const pt=svg.createSVGPoint();pt.x=e.clientX;pt.y=e.clientY;const p=pt.matrixTransform(svg.getScreenCTM().inverse());setCenter(drag,p.x,p.y);});
+  svg.addEventListener('mouseup',e=>{
+    if(!drag)return;
+    const pt=svg.createSVGPoint();pt.x=e.clientX;pt.y=e.clientY;const p=pt.matrixTransform(svg.getScreenCTM().inverse());
+    const anchors=drag.isPos?posAnchors:negAnchors;const taken=drag.isPos?posTaken:negTaken;
+    const nearest=anchors.map(([x,y],i)=>({i,d:Math.hypot(x-p.x,y-p.y)})).sort((a,b)=>a.d-b.d)[0];
+    if(nearest&&nearest.d<40){
+      const idx=nearest.i,otherId=taken[idx],oldAnchor=drag.anchorIndex;
+      if(otherId!=null){taken[idx]=drag.id;nodes[drag.id].anchorIndex=idx;if(oldAnchor!=null){taken[oldAnchor]=otherId;nodes[otherId].anchorIndex=oldAnchor;const[ox,oy]=anchors[oldAnchor];setCenter(nodes[otherId],ox,oy);}} else {if(oldAnchor!=null)taken[oldAnchor]=null;taken[idx]=drag.id;nodes[drag.id].anchorIndex=idx;}
+      const[tx,ty]=anchors[idx];setCenter(drag,tx,ty);updateAfterChange();
+    }
+    drag.shape.setAttribute('stroke','#222');drag.shape.setAttribute('stroke-width',1);drag=null;
   });
 
-  setInterval(()=>{drawOrClearROC();},1000);
-  redrawMatrix();
+  // --- matrix drawing + ROC ---
+  function redrawMatrix(){gCells.innerHTML='';let num=0,den=n_pos*n_neg;for(let r=0;r<n_pos;r++)for(let c=0;c<n_neg;c++){const posId=posTaken[r],negId=negTaken[c];if(posId==null||negId==null)continue;const v=(1+Math.sign(nodes[posId].score-nodes[negId].score))/2;const fill=v===1?'lightyellow':v===0.5?'orange':'red';if(v===1)num++;else if(v===0.5)num+=0.5;const rect=mk('rect',{x:margin+c*cellW,y:margin+(n_pos-1-r)*cellH,width:cellW,height:cellH,fill,stroke:'black','stroke-width':1});gCells.appendChild(rect);}aucDisplay.textContent=`AUC calculation: ${num.toFixed(1)} / ${den} = ${(num/den).toFixed(4)}`;}
+  function allAnchorsFilled(){return posTaken.every(v=>v!=null)&&negTaken.every(v=>v!=null);}
+  function rowsSortedDescending(){for(let r=1;r<n_pos;r++){const lower=posTaken[r-1],upper=posTaken[r];if(lower==null||upper==null)return false;const a=nodes[lower].score,b=nodes[upper].score;if(a<b)return false;}return true;}
+  function colsSortedDescending(){for(let c=1;c<n_neg;c++){if(negTaken[c-1]==null||negTaken[c]==null)return false;const a=nodes[negTaken[c-1]].score,b=nodes[negTaken[c]].score;if(a<b)return false;}return true;}
+  function computeROCPoints(){const grouped={};for(let i=0;i<labels.length;i++){const sc=scores[i];(grouped[sc]||(grouped[sc]={pos:0,neg:0}));if(labels[i])grouped[sc].pos++;else grouped[sc].neg++;}const uniq=Object.keys(grouped).map(parseFloat).sort((a,b)=>b-a);const pts=[[0,0]];let fp=0,tp=0;for(const sc of uniq){fp+=grouped[sc].neg;tp+=grouped[sc].pos;pts.push([fp,tp]);}return pts;}
+  function drawOrClearROC(){gROC.innerHTML='';const filled=allAnchorsFilled(),rowOK=rowsSortedDescending(),colOK=colsSortedDescending(),isValid=filled&&rowOK&&colOK;if(!isValid){randomBtn.style.display='none';aucSample.style.display='none';rocReady.style.display='none';return;}const pts=computeROCPoints();const off=strokeW/2;const toXY=([fp,tp])=>[margin+(fp/n_neg)*innerW+off,margin+innerH-(tp/n_pos)*innerH+off];const points=pts.map(p=>toXY(p).join(',')).join(' ');gROC.appendChild(mk('polyline',{points,fill:'none',stroke:'blue','stroke-width':strokeW}));pts.forEach(p=>{const[x,y]=toXY(p);gROC.appendChild(mk('circle',{cx:x,cy:y,r:3.5,fill:'blue'}));});randomBtn.style.display='inline-block';aucSample.style.display='block';rocReady.style.display='block';}
+  function updateAfterChange(){redrawMatrix();drawOrClearROC();}
+
+  // --- auto arrange ---
+  function autoArrange(){
+    const T=2000,start=performance.now();
+    const startPos=nodes.filter(n=>n.isPos).map(n=>getCircleCenter(n.shape));
+    const startNeg=nodes.filter(n=>!n.isPos).map(n=>getDiamondCenter(n.shape));
+    function animate(t){const u=Math.min((t-start)/T,1),ease=u*(2-u);nodes.forEach(n=>{if(n.isPos){const i=posIdx.indexOf(n.id);if(i<0)return;const[sx,sy]=startPos[i],[tx,ty]=posAnchors[i];setCenter(n,sx+(tx-sx)*ease,sy+(ty-sy)*ease);}else{const i=negIdx.indexOf(n.id);if(i<0)return;const[sx,sy]=startNeg[i],[tx,ty]=negAnchors[i];setCenter(n,sx+(tx-sx)*ease,sy+(ty-sy)*ease);}});if(u<1)requestAnimationFrame(animate);else{posIdx.forEach((id,r)=>{posTaken[r]=id;nodes[id].anchorIndex=r;});negIdx.forEach((id,c)=>{negTaken[c]=id;nodes[id].anchorIndex=c;});try{updateAfterChange();console.log('Auto arrange done, ROC should appear if valid.');}catch(e){console.error('Auto arrange finalization error:',e);}}}
+    requestAnimationFrame(animate);
+  }
+
+  // --- random sampling ---
+  let sampleNumerator=0,sampleDenominator=0,sampleDots=[];
+  function randomSample(){sampleDots.forEach(dot=>dot.setAttribute('fill','#ccc'));const r=Math.floor(Math.random()*n_pos),c=Math.floor(Math.random()*n_neg),cx=margin+c*cellW+Math.random()*cellW,cy=margin+(n_pos-1-r)*cellH+Math.random()*cellH;const dot=mk('circle',{cx,cy,r:4,fill:'black'});gSamples.appendChild(dot);sampleDots=[dot];const posId=posTaken[r],negId=negTaken[c];if(posId==null||negId==null)return;const v=(1+Math.sign(nodes[posId].score-nodes[negId].score))/2;sampleDenominator++;if(v===1)sampleNumerator++;else if(v===0.5)sampleNumerator+=0.5;aucSample.textContent=`AUC from sampling: ${sampleNumerator.toFixed(1)} / ${sampleDenominator} = ${(sampleNumerator/sampleDenominator).toFixed(4)}`;}
+
+  // --- wire buttons ---
+  document.getElementById('randomBtn').addEventListener('click',randomSample);
+  document.getElementById('autoArrangeBtn').addEventListener('click',autoArrange);
+
+  try{redrawMatrix();}catch(e){console.error('Initial draw failed:',e);}
 })();
+});
+
 </script>
 </body>
 </html>
