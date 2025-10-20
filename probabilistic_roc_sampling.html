@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>Probabilistic ROC Sampling — Auto Arrange + Manual Drag</title>
+<title>Probabilistic ROC Sampling — Instant Clear Edition</title>
 <style>
   :root { --w: 720px; --h: 480px; }
   body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; margin: 18px; }
@@ -14,13 +14,14 @@
   .swatch-circle { width: 16px; height: 16px; border-radius: 50%; border: 1px solid #333; }
   button { margin-top: 8px; font-size: 13px; cursor: pointer; color: #0366d6; }
   svg { display: block; }
+  text { user-select: none; -webkit-user-select: none; -moz-user-select: none; pointer-events: none; }
   #randomBtn { display: none; }
   #aucSample { display: none; }
   #rocReady { display: none; color: green; font-weight: bold; margin-top: 6px; }
 </style>
 </head>
 <body>
-<h2>Probabilistic ROC Sampling — Auto Arrange + Manual Drag</h2>
+<h2>Probabilistic ROC Sampling — Instant Clear Edition</h2>
 
 <div id="stage">
   <svg id="svg" width="100%" height="100%" viewBox="0 0 720 480"></svg>
@@ -41,23 +42,15 @@
 </div>
 
 <script>
-
-// JavaScript logic for Probabilistic ROC Sampling app
-// (from previous combined version, now split for clarity)
-
 document.addEventListener('DOMContentLoaded', () => {
 (function(){
   const svg = document.getElementById('svg');
-  if (!svg) { console.error('SVG not found'); return; }
-
-  // --- initialization constants ---
   const W = svg.viewBox.baseVal.width, H = svg.viewBox.baseVal.height;
   const margin = 60, strokeW = 2;
   const innerW = W - 2 * margin, innerH = H - 2 * margin;
   const circleR = 16, diamondSize = 44;
   const posColor = '#2ca02c', negColor = '#d62728';
 
-  // --- data ---
   const labelsRaw = [1,1,1,1,0,1,1,0,1,0,1,0,1,0,0,1,0,0,0,0];
   const scoresRaw = [20,19,18,17,16,15,14,13,11.5,11.5,10,9,8,7,6,5,4,3,2,1];
   const order = scoresRaw.map((s,i)=>[s,i]).sort((a,b)=>b[0]-a[0]).map(x=>x[1]);
@@ -65,27 +58,23 @@ document.addEventListener('DOMContentLoaded', () => {
   const scores = order.map(i=>scoresRaw[i]);
   const posIdx=[],negIdx=[];
   for(let i=0;i<labels.length;i++) (labels[i]?posIdx:negIdx).push(i);
-  const n_pos = posIdx.length, n_neg = negIdx.length;
+  const n_pos=posIdx.length, n_neg=negIdx.length;
   const cellW = innerW / n_neg, cellH = innerH / n_pos;
 
-  // --- SVG groups ---
   const gGrid = mk('g'), gCells = mk('g'), gAnchors = mk('g'), gPts = mk('g'), gROC = mk('g'), gSamples = mk('g');
   svg.append(gGrid,gCells,gAnchors,gPts,gROC,gSamples);
 
-  // --- DOM references ---
-  const aucDisplay = document.getElementById('aucDisplay');
-  const aucSample = document.getElementById('aucSample');
-  const randomBtn = document.getElementById('randomBtn');
-  const rocReady = document.getElementById('rocReady');
+  const aucDisplay=document.getElementById('aucDisplay');
+  const aucSample=document.getElementById('aucSample');
+  const randomBtn=document.getElementById('randomBtn');
+  const rocReady=document.getElementById('rocReady');
 
-  // --- helpers ---
   function mk(t,a={}){const e=document.createElementNS('http://www.w3.org/2000/svg',t);for(const k in a)e.setAttribute(k,a[k]);return e;}
   function diamondPoints(cx,cy,s){return `${cx},${cy-s} ${cx+s},${cy} ${cx},${cy+s} ${cx-s},${cy}`;}
   function getCircleCenter(e){return [+e.getAttribute('cx'),+e.getAttribute('cy')];}
   function getDiamondCenter(e){const pts=e.getAttribute('points').split(' ')[0].split(',');const cx=+pts[0],yTop=+pts[1];return [cx,yTop+diamondSize/2];}
   function setCenter(n,x,y){if(n.isPos){n.shape.setAttribute('cx',x);n.shape.setAttribute('cy',y);}else{n.shape.setAttribute('points',diamondPoints(x,y,diamondSize/2));}n.label.setAttribute('x',x);n.label.setAttribute('y',y);}
 
-  // --- draw grid and anchors ---
   gGrid.appendChild(mk('rect',{x:margin,y:margin,width:innerW,height:innerH,fill:'none',stroke:'#888','stroke-width':1}));
   for(let c=0;c<=n_neg;c++) gGrid.appendChild(mk('line',{x1:margin+c*cellW,y1:margin,x2:margin+c*cellW,y2:margin+innerH,stroke:'#eee'}));
   for(let r=0;r<=n_pos;r++) gGrid.appendChild(mk('line',{x1:margin,y1:margin+r*cellH,x2:margin+innerW,y2:margin+r*cellH,stroke:'#eee'}));
@@ -94,123 +83,174 @@ document.addEventListener('DOMContentLoaded', () => {
   const negAnchors=Array.from({length:n_neg},(_,c)=>[margin+cellW*(c+0.5),margin+innerH+30]);
   const posTaken=Array(n_pos).fill(null), negTaken=Array(n_neg).fill(null);
 
-  posAnchors.forEach(([x,y])=>gAnchors.appendChild(mk('circle',{cx:x,cy:y,r:12,fill:'none',stroke:'#ccc','stroke-dasharray':'2 2'})));
-  negAnchors.forEach(([x,y])=>gAnchors.appendChild(mk('polygon',{points:diamondPoints(x,y,12),fill:'none',stroke:'#ccc','stroke-dasharray':'2 2'})));
+  const posAnchorElems = posAnchors.map(([x,y])=> mk('circle',{cx:x,cy:y,r:12,fill:'none',stroke:'#444','stroke-dasharray':'2 2'}));
+  const negAnchorElems = negAnchors.map(([x,y])=> mk('polygon',{points:diamondPoints(x,y,12),fill:'none',stroke:'#444','stroke-dasharray':'2 2'}));
+  posAnchorElems.forEach(e=>gAnchors.appendChild(e));
+  negAnchorElems.forEach(e=>gAnchors.appendChild(e));
 
-  // --- create draggable nodes ---
   const nodes=[]; const cx0=W/2,cy0=H/2,jitter=60;
   for(let i=0;i<labels.length;i++){
     const isPos=labels[i]; const x=cx0+(Math.random()*2-1)*jitter; const y=cy0+(Math.random()*2-1)*jitter;
     const g=mk('g');
-    if(isPos){
-      const shape=mk('circle',{cx:x,cy:y,r:circleR,fill:posColor,stroke:'#222'});
-      const label=mk('text',{x,y,'text-anchor':'middle','dominant-baseline':'central','font-size':'13',fill:'white'});
-      label.textContent=scores[i];
-      g.append(shape,label); gPts.append(g);
-      nodes.push({id:i,isPos:true,shape,label,score:scores[i],anchorIndex:null});
-    } else {
-      const shape=mk('polygon',{points:diamondPoints(x,y,diamondSize/2),fill:negColor,stroke:'#222'});
-      const label=mk('text',{x,y,'text-anchor':'middle','dominant-baseline':'central','font-size':'13',fill:'white'});
-      label.textContent=scores[i];
-      g.append(shape,label); gPts.append(g);
-      nodes.push({id:i,isPos:false,shape,label,score:scores[i],anchorIndex:null});
-    }
+    const shape=isPos?mk('circle',{cx:x,cy:y,r:circleR,fill:posColor,stroke:'#222'}):mk('polygon',{points:diamondPoints(x,y,diamondSize/2),fill:negColor,stroke:'#222'});
+    const label=mk('text',{x,y,'text-anchor':'middle','dominant-baseline':'central','font-size':'13',fill:'white'}); label.textContent=scores[i];
+    g.append(shape,label); gPts.append(g);
+    nodes.push({id:i,isPos,shape,label,score:scores[i],anchorIndex:null});
   }
 
-  // --- drag-and-drop handlers ---
-  let drag=null;
-  svg.addEventListener('mousedown',e=>{const target=nodes.find(n=>n.shape===e.target);if(!target)return;drag=target;drag.shape.setAttribute('stroke','black');drag.shape.setAttribute('stroke-width',3);});
-  svg.addEventListener('mousemove',e=>{if(!drag)return;const pt=svg.createSVGPoint();pt.x=e.clientX;pt.y=e.clientY;const p=pt.matrixTransform(svg.getScreenCTM().inverse());setCenter(drag,p.x,p.y);});
-  svg.addEventListener('mouseup',e=>{
-    if(!drag)return;
-    const pt=svg.createSVGPoint();pt.x=e.clientX;pt.y=e.clientY;const p=pt.matrixTransform(svg.getScreenCTM().inverse());
-    const anchors=drag.isPos?posAnchors:negAnchors;const taken=drag.isPos?posTaken:negTaken;
-    const nearest=anchors.map(([x,y],i)=>({i,d:Math.hypot(x-p.x,y-p.y)})).sort((a,b)=>a.d-b.d)[0];
-    if(nearest&&nearest.d<40){
-      const idx=nearest.i,otherId=taken[idx],oldAnchor=drag.anchorIndex;
-      if(otherId!=null){taken[idx]=drag.id;nodes[drag.id].anchorIndex=idx;if(oldAnchor!=null){taken[oldAnchor]=otherId;nodes[otherId].anchorIndex=oldAnchor;const[ox,oy]=anchors[oldAnchor];setCenter(nodes[otherId],ox,oy);}} else {if(oldAnchor!=null)taken[oldAnchor]=null;taken[idx]=drag.id;nodes[drag.id].anchorIndex=idx;}
-      const[tx,ty]=anchors[idx];setCenter(drag,tx,ty);updateAfterChange();
+  // --- Clear helpers ---
+//   function clearRow(r){
+//     const yMin = margin + (n_pos-1-r)*cellH;
+//     const yMax = yMin + cellH;
+//     [...gCells.children].forEach(rect => {
+//       const y = +rect.getAttribute('y');
+//       if(y >= yMin-0.01 && y < yMax+0.01) rect.remove();
+//     });
+//   }
+//   function clearColumn(c){
+//     const xMin = margin + c*cellW;
+//     const xMax = xMin + cellW;
+//     [...gCells.children].forEach(rect => {
+//       const x = +rect.getAttribute('x');
+//       if(x >= xMin-0.01 && x < xMax+0.01) rect.remove();
+//     });
+//   }
+
+  function clearRow(r) {
+    const targetY = margin + (n_pos - 1 - r) * cellH;
+    [...gCells.children].forEach(rect => {
+        const y = +rect.getAttribute('y');
+        const rowIndex = Math.round((margin + innerH - y - cellH / 2) / cellH);
+        if (rowIndex === r) rect.remove();
+    });
     }
-    drag.shape.setAttribute('stroke','#222');drag.shape.setAttribute('stroke-width',1);drag=null;
+
+    function clearColumn(c) {
+    const targetX = margin + c * cellW;
+    [...gCells.children].forEach(rect => {
+        const x = +rect.getAttribute('x');
+        const colIndex = Math.round((x - margin) / cellW);
+        if (colIndex === c) rect.remove();
+    });
+    }
+
+  // --- Drag handlers ---
+  let drag=null, dragStart=null;
+  function animateBack(n,to){ setTimeout(()=>{const from=n.isPos?getCircleCenter(n.shape):getDiamondCenter(n.shape); const T=500,start=performance.now(); function step(t){ const u=Math.min((t-start)/T,1); setCenter(n, from[0]+(to[0]-from[0])*u, from[1]+(to[1]-from[1])*u ); if(u<1) requestAnimationFrame(step);} requestAnimationFrame(step);},200); }
+  function highlightAnchors(type,active){ const elems = type?posAnchorElems:negAnchorElems; elems.forEach(e=>{ e.setAttribute('stroke', active?'skyblue':'#444'); e.setAttribute('stroke-width', active?'3':'1'); if(active) e.removeAttribute('stroke-dasharray'); else e.setAttribute('stroke-dasharray','2 2'); }); }
+
+  svg.addEventListener('mousedown',e=>{
+    const target=nodes.find(n=>n.shape===e.target);
+    if(!target)return;
+    drag=target; dragStart=drag.isPos?getCircleCenter(drag.shape):getDiamondCenter(drag.shape);
+    drag.shape.setAttribute('stroke','black'); drag.shape.setAttribute('stroke-width',3);
+    highlightAnchors(drag.isPos,true);
   });
 
-  // --- matrix drawing + ROC ---
-  function redrawMatrix(){gCells.innerHTML='';let num=0,den=n_pos*n_neg;for(let r=0;r<n_pos;r++)for(let c=0;c<n_neg;c++){const posId=posTaken[r],negId=negTaken[c];if(posId==null||negId==null)continue;const v=(1+Math.sign(nodes[posId].score-nodes[negId].score))/2;const fill=v===1?'lightyellow':v===0.5?'orange':'red';if(v===1)num++;else if(v===0.5)num+=0.5;const rect=mk('rect',{x:margin+c*cellW,y:margin+(n_pos-1-r)*cellH,width:cellW,height:cellH,fill,stroke:'black','stroke-width':1});gCells.appendChild(rect);}aucDisplay.textContent=`AUC calculation: ${num.toFixed(1)} / ${den} = ${(num/den).toFixed(4)}`;}
+  svg.addEventListener('mousemove',e=>{
+    if(!drag)return;
+    const pt=svg.createSVGPoint(); pt.x=e.clientX; pt.y=e.clientY;
+    const p=pt.matrixTransform(svg.getScreenCTM().inverse());
+    setCenter(drag,p.x,p.y);
+  });
+
+  svg.addEventListener('mouseup',e=>{
+    if(!drag)return;
+    const pt=svg.createSVGPoint(); pt.x=e.clientX; pt.y=e.clientY;
+    const p=pt.matrixTransform(svg.getScreenCTM().inverse());
+    const anchors=drag.isPos?posAnchors:negAnchors;
+    const taken=drag.isPos?posTaken:negTaken;
+    const nearest=anchors.map(([x,y],i)=>({i,d:Math.hypot(x-p.x,y-p.y)})).sort((a,b)=>a.d-b.d)[0];
+    let valid=false;
+    const oldAnchor=drag.anchorIndex;
+
+    if(oldAnchor!=null){ // clear affected row/col
+      if(drag.isPos) clearRow(oldAnchor);
+      else clearColumn(oldAnchor);
+    }
+
+    if(nearest && nearest.d<40){
+      const idx=nearest.i, otherId=taken[idx];
+      if(otherId!=null){taken[idx]=drag.id;drag.anchorIndex=idx;if(oldAnchor!=null){taken[oldAnchor]=otherId;nodes[otherId].anchorIndex=oldAnchor;const[ox,oy]=anchors[oldAnchor];setCenter(nodes[otherId],ox,oy);}}
+      else {if(oldAnchor!=null)taken[oldAnchor]=null;taken[idx]=drag.id;drag.anchorIndex=idx;}
+      const[tx,ty]=anchors[idx];setCenter(drag,tx,ty);updateAfterChange(); valid=true;
+    }
+    if(!valid && p.x>=margin && p.x<=margin+innerW && p.y>=margin && p.y<=margin+innerH){ valid=true; }
+    if(!valid){ animateBack(drag,dragStart); }
+    drag.shape.setAttribute('stroke','#222'); drag.shape.setAttribute('stroke-width',1); highlightAnchors(drag.isPos,false); drag=null;
+  });
+
+  function redrawMatrix(){gCells.innerHTML='';let num=0,den=n_pos*n_neg;for(let r=0;r<n_pos;r++)for(let c=0;c<n_neg;c++){const posId=posTaken[r],negId=negTaken[c];if(posId==null||negId==null)continue;const v=(1+Math.sign(nodes[posId].score-nodes[negId].score))/2;const fill=v===1?'lightyellow':v===0.5?'orange':'red';if(v===1)num++;else if(v===0.5)num+=0.5;gCells.appendChild(mk('rect',{x:margin+c*cellW,y:margin+(n_pos-1-r)*cellH,width:cellW,height:cellH,fill,stroke:'#000','stroke-width':1}));}aucDisplay.textContent=`AUC calculation: ${num.toFixed(1)} / ${den} = ${(num/den).toFixed(4)}`;}
   function allAnchorsFilled(){return posTaken.every(v=>v!=null)&&negTaken.every(v=>v!=null);}
-  function rowsSortedDescending(){for(let r=1;r<n_pos;r++){const lower=posTaken[r-1],upper=posTaken[r];if(lower==null||upper==null)return false;const a=nodes[lower].score,b=nodes[upper].score;if(a<b)return false;}return true;}
-  function colsSortedDescending(){for(let c=1;c<n_neg;c++){if(negTaken[c-1]==null||negTaken[c]==null)return false;const a=nodes[negTaken[c-1]].score,b=nodes[negTaken[c]].score;if(a<b)return false;}return true;}
+  function rowsSortedDescending(){for(let r=1;r<n_pos;r++){const a=nodes[posTaken[r-1]].score,b=nodes[posTaken[r]].score;if(a<b)return false;}return true;}
+  function colsSortedDescending(){for(let c=1;c<n_neg;c++){const a=nodes[negTaken[c-1]].score,b=nodes[negTaken[c]].score;if(a<b)return false;}return true;}
   function computeROCPoints(){const grouped={};for(let i=0;i<labels.length;i++){const sc=scores[i];(grouped[sc]||(grouped[sc]={pos:0,neg:0}));if(labels[i])grouped[sc].pos++;else grouped[sc].neg++;}const uniq=Object.keys(grouped).map(parseFloat).sort((a,b)=>b-a);const pts=[[0,0]];let fp=0,tp=0;for(const sc of uniq){fp+=grouped[sc].neg;tp+=grouped[sc].pos;pts.push([fp,tp]);}return pts;}
-  function drawOrClearROC(){
-    gROC.innerHTML='';
-    const filled = allAnchorsFilled();
+  function drawOrClearROC(){gROC.innerHTML='';if(!allAnchorsFilled()){randomBtn.style.display='none';aucSample.style.display='none';rocReady.style.display='none';return;}randomBtn.style.display='inline-block';aucSample.style.display='block';const ok=rowsSortedDescending()&&colsSortedDescending();if(!ok){rocReady.style.display='none';return;}const pts=computeROCPoints();const off=strokeW/2;const toXY=([fp,tp])=>[margin+(fp/n_neg)*innerW+off,margin+innerH-(tp/n_pos)*innerH+off];const points=pts.map(p=>toXY(p).join(',')).join(' ');gROC.appendChild(mk('polyline',{points,fill:'none',stroke:'blue','stroke-width':strokeW}));pts.forEach(p=>{const[x,y]=toXY(p);gROC.appendChild(mk('circle',{cx:x,cy:y,r:3.5,fill:'blue'}));});rocReady.style.display='block';}
+  let sampleNumerator=0,sampleDenominator=0,sampleDots=[];
+  function updateAfterChange(){if(sampleDenominator>0||sampleDots.length>0){gSamples.innerHTML='';sampleDots=[];sampleNumerator=0;sampleDenominator=0;aucSample.textContent='AUC from sampling: 0 / 0 = 0';}redrawMatrix();drawOrClearROC();}
+  function randomSample(){sampleDots.forEach(dot=>dot.setAttribute('fill','#ccc'));const r=Math.floor(Math.random()*n_pos),c=Math.floor(Math.random()*n_neg),cx=margin+c*cellW+Math.random()*cellW,cy=margin+(n_pos-1-r)*cellH+Math.random()*cellH;const dot=mk('circle',{cx,cy,r:4,fill:'black'});gSamples.appendChild(dot);sampleDots=[dot];const posId=posTaken[r],negId=negTaken[c];if(posId==null||negId==null)return;const v=(1+Math.sign(nodes[posId].score-nodes[negId].score))/2;sampleDenominator++;if(v===1)sampleNumerator++;else if(v===0.5)sampleNumerator+=0.5;aucSample.textContent=`AUC from sampling: ${sampleNumerator.toFixed(1)} / ${sampleDenominator} = ${(sampleNumerator/sampleDenominator).toFixed(4)}`;}
 
-    if (!filled) {
-      randomBtn.style.display = 'none';
-      aucSample.style.display = 'none';
-      rocReady.style.display = 'none';
-      return;
-    }
-
-    // show sampling button when all anchors filled
-    randomBtn.style.display = 'inline-block';
-    aucSample.style.display = 'block';
-
-    const rowOK = rowsSortedDescending(), colOK = colsSortedDescending();
-    const isValid = rowOK && colOK;
-
-    if (!isValid) {
-      rocReady.style.display = 'none';
-      gROC.innerHTML = '';
-      return;
-    }
-
-    const pts = computeROCPoints();
-    const off = strokeW / 2;
-    const toXY = ([fp,tp]) => [margin + (fp/n_neg) * innerW + off, margin + innerH - (tp/n_pos) * innerH + off];
-    const points = pts.map(p => toXY(p).join(',')).join(' ');
-    gROC.appendChild(mk('polyline',{points,fill:'none',stroke:'blue','stroke-width':strokeW}));
-    pts.forEach(p => {const [x,y] = toXY(p); gROC.appendChild(mk('circle',{cx:x,cy:y,r:3.5,fill:'blue'}));});
-
-    rocReady.style.display = 'block';
-  }
-
-  function updateAfterChange() {
-    // reset sampling if arrangement changes after sampling has begun
-    if (sampleDenominator > 0 || sampleDots.length > 0) {
-      // remove all dots from the SVG, not just black ones
-      gSamples.innerHTML = '';
-      sampleDots = [];
-      sampleNumerator = 0;
-      sampleDenominator = 0;
-      aucSample.textContent = 'AUC from sampling: 0 / 0 = 0';
-    }
-
-    redrawMatrix();
-    drawOrClearROC();
-  }
-
-  // --- auto arrange ---
   function autoArrange(){
+    gCells.innerHTML=''; // clear all before animation
     const T=2000,start=performance.now();
     const startPos=nodes.filter(n=>n.isPos).map(n=>getCircleCenter(n.shape));
     const startNeg=nodes.filter(n=>!n.isPos).map(n=>getDiamondCenter(n.shape));
-    function animate(t){const u=Math.min((t-start)/T,1),ease=u*(2-u);nodes.forEach(n=>{if(n.isPos){const i=posIdx.indexOf(n.id);if(i<0)return;const[sx,sy]=startPos[i],[tx,ty]=posAnchors[i];setCenter(n,sx+(tx-sx)*ease,sy+(ty-sy)*ease);}else{const i=negIdx.indexOf(n.id);if(i<0)return;const[sx,sy]=startNeg[i],[tx,ty]=negAnchors[i];setCenter(n,sx+(tx-sx)*ease,sy+(ty-sy)*ease);}});if(u<1)requestAnimationFrame(animate);else{posIdx.forEach((id,r)=>{posTaken[r]=id;nodes[id].anchorIndex=r;});negIdx.forEach((id,c)=>{negTaken[c]=id;nodes[id].anchorIndex=c;});try{updateAfterChange();console.log('Auto arrange done, ROC should appear if valid.');}catch(e){console.error('Auto arrange finalization error:',e);}}}
+    function animate(t){
+      const u=Math.min((t-start)/T,1),ease=u*(2-u);
+      nodes.forEach(n=>{
+        if(n.isPos){
+          const i = posIdx.indexOf(n.id);
+          if(i < 0) return;
+          const [sx,sy] = startPos[i], [tx,ty] = posAnchors[i];
+          setCenter(n, sx + (tx - sx) * ease, sy + (ty - sy) * ease);
+        } else {
+          const i = negIdx.indexOf(n.id);
+          if(i < 0) return;
+          const [sx,sy] = startNeg[i], [tx,ty] = negAnchors[i];
+          setCenter(n, sx + (tx - sx) * ease, sy + (ty - sy) * ease);
+        }
+      });
+
+      if (u < 1) {
+        requestAnimationFrame(animate);
+      } else {
+        // Snap into final anchors and record occupancy
+        posIdx.forEach((id, r) => {
+          posTaken[r] = id;
+          nodes[id].anchorIndex = r;
+          const [tx,ty] = posAnchors[r];
+          setCenter(nodes[id], tx, ty);
+        });
+        negIdx.forEach((id, c) => {
+          negTaken[c] = id;
+          nodes[id].anchorIndex = c;
+          const [tx,ty] = negAnchors[c];
+          setCenter(nodes[id], tx, ty);
+        });
+
+        // Recompute grid & ROC
+        updateAfterChange();
+        console.log('Auto arrange complete.');
+      }
+    }
+
     requestAnimationFrame(animate);
   }
 
-  // --- random sampling ---
-  let sampleNumerator=0,sampleDenominator=0,sampleDots=[];
-  function randomSample(){sampleDots.forEach(dot=>dot.setAttribute('fill','#ccc'));const r=Math.floor(Math.random()*n_pos),c=Math.floor(Math.random()*n_neg),cx=margin+c*cellW+Math.random()*cellW,cy=margin+(n_pos-1-r)*cellH+Math.random()*cellH;const dot=mk('circle',{cx,cy,r:4,fill:'black'});gSamples.appendChild(dot);sampleDots=[dot];const posId=posTaken[r],negId=negTaken[c];if(posId==null||negId==null)return;const v=(1+Math.sign(nodes[posId].score-nodes[negId].score))/2;sampleDenominator++;if(v===1)sampleNumerator++;else if(v===0.5)sampleNumerator+=0.5;aucSample.textContent=`AUC from sampling: ${sampleNumerator.toFixed(1)} / ${sampleDenominator} = ${(sampleNumerator/sampleDenominator).toFixed(4)}`;}
+  // --- Wire controls ---
+  document.getElementById('randomBtn').addEventListener('click', randomSample);
+  document.getElementById('autoArrangeBtn').addEventListener('click', autoArrange);
 
-  // --- wire buttons ---
-  document.getElementById('randomBtn').addEventListener('click',randomSample);
-  document.getElementById('autoArrangeBtn').addEventListener('click',autoArrange);
+  // --- Initial render ---
+  try {
+    redrawMatrix();
+    console.log('App initialized successfully.');
+  } catch (e) {
+    console.error('Initial draw failed:', e);
+  }
 
-  try{redrawMatrix();}catch(e){console.error('Initial draw failed:',e);}
 })();
 });
-
-
 </script>
 </body>
 </html>
