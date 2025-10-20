@@ -1,6 +1,55 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<!--
+
+This interactive AUC Probability App demonstrates how the Area Under the ROC Curve (AUC) relates to probabilistic comparisons between positive and negative cases.
+
+This visualization is intended to help you understand the probabilistic interpretation the area under an ROC curve (AUC).
+
+The AUC represents the probability that a randomly chosen positive case scores higher than a randomly chosen negative case.
+
+The colored circles and diamonds represent a **test set** — a collection of data points that are used evaluating a scoring system separates the positive cases from the negative cases. 
+In an AI context, scores are usually predictions by a machine learning classifier. 
+Each point has a known true label (positive or negative) and an associated score or predicted probability of being positive. 
+Here the positive cases are green circles and the negative cases are red diamonds.
+By comparing these scores, we can assess how well the model separates positive from negative cases.
+
+You can manually arrange the data points by dragging them.
+The background of the image is a matrix with one row for each positive case and one column for each negative case.
+Note that each row has a dashed gray circle at its left side; this is a placeholder for a green circle (positive data point).
+Similarly, each column has a dashed grey diamond shape below it, which is a placeholder for a negative data point.
+Once you have assigned every positive case to a row and every negative case to a column, the colors of the cells in the matrix can be filled in.
+If the score of the positive data point is greater thatn the score of the negative data point, the cell will be pale yellow.
+If the score of the negative data point is greater, the cell will be red.
+If the scores are tied, the cell will be orange.
+
+When all the positive data points are dragged to rowa and all the negative ones are dragged to columns, the entire matrix will be colored in and every positive example will have been compared to every negative example.
+This is true no matter what order the data points on the rows and columns are in.
+Now we ca think about the area in the matrix as probabilities.
+If we randomly pick a point on the matrix, it will be in some row and some column. In other words, randomly chosing a point in the matrix gives us a randomly chosen row and column.
+The proportion of the matrix that is colored light yellow is equal to the probaability that if we choose a row and column at random, the row score will be higher than the column score. 
+If we give half credit for the orange cells, this is the probability that the positive score will be greater or equal to the negative score.
+  
+Something very interesting happens if we arrange the data points on the rows and column so that their scores are in order (by convention, we put the higher scoring positive cases on the bottom and the higher scoring negative cases on the left.)
+This puts the pale yellow cells in a contiguous region (toward the lower right), and the red cells in a contiguous region (toward the upper left). Any orange cells will be along the border.
+Now if we trace the border between the yellow and red regions, cutting diagonally across any orange regions, we get an ROC curve exactly.
+The Auto Arrange button in the app puts them all in the right order automatically, but you can do it manually if you like.
+The blue ROC curve will be superimposed over the matrix once you have all the data points in order.
+
+How to Use:
+
+1. **Manual Dragging** – You can drag the shapes (green circles = positives, red diamonds = negatives) to rearrange them manually.
+2. **Auto Arrange** – Click this button to automatically position positive and negative samples into their appropriate anchors.
+3. **AUC Display** – The colored grid shows pairwise comparisons:
+   - Yellow = positive score > negative score
+   - Orange = tie
+   - Red = negative score > positive score
+   The AUC value updates automatically.
+4. **Sampling** – Once all anchors are filled and sorted, the app displays a “Random Sample” button that lets you simulate random AUC sampling events.
+5. **ROC Ready** – When all anchors are filled and sorted correctly, a ROC curve appears, and the app reports that it’s ready.
+
+-->
 <meta charset="UTF-8" />
 <title>Probabilistic ROC Sampling — Instant Clear Edition</title>
 <style>
