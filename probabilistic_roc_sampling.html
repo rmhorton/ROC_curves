@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>Probabilistic View of AUC – Interactive ROC App (Animated Auto‑Arrange)</title>
+<title>Probabilistic View of AUC – Interactive ROC App</title>
 <style>
   :root { --w: 900px; --matrix-h: 520px; --scatter-h: 180px; }
   body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; margin: 18px; background: #f9fafb; color: #111827; user-select: none; }
@@ -36,12 +36,17 @@
   <div id="aucDisplay">AUC estimate: — (0 pts)</div>
 </div>
 <div id="legend-container"><svg id="legendSVG" width="500" height="160"></svg></div>
+
 <script>
 document.addEventListener('DOMContentLoaded', () => {
 (function(){
-  // === Constants & helpers ===
+  // ----------------- Constants & helpers -----------------
   const W=900, matrixH=520, scatterH=180, margin=48, innerW=W-2*margin;
-  const posColor="#2ca02c", negColor="#d62728", palePos="#c7f0c7", paleNeg="#f7b3b3";
+  const posColor="#2ca02c", negColor="#d62728";        // shapes
+  const palePos="#c7f0c7", paleNeg="#f7b3b3";          // anchor outlines
+  const labelPos = "Positive Cases";                     // translatable
+  const labelNeg = "Negative Cases";                     // translatable
+
   const scatter=document.getElementById('scatterSVG');
   const matrix=document.getElementById('matrixSVG');
   const overlay=document.getElementById('dragOverlay');
@@ -52,140 +57,269 @@ document.addEventListener('DOMContentLoaded', () => {
   const legend=document.getElementById('legendSVG');
   const controls=document.getElementById('controls');
 
+  // dataset (20 items, 10 pos / 10 neg)
   const scores=[20,19,18,17,16,15,14,13,11.5,11.5,10,9,8,7,6,5,4,3,2,1];
   const labels=[1,1,1,1,0,1,1,0,1,0,1,0,1,0,0,1,0,0,0,0];
   const n=scores.length, nPos=labels.filter(x=>x===1).length, nNeg=labels.filter(x=>x===0).length;
   const scoreMin=Math.min(...scores), scoreMax=Math.max(...scores);
   const scaleX=s=>margin+(s-scoreMin)/(scoreMax-scoreMin)*(innerW-40);
-  const gridW=innerW-32, gridH=matrixH-120; // leave space for labels/anchors
+  const gridW=innerW-32, gridH=matrixH-120;
   const cellW=gridW/nNeg, cellH=gridH/nPos;
+
   const mk=(t,a={})=>{const e=document.createElementNS('http://www.w3.org/2000/svg',t);for(const k in a)e.setAttribute(k,a[k]);return e;};
   const diamond=(x,y,r)=>`${x},${y-r} ${x+r},${y} ${x},${y+r} ${x-r},${y}`;
-  const setC=(n,x,y)=>{ if(n.isPos){ n.shape.setAttribute('cx',x); n.shape.setAttribute('cy',y); } else { n.shape.setAttribute('points',diamond(x,y,10)); } n.label.setAttribute('x',x); n.label.setAttribute('y',y); };
+  const SHAPE_R=10;           // circle radius
+  const DIAMOND_R=12;         // diamond pseudo-radius (gives similar area)
+  const setC=(n,x,y)=>{ if(n.isPos){ n.shape.setAttribute('cx',x); n.shape.setAttribute('cy',y); n.shape.setAttribute('r',SHAPE_R);} else { n.shape.setAttribute('points',diamond(x,y,DIAMOND_R)); } n.label.setAttribute('x',x); n.label.setAttribute('y',y); };
 
-  // === Scatter (top) ===
+  // ----------------- Scatterplot (anchors + labels) -----------------
   const scatterTop=60, scatterBot=120;
-  scatter.appendChild(mk('text',{x:12,y:32,'text-anchor':'start'})).textContent='Scatter of Scores (x)';
-  scatter.appendChild(mk('text',{x:12,y:scatterTop-14,'text-anchor':'start'})).textContent='Positive';
-  scatter.appendChild(mk('text',{x:12,y:scatterBot-14,'text-anchor':'start'})).textContent='Negative';
+  scatter.appendChild(mk('text',{x:W/2,y:20,'text-anchor':'middle','font-weight':'600'})).textContent='Scatterplot of Scores';
+  // x-axis label
+  scatter.appendChild(mk('text',{x:W/2,y:scatterH-5,'text-anchor':'middle','font-weight':'500'})).textContent='Score';
+  // category labels
+  scatter.appendChild(mk('text',{x:margin,y:scatterTop-20,'text-anchor':'start','font-weight':'500'})).textContent=labelPos;
+  scatter.appendChild(mk('text',{x:margin,y:scatterBot+25,'text-anchor':'start','font-weight':'500'})).textContent=labelNeg;
 
-  const scatterAnchors=[], posAnch=[], negAnch=[];
+  const scatterAnchors=[];
   for(let i=0;i<n;i++){
     const x=scaleX(scores[i]); const y=labels[i]?scatterTop:scatterBot;
+    // thicker outlines (stroke-width 4), no fill
     const a=labels[i]
-      ? mk('circle',{cx:x,cy:y,r:10,fill:palePos,stroke:'#444','stroke-dasharray':'2 2'})
-      : mk('polygon',{points:diamond(x,y,10),fill:paleNeg,stroke:'#444','stroke-dasharray':'2 2'});
-    scatter.appendChild(a);
-    scatterAnchors.push({x,y,isPos:!!labels[i],svg:scatter});
+      ? mk('circle',{cx:x,cy:y,r:SHAPE_R,fill:'none',stroke:palePos,'stroke-width':'4','stroke-dasharray':'2 2'})
+      : mk('polygon',{points:diamond(x,y,DIAMOND_R),fill:'none',stroke:paleNeg,'stroke-width':'4','stroke-dasharray':'2 2'});
+    scatter.appendChild(a); scatterAnchors.push({x,y,isPos:!!labels[i],svg:scatter});
   }
 
-  // === Matrix (bottom) ===
-  // Axis labels outside anchors
-  matrix.appendChild(mk('text',{x:W/2,y:12,'text-anchor':'middle','font-weight':'600'})).textContent='Negative Cases';
-  const rightLabelX = margin + gridW + 56;
-  matrix.appendChild(mk('text',{x:rightLabelX,y:matrixH/2,transform:`rotate(-90 ${rightLabelX},${matrixH/2})`,'text-anchor':'middle','font-weight':'600'})).textContent='Positive Cases';
+  // ----------------- Matrix (grid + anchors + axis labels) -----------------
+  matrix.appendChild(mk('text',{x:W/2,y:20,'text-anchor':'middle','font-weight':'600'})).textContent=labelNeg;
+  const labelRightX = margin + gridW + 60;
+  matrix.appendChild(mk('text',{x:labelRightX,y:matrixH/2,transform:`rotate(-90 ${labelRightX},${matrixH/2})`,'text-anchor':'middle','font-weight':'600'})).textContent=labelPos;
 
-  // Base grid group
-  const gridBase = mk('g',{id:'gridBase'}); matrix.appendChild(gridBase);
+  const posAnch=[], negAnch=[];
   for(let r=0;r<nPos;r++){
-    for(let c=0;c<nNeg;c++){
-      gridBase.appendChild(mk('rect',{
-        x:margin+c*cellW, y:margin+(nPos-r-1)*cellH, width:cellW, height:cellH,
-        fill:'#ffffff', stroke:'#e5e7eb'
-      }));
-    }
-  }
-
-  // Matrix anchors (pale)
-  for(let r=0;r<nPos;r++){
-    const y = margin + (nPos-r-0.5)*cellH; const x = margin + gridW + 28;
-    matrix.appendChild(mk('circle',{cx:x,cy:y,r:10,fill:palePos,stroke:'#444','stroke-dasharray':'2 2'}));
+    const y=margin+(nPos-r-0.5)*cellH; const x=margin+gridW+28;
+    matrix.appendChild(mk('circle',{cx:x,cy:y,r:SHAPE_R,fill:'none',stroke:palePos,'stroke-width':'4','stroke-dasharray':'2 2'}));
     posAnch.push({x,y,svg:matrix,occupied:null,isPos:true});
   }
   for(let c=0;c<nNeg;c++){
-    const x = margin + (c+0.5)*cellW; const y = margin - 8;
-    matrix.appendChild(mk('polygon',{points:diamond(x,y,10),fill:paleNeg,stroke:'#444','stroke-dasharray':'2 2'}));
+    const x=margin+(c+0.5)*cellW; const y=margin-8;
+    matrix.appendChild(mk('polygon',{points:diamond(x,y,DIAMOND_R),fill:'none',stroke:paleNeg,'stroke-width':'4','stroke-dasharray':'2 2'}));
     negAnch.push({x,y,svg:matrix,occupied:null,isPos:false});
   }
+  // grid background
+  for(let r=0;r<nPos;r++){
+    for(let c=0;c<nNeg;c++){
+      matrix.appendChild(mk('rect',{x:margin+c*cellW,y:margin+(nPos-r-1)*cellH,width:cellW,height:cellH,fill:'#fff',stroke:'#e5e7eb'}));
+    }
+  }
 
-  // Layers for colored cells, ROC, samples
-  const cellLayer = mk('g',{id:'cellLayer'}); matrix.appendChild(cellLayer);
-  const rocPath = mk('path',{stroke:'#0077ff','stroke-width':'2',fill:'none',visibility:'hidden'});
-  const rocPoints = mk('g',{id:'rocPoints',visibility:'hidden'});
-  matrix.appendChild(rocPath); matrix.appendChild(rocPoints);
-  const samplesOld=mk('g',{id:'samplesOld'}); const samplesNew=mk('g',{id:'samplesNew'});
-  matrix.appendChild(samplesOld); matrix.appendChild(samplesNew);
-
-  // Legend
+  // ----------------- Legend -----------------
   const entries=[
     {color:'#ffff66',text:'Positive > Negative (yellow)'},
     {color:'#ff3333',text:'Positive < Negative (red)'},
     {color:'#ff9900',text:'Tie (orange)'},
     {color:'#0077ff',text:'ROC curve (blue)'}
   ];
-  entries.forEach((e,i)=>{ const y=20+i*26; legend.appendChild(mk('rect',{x:20,y:y,width:14,height:14,fill:e.color,stroke:'#111'})); legend.appendChild(mk('text',{x:40,y:y+11})).textContent=e.text; });
+  entries.forEach((e,i)=>{
+    const y=20+i*26;
+    legend.appendChild(mk('rect',{x:20,y, width:14,height:14,fill:e.color,stroke:'#111'}));
+    legend.appendChild(mk('text',{x:40,y:y+11})).textContent=e.text;
+  });
 
-  // Nodes (draggables)
+  // ----------------- Draggable nodes (cases) -----------------
   const nodes=[];
   for(let i=0;i<n;i++){
     const x=scaleX(scores[i]), y=labels[i]?scatterTop:scatterBot;
     const shape = labels[i]
-      ? mk('circle',{cx:x,cy:y,r:10,fill:posColor,stroke:'#222'})
-      : mk('polygon',{points:diamond(x,y,10),fill:negColor,stroke:'#222'});
-    const lbl = mk('text',{x,y,'text-anchor':'middle','dominant-baseline':'central','font-size':'11',fill:'#fff'});
+      ? mk('circle',{cx:x,cy:y,r:SHAPE_R,fill:posColor,stroke:'#222'})
+      : mk('polygon',{points:diamond(x,y,DIAMOND_R),fill:negColor,stroke:'#222'});
+    const lbl=mk('text',{x,y,'text-anchor':'middle','dominant-baseline':'central','font-size':'11',fill:'#fff'});
     lbl.textContent=scores[i];
-    scatter.appendChild(shape); scatter.appendChild(lbl);
-    nodes.push({id:i,isPos:!!labels[i],score:scores[i],shape,label:lbl,home:{x,y,svg:scatter},currentSVG:scatter});
+    scatter.append(shape,lbl);
+    nodes.push({isPos:!!labels[i],score:scores[i],shape,label:lbl,home:{x,y,svg:scatter},currentSVG:scatter});
   }
 
-  // === AUC (sampling) state ===
+  // layers for cell coloring, ROC, and sampling
+  const cellLayer=mk('g',{}); matrix.appendChild(cellLayer);
+  const rocPath=mk('path',{stroke:'#0077ff','stroke-width':'2',fill:'none',visibility:'hidden'});
+  const rocPoints=mk('g',{visibility:'hidden'});
+  matrix.append(rocPath,rocPoints);
+  const samplesOld=mk('g',{}), samplesNew=mk('g',{});
+  matrix.append(samplesOld,samplesNew);
+
+  // ----------------- AUC helpers -----------------
   let cumY=0,cumR=0,cumO=0;
-  function totalCum(){return cumY+cumR+cumO;}
-  function resetSamples(){ cumY=cumR=cumO=0; samplesOld.innerHTML=''; samplesNew.innerHTML=''; }
-  function updateAUCDisplay(){ const tot=totalCum(); if(tot>0){ const auc=(cumY+0.5*cumO)/tot; const calc=calcMatrixAUC(); const left=calc!==null?`AUC (calculated): ${calc.toFixed(3)}`:`AUC (calculated): —`; aucDisplay.textContent=`${left} | AUC (sampling): ${auc.toFixed(3)} (${tot} pts)`; } }
+  function resetSamples(){cumY=cumR=cumO=0;samplesOld.innerHTML='';samplesNew.innerHTML='';}
+  function calcMatrixAUC(){
+    const rects=cellLayer.querySelectorAll('rect');
+    let y=0,o=0,r=0;
+    rects.forEach(c=>{
+      const f=c.getAttribute('fill');
+      if(f==='#ffff66')y++; else if(f==='#ff3333')r++; else if(f==='#ff9900')o++;
+    });
+    const tot=y+o+r; return tot>0?(y+0.5*o)/tot:null;
+  }
+  function updateAUCDisplay(){
+    const tot=cumY+cumO+cumR;
+    if(tot>0){
+      const auc=(cumY+0.5*cumO)/tot;
+      const calc=calcMatrixAUC();
+      aucDisplay.textContent=`AUC (calc): ${calc?.toFixed(3)||'—'} | AUC (sample): ${auc.toFixed(3)} (${tot} pts)`;
+    }
+  }
 
-  function calcMatrixAUC(){ const cells=cellLayer.querySelectorAll('rect'); let y=0,o=0,r=0; cells.forEach(c=>{ const f=c.getAttribute('fill'); if(f==='#ffff66')y++; else if(f==='#ff3333')r++; else if(f==='#ff9900')o++; }); const tot=y+o+r; return tot>0?(y+0.5*o)/tot:null; }
+  // ----------------- ROC helpers -----------------
+  function inProperOrder(){
+    const ps=posAnch.map(a=>a.occupied?a.occupied.score:null);
+    const ns=negAnch.map(a=>a.occupied?a.occupied.score:null);
+    if(ps.some(v=>v===null) || ns.some(v=>v===null)) return false;
+    for(let i=1;i<ps.length;i++){ if(ps[i]>ps[i-1]) return false; }
+    for(let i=1;i<ns.length;i++){ if(ns[i]>ns[i-1]) return false; }
+    return true;
+  }
+  function drawROC(){
+    if(!inProperOrder()){ rocPath.setAttribute('visibility','hidden'); rocPoints.setAttribute('visibility','hidden'); return; }
+    const posScores=posAnch.map(a=>a.occupied.score);
+    const negScores=negAnch.map(a=>a.occupied.score);
+    const pts=[[0,0]];
+    let currY=0;
+    for(let c=0;c<negScores.length;c++){
+      const sN=negScores[c];
+      let gt=0,eq=0;
+      for(let r=0;r<posScores.length;r++){
+        if(posScores[r]>sN) gt++; else if(posScores[r]===sN) eq++;
+      }
+      if(pts[pts.length-1][0]!==c || pts[pts.length-1][1]!==gt) pts.push([c,gt]);
+      pts.push([c+1,gt+eq]);
+      currY=gt+eq;
+    }
+    if(currY!==posScores.length) pts.push([negScores.length,posScores.length]);
+    const toXY=([gx,gy])=>[margin+gx*cellW, margin+(nPos-gy)*cellH];
+    const svgPts=pts.map(toXY);
+    rocPath.setAttribute('d', svgPts.map((p,i)=> i?`L${p[0]},${p[1]}`:`M${p[0]},${p[1]}`).join(' '));
+    rocPath.setAttribute('visibility','visible');
+    rocPoints.innerHTML='';
+    svgPts.forEach(p=> rocPoints.appendChild(mk('circle',{cx:p[0],cy:p[1],r:2,fill:'#0077ff'})) );
+  }
 
-  function inProperOrder(){ const ps=posAnch.map(a=>a.occupied?a.occupied.score:null); const ns=negAnch.map(a=>a.occupied?a.occupied.score:null); if(ps.some(v=>v===null)||ns.some(v=>v===null)) return false; for(let i=1;i<ps.length;i++){ if(ps[i]>ps[i-1]) return false; } for(let i=1;i<ns.length;i++){ if(ns[i]>ns[i-1]) return false; } return true; }
+  // ----------------- Cell coloring -----------------
+  function updateColors(){
+    cellLayer.innerHTML='';
+    rocPath.setAttribute('visibility','hidden');
+    rocPoints.setAttribute('visibility','hidden');
+    let filled=0;
+    for(let r=0;r<nPos;r++){
+      const p=posAnch[r].occupied; if(!p) continue;
+      for(let c=0;c<nNeg;c++){
+        const ng=negAnch[c].occupied; if(!ng) continue;
+        filled++;
+        let fill='#ff9900';
+        if(p.score>ng.score) fill='#ffff66'; else if(p.score<ng.score) fill='#ff3333';
+        cellLayer.appendChild(mk('rect',{
+          x:margin+c*cellW,
+          y:margin+(nPos-r-1)*cellH,
+          width:cellW,
+          height:cellH,
+          fill,
+          stroke:'#ccc'
+        }));
+      }
+    }
+    if(filled===nPos*nNeg){
+      controls.style.display='block';
+      const auc=calcMatrixAUC();
+      aucDisplay.textContent=`AUC (calc): ${auc.toFixed(3)} | AUC (sample): — (0 pts)`;
+      drawROC();
+    } else {
+      controls.style.display='none';
+      aucDisplay.textContent='AUC estimate: — (0 pts)';
+      resetSamples();
+    }
+  }
 
-  function drawROC(){ if(!inProperOrder()){ rocPath.setAttribute('visibility','hidden'); rocPoints.setAttribute('visibility','hidden'); return; } const posScores=posAnch.map(a=>a.occupied.score); const negScores=negAnch.map(a=>a.occupied.score); const pts=[[0,0]]; let currY=0; for(let c=0;c<negScores.length;c++){ const sN=negScores[c]; let gt=0,eq=0; for(let r=0;r<posScores.length;r++){ if(posScores[r]>sN) gt++; else if(posScores[r]===sN) eq++; } if(pts[pts.length-1][0]!==c||pts[pts.length-1][1]!==gt) pts.push([c,gt]); pts.push([c+1,gt+eq]); currY=gt+eq; } if(currY!==posScores.length) pts.push([negScores.length,posScores.length]); const toXY=([gx,gy])=>[margin+gx*cellW, margin+(nPos-gy)*cellH]; const svgPts=pts.map(toXY); const d=svgPts.map((p,i)=> i===0?`M${p[0]},${p[1]}`:`L${p[0]},${p[1]}`).join(' '); rocPath.setAttribute('d',d); rocPath.setAttribute('visibility','visible'); rocPoints.innerHTML=''; svgPts.forEach(p=>rocPoints.appendChild(mk('circle',{cx:p[0],cy:p[1],r:2,fill:'#0077ff'}))); }
-
-  // === Coloring ===
-  function updateColors(){ cellLayer.innerHTML=''; rocPath.setAttribute('visibility','hidden'); rocPoints.setAttribute('visibility','hidden'); let filled=0; for(let r=0;r<nPos;r++){ const p=posAnch[r].occupied; if(!p) continue; for(let c=0;c<nNeg;c++){ const ng=negAnch[c].occupied; if(!ng) continue; filled++; let fill='#ff9900'; if(p.score>ng.score) fill='#ffff66'; else if(p.score<ng.score) fill='#ff3333'; cellLayer.appendChild(mk('rect',{ x:margin+c*cellW, y:margin+(nPos-r-1)*cellH, width:cellW, height:cellH, fill:fill, stroke:'#ccc', 'class':'cell'})); } }
-    if(filled===nPos*nNeg){ controls.style.display='block'; const aucCalc=calcMatrixAUC(); if(aucCalc!==null){ aucDisplay.textContent=`AUC (calculated): ${aucCalc.toFixed(3)} | AUC (sampling): — (0 pts)`; drawROC(); } } else { controls.style.display='none'; aucDisplay.textContent='AUC estimate: — (0 pts)'; resetSamples(); } }
-
-  // === Drag & drop across SVGs ===
+  // ----------------- Drag & drop across SVGs -----------------
   let drag=null;
-  document.addEventListener('mousedown',e=>{ const n=nodes.find(n=>n.shape===e.target); if(!n) return; drag=n; overlay.append(n.shape,n.label); n.currentSVG=overlay; e.preventDefault(); });
-  document.addEventListener('mousemove',e=>{ if(!drag) return; const pt=overlay.createSVGPoint(); pt.x=e.clientX; pt.y=e.clientY; const p=pt.matrixTransform(overlay.getScreenCTM().inverse()); setC(drag,p.x,p.y); });
-  document.addEventListener('mouseup',e=>{ if(!drag) return; const cx=e.clientX, cy=e.clientY; posAnch.forEach(a=>a.occupied===drag&&(a.occupied=null)); negAnch.forEach(a=>a.occupied===drag&&(a.occupied=null)); const rectS=scatter.getBoundingClientRect(); const inS=cx>=rectS.left&&cx<=rectS.right&&cy>=rectS.top&&cy<=rectS.bottom; const anchors=[...posAnch,...negAnch]; let best={d:1e9,a:null}; anchors.forEach(a=>{ const p=a.svg.createSVGPoint(); p.x=a.x; p.y=a.y; const sc=p.matrixTransform(a.svg.getScreenCTM()); const d=Math.hypot(sc.x-cx,sc.y-cy); if(d<best.d) best={d,a}; }); const t=best.a, near=best.d<40; let tSVG=drag.home.svg, to={x:drag.home.x,y:drag.home.y}; if(!inS&&near&&t&&((drag.isPos&&t.isPos)||(!drag.isPos&&!t.isPos))){ t.occupied=drag; tSVG=t.svg; to={x:t.x,y:t.y}; } tSVG.append(drag.shape,drag.label); drag.currentSVG=tSVG; setC(drag,to.x,to.y); updateColors(); drag=null; });
-
-  // === Auto arrange with animation ===
-  function animateTo(n, destSVG, x2, y2, dur=700){
-    // get current screen coords
-    const bboxPt=(el)=>{ const pt=(destSVG||overlay).createSVGPoint(); const m=el.getScreenCTM(); return {x:m.e,y:m.f}; };
-    // move shape+label to overlay for cross-SVG animation
+  document.addEventListener('mousedown',e=>{
+    const n=nodes.find(n=>n.shape===e.target);
+    if(!n) return;
+    drag=n;
     overlay.append(n.shape,n.label);
-    const start = overlay.createSVGPoint();
-    if(n.isPos){ start.x = parseFloat(n.shape.getAttribute('cx')); start.y = parseFloat(n.shape.getAttribute('cy')); }
-    else { const p0=n.shape.getAttribute('points').split(' ')[0].split(','); start.x=parseFloat(p0[0]); start.y=parseFloat(p0[1]); }
+    n.currentSVG=overlay;
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove',e=>{
+    if(!drag) return;
+    const pt=overlay.createSVGPoint(); pt.x=e.clientX; pt.y=e.clientY;
+    const p=pt.matrixTransform(overlay.getScreenCTM().inverse());
+    setC(drag,p.x,p.y);
+  });
+  document.addEventListener('mouseup',e=>{
+    if(!drag) return;
+    const cx=e.clientX, cy=e.clientY;
+    // clear any prior occupancy by this node
+    posAnch.forEach(a=>a.occupied===drag&&(a.occupied=null));
+    negAnch.forEach(a=>a.occupied===drag&&(a.occupied=null));
+
+    const rectS=scatter.getBoundingClientRect();
+    const inScatter = cx>=rectS.left && cx<=rectS.right && cy>=rectS.top && cy<=rectS.bottom;
+
+    // nearest anchor in screen space
+    const anchors=[...posAnch,...negAnch];
+    let best={d:1e9,a:null};
+    anchors.forEach(a=>{
+      const p=a.svg.createSVGPoint(); p.x=a.x; p.y=a.y;
+      const sc=p.matrixTransform(a.svg.getScreenCTM());
+      const d=Math.hypot(sc.x-cx, sc.y-cy);
+      if(d<best.d) best={d,a};
+    });
+
+    const t=best.a, near=best.d<40;
+    let targetSVG=drag.home.svg, to={x:drag.home.x, y:drag.home.y};
+    if(!inScatter && near && t && ((drag.isPos&&t.isPos)||(!drag.isPos&&!t.isPos))){
+      t.occupied=drag; targetSVG=t.svg; to={x:t.x,y:t.y};
+    }
+    targetSVG.append(drag.shape,drag.label);
+    drag.currentSVG=targetSVG; setC(drag,to.x,to.y);
+    updateColors();
+    drag=null;
+  });
+
+  // ----------------- Smooth auto-arrange animation -----------------
+  function animateTo(n,destSVG,x2,y2,dur=800){
+    // start (screen)
+    const startBox=n.shape.getBoundingClientRect();
+    const start={x:startBox.left+startBox.width/2, y:startBox.top+startBox.height/2};
+    // dest (screen)
+    const pt=destSVG.createSVGPoint(); pt.x=x2; pt.y=y2;
+    const dest=pt.matrixTransform(destSVG.getScreenCTM());
+    // animate in overlay
+    overlay.append(n.shape,n.label);
     const t0=performance.now();
-    function step(t){ const f=Math.min((t-t0)/dur,1); const nx=start.x+(x2-start.x)*f; const ny=start.y+(y2-start.y)*f; setC(n,nx,ny); if(f<1) requestAnimationFrame(step); else { destSVG.append(n.shape,n.label); setC(n,x2,y2); updateColors(); } }
+    function step(t){
+      const f=Math.min((t-t0)/dur,1);
+      const sx=start.x+(dest.x-start.x)*f;
+      const sy=start.y+(dest.y-start.y)*f;
+      const p=overlay.createSVGPoint(); p.x=sx; p.y=sy;
+      const local=p.matrixTransform(overlay.getScreenCTM().inverse());
+      setC(n,local.x,local.y);
+      if(f<1){ requestAnimationFrame(step); }
+      else { destSVG.append(n.shape,n.label); setC(n,x2,y2); updateColors(); }
+    }
     requestAnimationFrame(step);
   }
 
   autoBtn.onclick=()=>{
-    // clear previous occupancy
     posAnch.forEach(a=>a.occupied=null); negAnch.forEach(a=>a.occupied=null);
-    const p=nodes.filter(n=>n.isPos).sort((a,b)=>b.score-a.score);
-    const nL=nodes.filter(n=>!n.isPos).sort((a,b)=>b.score-a.score);
-    p.forEach((nd,i)=>{ posAnch[i].occupied=nd; animateTo(nd, matrix, posAnch[i].x, posAnch[i].y, 800); nd.currentSVG=matrix; });
-    nL.forEach((nd,i)=>{ negAnch[i].occupied=nd; animateTo(nd, matrix, negAnch[i].x, negAnch[i].y, 800); nd.currentSVG=matrix; });
+    const posNodes=nodes.filter(n=>n.isPos).sort((a,b)=>b.score-a.score);
+    const negNodes=nodes.filter(n=>!n.isPos).sort((a,b)=>b.score-a.score);
+    posNodes.forEach((nd,i)=>{ const t=posAnch[i]; t.occupied=nd; animateTo(nd,matrix,t.x,t.y,800); nd.currentSVG=matrix; });
+    negNodes.forEach((nd,i)=>{ const t=negAnch[i]; t.occupied=nd; animateTo(nd,matrix,t.x,t.y,800); nd.currentSVG=matrix; });
   };
 
-  // === Random sampling ===
+  // ----------------- Random sampling -----------------
   randBtn.onclick=()=>{
-    // turn previous batch grey
+    // grey previous batch
     [...samplesNew.childNodes].forEach(node=>{ if(node.setAttribute){ node.setAttribute('fill','#777'); node.setAttribute('opacity','0.5'); samplesOld.appendChild(node); } });
     const N=parseInt(sampleSel.value,10);
     for(let i=0;i<N;i++){
@@ -193,10 +327,17 @@ document.addEventListener('DOMContentLoaded', () => {
       const ry=margin+Math.random()*(cellH*nPos);
       const col=Math.floor((rx-margin)/cellW);
       const row=nPos-1-Math.floor((ry-margin)/cellH);
-      if(col>=0&&col<nNeg&&row>=0&&row<nPos){ const p=posAnch[row].occupied, ng=negAnch[col].occupied; if(p&&ng){ if(p.score>ng.score) cumY++; else if(p.score<ng.score) cumR++; else cumO++; samplesNew.appendChild(mk('circle',{cx:rx,cy:ry,r:2,fill:'#000',opacity:0.9})); } }
+      if(col>=0&&col<nNeg&&row>=0&&row<nPos){
+        const p=posAnch[row].occupied, ng=negAnch[col].occupied;
+        if(p&&ng){
+          if(p.score>ng.score) cumY++; else if(p.score<ng.score) cumR++; else cumO++;
+          samplesNew.appendChild(mk('circle',{cx:rx,cy:ry,r:2,fill:'#000',opacity:'0.9'}));
+        }
+      }
     }
     updateAUCDisplay();
   };
+
 })();
 });
 </script>
