@@ -140,6 +140,7 @@ function setC(n,x,y){
 }
 
 // ==================== Builder ====================
+
 function buildVisualization(scores, labels){
   const n = scores.length;
   const nPos = labels.filter(x=>x===1).length;
@@ -185,28 +186,44 @@ function buildVisualization(scores, labels){
   scatter.appendChild(mk('text',{x:margin,y:scatterTop-20,'text-anchor':'start','font-weight':'500'})).textContent=STRINGS.labelPos;
   scatter.appendChild(mk('text',{x:margin,y:scatterBot+25,'text-anchor':'start','font-weight':'500'})).textContent=STRINGS.labelNeg;
 
-  // Ghost anchors
-  for(let i=0;i<n;i++){
-    const x=scaleX(scores[i]); const y=labels[i]?scatterTop:scatterBot;
-    const ghost = labels[i]
-      ? mk('circle',{cx:x,cy:y,r:SHAPE_R,fill:'none',stroke:palePos,'stroke-width':'4','stroke-dasharray':'2 2'})
-      : mk('polygon',{points:diamondPoints(x,y,DIAMOND_R),fill:'none',stroke:paleNeg,'stroke-width':'4','stroke-dasharray':'2 2'});
-    scatter.appendChild(ghost);
-  }
+  // Detect duplicate scores
+  const posGroups={}, negGroups={};
+  scores.forEach((s,i)=>{
+    if(labels[i]){ if(!posGroups[s])posGroups[s]=[]; posGroups[s].push(i); }
+    else{ if(!negGroups[s])negGroups[s]=[]; negGroups[s].push(i); }
+  });
 
-  // Actual nodes
   nodes=[]; posAnch=[]; negAnch=[];
   for(let i=0;i<n;i++){
-    const x=scaleX(scores[i]); const y=labels[i]?scatterTop:scatterBot;
-    const shape=labels[i]
+    const score=scores[i];
+    const isPos=!!labels[i];
+    const x=scaleX(score);
+    const baseY=isPos?scatterTop:scatterBot;
+    const group=isPos?posGroups[score]:negGroups[score];
+    let offset=0;
+    if(group && group.length>1){
+      const idx=group.indexOf(i);
+      const spacing=4, center=(group.length-1)/2;
+      offset=(idx-center)*spacing;
+    }
+    const y=baseY+offset;
+
+    // Create dashed anchor
+    const anchor=isPos
+      ? mk('circle',{cx:x,cy:y,r:SHAPE_R,fill:'none',stroke:palePos,'stroke-width':'4','stroke-dasharray':'2 2'})
+      : mk('polygon',{points:diamondPoints(x,y,DIAMOND_R),fill:'none',stroke:paleNeg,'stroke-width':'4','stroke-dasharray':'2 2'});
+    scatter.appendChild(anchor);
+
+    // Create draggable shape
+    const shape=isPos
       ? mk('circle',{cx:x,cy:y,r:SHAPE_R,fill:posColor,stroke:'#222'})
       : mk('polygon',{points:diamondPoints(x,y,DIAMOND_R),fill:negColor,stroke:'#222'});
     const lbl=mk('text',{x,y,'text-anchor':'middle','dominant-baseline':'central','font-size':'11',fill:'#fff'});
-    lbl.textContent=scores[i];
+    lbl.textContent=score;
     scatter.append(shape,lbl);
-    nodes.push({isPos:!!labels[i],score:scores[i],shape,label:lbl,home:{x,y,svg:scatter},currentSVG:scatter});
-  }
 
+    nodes.push({isPos,score,shape,label:lbl,anchor,home:{x,y,svg:scatter},currentSVG:scatter});
+  }
   // ---------- Matrix ----------
   const gridW=innerW-32, gridH=matrixH-120;
   const cellW=gridW/nNeg, cellH=gridH/nPos;
