@@ -22,23 +22,50 @@
 </style>
 </head>
 <body>
-<h2>Probabilistic View of AUC</h2>
+<h2 id="appTitle"></h2>
 <div id="stage">
   <div id="scatter-container"><svg id="scatterSVG" width="100%" height="100%" viewBox="0 0 900 180"></svg></div>
   <div id="matrix-container"><svg id="matrixSVG" width="100%" height="100%" viewBox="0 0 900 540"></svg></div>
   <svg id="dragOverlay" viewBox="0 0 900 828"></svg>
 </div>
-<div id="arrangeBar"><button id="autoArrange">Auto-Arrange</button></div>
+<div id="arrangeBar"><button id="autoArrange"></button></div>
 <div id="controls" style="display:none">
-  <button id="randomSample">Random Sample</button>
-  <label for="sampleCount">Points per click:</label>
+  <button id="randomSample"></button>
+  <label for="sampleCount" id="pointsPerClick"></label>
   <select id="sampleCount"><option value="1">1</option><option value="10">10</option><option value="100">100</option></select>
-  <div id="aucDisplay">AUC estimate: — (0 pts)</div>
+  <div id="aucDisplay"></div>
 </div>
 <div id="legend-container"><svg id="legendSVG" width="500" height="160"></svg></div>
 <script>
 document.addEventListener('DOMContentLoaded', () => {
 (function(){
+  // ---------------- Localization Strings ----------------
+  const STRINGS = {
+    title: "Bob's Probabilistic View of AUC",
+    autoArrange: "Auto-Arrange Cases",
+    randomSample: "Random Sample",
+    pointsPerClick: "Points per click:",
+    aucEstimate: "AUC estimate: — (0 pts)",
+    aucCalc: (calc, sample, tot) => `AUC (calc): ${calc} | AUC (sample): ${sample} (${tot} pts)` ,
+    scatterTitle: "Scatterplot of Scores",
+    scatterXAxis: "Score",
+    labelPos: "Positive Cases",
+    labelNeg: "Negative Cases",
+    legend: [
+      { color: '#ffff66', text: 'Positive > Negative (yellow)' },
+      { color: '#ff3333', text: 'Positive < Negative (red)' },
+      { color: '#ff9900', text: 'Tie (orange)' },
+      { color: '#0077ff', text: 'ROC curve (blue)' }
+    ]
+  };
+
+  // ---------------- Assign localized labels ----------------
+  document.getElementById('appTitle').textContent = STRINGS.title;
+  document.getElementById('autoArrange').textContent = STRINGS.autoArrange;
+  document.getElementById('randomSample').textContent = STRINGS.randomSample;
+  document.getElementById('pointsPerClick').textContent = STRINGS.pointsPerClick;
+  document.getElementById('aucDisplay').textContent = STRINGS.aucEstimate;
+
   const W=900, matrixH=540, scatterH=180, margin=48, innerW=W-2*margin;
   const posColor="#2ca02c", negColor="#d62728";
   const palePos="#c7f0c7", paleNeg="#f7b3b3";
