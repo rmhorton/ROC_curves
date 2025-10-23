@@ -46,6 +46,7 @@ const STRINGS = {
   pointsPerClick: "Points per click:",
   aucEstimate: "AUC estimate: — (0 pts)",
   scatterTitle: "Scatterplot of Scores",
+  matrixTitle: "Matrix of Case Comparisons",
   scatterXAxis: "Score",
   labelPos: "Positive Cases",
   labelNeg: "Negative Cases",
@@ -70,9 +71,11 @@ const STRINGS = {
 const datasets = {
   "Test Set A": { scores: [20,19,18,17,16,15,14,13,11.5,11.5,10,9,8,7,6,5,4,3,2,1], labels: [1,1,1,1,0,1,1,0,1,0,1,0,1,0,0,1,0,0,0,0] },
   "Test Set B": { scores: [20,19,18,17,16,15,14,13,11.5,11.5,9.5,9.5,8,7,6,5,4,3,2,1], labels: [1,1,1,1,1,1,1,0,1,0,1,0,1,0,0,1,0,0,0,0] },
-  "Test Set C": { scores: Array.from({length:50},(_,i)=>100-i), labels: Array.from({length:50},(_,i)=> i<25?1:0 ) },
-  // New: 40 positives, 60 negatives
-  "Test Set D": { scores: Array.from({length:100},(_,i)=>100-i), labels: Array.from({length:100},(_,i)=> i<40?1:0 ) }
+  "Test Set C": { 
+    scores: [50,49,48,47,46,45,44,43,42,41,35,35,35,35,35,35,35,35,35,35,25,25,25,25,25,25,25,25,25,25,25,25,25,25,25,25,25,25,25,25,10,9,8,7,6,5,4,3,2,1], 
+    labels: [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0] 
+  },
+  "Test Set D": { scores: Array.from({length:100},(_,i)=>100-i), labels: Array.from({length:100},(_,i)=> i<40?1:0 ) } // 40 positives, 60 negatives
 };
 
 // Populate selector
@@ -208,6 +211,17 @@ function buildVisualization(scores, labels){
   const gridW=innerW-32, gridH=matrixH-120;
   const cellW=gridW/nNeg, cellH=gridH/nPos;
 
+  // Add title for matrix area
+  const matrixTitle = mk('text', {
+    x: W / 2,
+    y: 30,  // adjust as needed
+    'text-anchor': 'middle',
+    'font-weight': '600',
+    'font-size': '16'
+  });
+  matrixTitle.textContent = STRINGS.matrixTitle;  // <-- customize title text
+  matrix.appendChild(matrixTitle);
+
   // Matrix anchors (right for positives, top for negatives)
   for(let r=0;r<nPos;r++){
     const y=margin+(nPos-r-0.5)*cellH; const x=margin+gridW+28;
@@ -269,23 +283,99 @@ function buildVisualization(scores, labels){
     return true;
   }
   function drawROC(){
-    if(!inProperOrder()){ rocPath.setAttribute('visibility','hidden'); rocPoints.setAttribute('visibility','hidden'); return; }
-    const posScores=posAnch.map(a=>a.occupied.score); const negScores=negAnch.map(a=>a.occupied.score);
-    const pts=[[0,0]]; let currY=0;
-    for(let c=0;c<negScores.length;c++){
-      const sN=negScores[c]; let gt=0,eq=0;
-      for(let r=0;r<posScores.length;r++){ if(posScores[r]>sN) gt++; else if(posScores[r]===sN) eq++; }
-      if(pts[pts.length-1][0]!==c || pts[pts.length-1][1]!==gt) pts.push([c,gt]);
-      pts.push([c+1,gt+eq]); currY=gt+eq;
+      /*
+      drawROC()
+
+      This function constructs and renders a Receiver Operating Characteristic (ROC) curve
+      based on the cases currently arranged in the matrix. It follows standard ROC
+      computation practice:
+
+      1. All cases (positives and negatives) are grouped by their score values.
+        For each unique score threshold (sorted from highest to lowest),
+        we compute how many positives (TP) and negatives (FP) would be "activated"
+        as the decision threshold moves downward through that score.
+
+      2. The ROC curve is then traced by incrementally accumulating:
+          - True Positive Rate (TPR) = cumulative positives / total positives
+          - False Positive Rate (FPR) = cumulative negatives / total negatives
+        These are the usual normalized ROC axes (ranging 0–1). However, in this
+        visualization, the curve is *scaled* to match the matrix grid dimensions:
+          - The x-axis extends from 0 to the number of negative cases (Nₙ)
+          - The y-axis extends from 0 to the number of positive cases (Nₚ)
+        so that one grid cell corresponds to one pairwise comparison between
+        a positive and a negative case.
+
+      3. When both positives and negatives share the same score (a tie), both
+        TPR and FPR increase together. This produces a single *diagonal* segment
+        spanning the full tied block (the orange rectangle in the matrix).
+
+      4. When only negatives occur at a given score, the ROC curve moves
+        *horizontally* (increasing FPR only, crossing red cells).
+        When only positives occur, it moves *vertically* (increasing TPR only,
+        crossing yellow cells).
+
+      The result is a stepwise ROC curve that follows the red–yellow boundary,
+      with diagonal transitions precisely where tied scores occur across classes.
+    */
+    // Only show ROC when all anchors are filled and in proper sorted order
+    if (!inProperOrder()){
+      rocPath.setAttribute('visibility','hidden');
+      rocPoints.setAttribute('visibility','hidden');
+      return;
     }
-    if(currY!==posScores.length) pts.push([negScores.length,posScores.length]);
-    const toXY=([gx,gy])=>[ margin+gx*cellW, margin+(nPos-gy)*cellH ];
-    const svgPts=pts.map(toXY);
-    rocPath.setAttribute('d', svgPts.map((p,i)=> i?`L${p[0]},${p[1]}`:`M${p[0]},${p[1]}`).join(' '));
+
+    // Collect scores from anchors
+    const posScores = posAnch.map(a => a.occupied.score);
+    const negScores = negAnch.map(a => a.occupied.score);
+    const Np = posScores.length, Nn = negScores.length;
+
+    // Group counts by score across BOTH classes
+    const byScore = new Map();  // score -> {pos:count, neg:count}
+    for (const s of posScores){
+      const o = byScore.get(s) || {pos:0,neg:0}; o.pos++; byScore.set(s,o);
+    }
+    for (const s of negScores){
+      const o = byScore.get(s) || {pos:0,neg:0}; o.neg++; byScore.set(s,o);
+    }
+
+    // Sort scores descending (threshold moves from +inf down to -inf)
+    const groups = [...byScore.entries()]
+      .sort((a,b) => Number(b[0]) - Number(a[0]))
+      .map(([score, cnt]) => ({ score: Number(score), pos: cnt.pos|0, neg: cnt.neg|0 }));
+
+    // Build ROC in rate space, then scale to matrix counts (x in [0..nNeg], y in [0..nPos])
+    let tpr = 0, fpr = 0;
+    const roc = [[0,0]]; // start at (0,0)
+    for (const g of groups){
+      // Moving the threshold past this score turns ON all cases at this score
+      // If only negatives: horizontal step; only positives: vertical step
+      // If both: diagonal step of the correct size
+      fpr += g.neg / Nn;
+      tpr += g.pos / Np;
+      roc.push([fpr * Nn, tpr * Np]);  // scale to grid counts
+    }
+    // Ensure we end exactly at (Nn, Np)
+    if (roc[roc.length-1][0] !== Nn || roc[roc.length-1][1] !== Np){
+      roc.push([Nn, Np]);
+    }
+
+    // Project to SVG coordinates
+    const toXY = ([gx, gy]) => [ margin + gx * cellW, margin + (nPos - gy) * cellH ];
+    const svgPts = roc.map(toXY);
+
+    // Render path
+    rocPath.setAttribute('d', svgPts.map((p,i) => i ? `L${p[0]},${p[1]}` : `M${p[0]},${p[1]}`).join(' '));
     rocPath.setAttribute('visibility','visible');
-    rocPoints.innerHTML=''; svgPts.forEach(p=> rocPoints.appendChild(mk('circle',{cx:p[0],cy:p[1],r:6,fill:'#0077ff',stroke:'#000','stroke-width':1})) );
+
+    // Render markers
+    rocPoints.innerHTML = '';
+    svgPts.forEach(p => {
+      rocPoints.appendChild(mk('circle', { cx:p[0], cy:p[1], r:6, fill:'#0077ff', stroke:'#000', 'stroke-width':1 }));
+    });
     rocPoints.setAttribute('visibility','visible');
-    matrix.appendChild(rocPath); matrix.appendChild(rocPoints);
+
+    // Keep layers on top
+    matrix.append(rocPath, rocPoints);
   }
 
   function updateColors(){
