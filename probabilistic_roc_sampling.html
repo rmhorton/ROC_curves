@@ -41,12 +41,11 @@ document.addEventListener('DOMContentLoaded', () => {
 (function(){
   // ---------------- Localization Strings ----------------
   const STRINGS = {
-    title: "Bob's Probabilistic View of AUC",
+    title: "Probabilistic View of AUC",
     autoArrange: "Auto-Arrange Cases",
     randomSample: "Random Sample",
     pointsPerClick: "Points per click:",
     aucEstimate: "AUC estimate: — (0 pts)",
-    aucCalc: (calc, sample, tot) => `AUC (calc): ${calc} | AUC (sample): ${sample} (${tot} pts)` ,
     scatterTitle: "Scatterplot of Scores",
     scatterXAxis: "Score",
     labelPos: "Positive Cases",
@@ -59,12 +58,12 @@ document.addEventListener('DOMContentLoaded', () => {
     ]
   };
 
-  // ---------------- Assign localized labels ----------------
   document.getElementById('appTitle').textContent = STRINGS.title;
   document.getElementById('autoArrange').textContent = STRINGS.autoArrange;
   document.getElementById('randomSample').textContent = STRINGS.randomSample;
   document.getElementById('pointsPerClick').textContent = STRINGS.pointsPerClick;
   document.getElementById('aucDisplay').textContent = STRINGS.aucEstimate;
+
 
   const W=900, matrixH=540, scatterH=180, margin=48, innerW=W-2*margin;
   const posColor="#2ca02c", negColor="#d62728";
@@ -312,31 +311,54 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ----------------- Drag & drop across SVGs -----------------
   let drag=null;
+  let dragOffset={x:0,y:0};
+
   document.addEventListener('mousedown',e=>{
     const n=nodes.find(n=>n.shape===e.target);
     if(!n) return;
     drag=n;
-    overlay.append(n.shape,n.label);
-    n.currentSVG=overlay;
+
+    // calculate offset between cursor and shape center
+    const shapeBox=n.shape.getBoundingClientRect();
+    dragOffset.x = shapeBox.left + shapeBox.width/2 - e.clientX;
+    dragOffset.y = shapeBox.top + shapeBox.height/2 - e.clientY;
+
+    // Capture the shape’s current screen position before moving it to overlay
+    const screenX = shapeBox.left + shapeBox.width/2;
+    const screenY = shapeBox.top + shapeBox.height/2;
+
+    // Append to overlay
+    overlay.append(n.shape, n.label);
+    n.currentSVG = overlay;
+
+    // Immediately reproject shape into overlay coordinates to prevent visual jump
+    const pt = overlay.createSVGPoint();
+    pt.x = screenX;
+    pt.y = screenY;
+    const local = pt.matrixTransform(overlay.getScreenCTM().inverse());
+    setC(n, local.x, local.y);
+
     e.preventDefault();
   });
+
   document.addEventListener('mousemove',e=>{
     if(!drag) return;
-    const pt=overlay.createSVGPoint(); pt.x=e.clientX; pt.y=e.clientY;
+    const pt=overlay.createSVGPoint();
+    pt.x=e.clientX + dragOffset.x;
+    pt.y=e.clientY + dragOffset.y;
     const p=pt.matrixTransform(overlay.getScreenCTM().inverse());
     setC(drag,p.x,p.y);
   });
+
   document.addEventListener('mouseup',e=>{
     if(!drag) return;
     const cx=e.clientX, cy=e.clientY;
-    // clear any prior occupancy by this node
     posAnch.forEach(a=>a.occupied===drag&&(a.occupied=null));
     negAnch.forEach(a=>a.occupied===drag&&(a.occupied=null));
 
     const rectS=scatter.getBoundingClientRect();
     const inScatter = cx>=rectS.left && cx<=rectS.right && cy>=rectS.top && cy<=rectS.bottom;
 
-    // nearest anchor in screen space
     const anchors=[...posAnch,...negAnch];
     let best={d:1e9,a:null};
     anchors.forEach(a=>{
@@ -348,12 +370,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const t=best.a, near=best.d<40;
     let targetSVG=drag.home.svg, to={x:drag.home.x, y:drag.home.y};
-    if(!inScatter && near && t && ((drag.isPos&&t.isPos)||(!drag.isPos&&!t.isPos))){
+
+    if(inScatter){
+      animateTo(drag, drag.home.svg, drag.home.x, drag.home.y, 800);
+    } else if(near && t && ((drag.isPos&&t.isPos)||(!drag.isPos&&!t.isPos))){
       t.occupied=drag; targetSVG=t.svg; to={x:t.x,y:t.y};
+      animateTo(drag, targetSVG, to.x, to.y, 800);
+    } else {
+      animateTo(drag, drag.home.svg, drag.home.x, drag.home.y, 800);
     }
-    targetSVG.append(drag.shape,drag.label);
-    drag.currentSVG=targetSVG; setC(drag,to.x,to.y);
-    updateColors();
     drag=null;
   });
 
