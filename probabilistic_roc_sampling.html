@@ -7,6 +7,7 @@
   :root { --w: 900px; --matrix-h: 540px; --scatter-h: 180px; }
   body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; margin: 18px; background: #f9fafb; color: #111827; user-select: none; }
   h2 { text-align: center; margin: 0 0 8px; }
+  #datasetSelector { width: var(--w); margin: 10px auto 20px; text-align: center; }
   #stage { width: var(--w); margin: auto; position: relative; }
   #scatter-container, #matrix-container { width: var(--w); position: relative; border: 1px solid #d1d5db; border-radius: 8px; }
   #scatter-container { background: #fff; height: var(--scatter-h); margin-bottom: 16px; }
@@ -23,6 +24,10 @@
 </head>
 <body>
 <h2 id="appTitle"></h2>
+<div id="datasetSelector">
+  <label for="datasetSelect">Select dataset:</label>
+  <select id="datasetSelect"></select>
+</div>
 <div id="stage">
   <div id="scatter-container"><svg id="scatterSVG" width="100%" height="100%" viewBox="0 0 900 180"></svg></div>
   <div id="matrix-container"><svg id="matrixSVG" width="100%" height="100%" viewBox="0 0 900 540"></svg></div>
@@ -39,7 +44,6 @@
 <script>
 document.addEventListener('DOMContentLoaded', () => {
 (function(){
-  // ---------------- Localization Strings ----------------
   const STRINGS = {
     title: "Probabilistic View of AUC",
     autoArrange: "Auto-Arrange Cases",
@@ -64,12 +68,15 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('pointsPerClick').textContent = STRINGS.pointsPerClick;
   document.getElementById('aucDisplay').textContent = STRINGS.aucEstimate;
 
+  const datasets = {
+    "Dataset A": { scores: [20,19,18,17,16,15,14,13,11.5,11.5,10,9,8,7,6,5,4,3,2,1], labels: [1,1,1,1,0,1,1,0,1,0,1,0,1,0,0,1,0,0,0,0] },
+    "Dataset B": { scores: [15,14,13,12,11,10,9,8,7,6,5,4,3,2,1], labels: [1,1,1,1,1,0,0,0,0,0,1,0,0,0,0] }
+  };
 
-  const W=900, matrixH=540, scatterH=180, margin=48, innerW=W-2*margin;
-  const posColor="#2ca02c", negColor="#d62728";
-  const palePos="#c7f0c7", paleNeg="#f7b3b3";
-  const labelPos="Positive Cases";
-  const labelNeg="Negative Cases";
+  const datasetSelect=document.getElementById('datasetSelect');
+  for(const name in datasets){
+    const opt=document.createElement('option'); opt.value=name; opt.textContent=name; datasetSelect.appendChild(opt);
+  }
 
   const scatter=document.getElementById('scatterSVG');
   const matrix=document.getElementById('matrixSVG');
@@ -81,361 +88,313 @@ document.addEventListener('DOMContentLoaded', () => {
   const legend=document.getElementById('legendSVG');
   const controls=document.getElementById('controls');
 
-  const scores=[20,19,18,17,16,15,14,13,11.5,11.5,10,9,8,7,6,5,4,3,2,1];
-  const labels=[1,1,1,1,0,1,1,0,1,0,1,0,1,0,0,1,0,0,0,0];
-  const n=scores.length, nPos=labels.filter(x=>x===1).length, nNeg=labels.filter(x=>x===0).length;
-  const scoreMin=Math.min(...scores), scoreMax=Math.max(...scores);
-  const scaleX=s=>margin+(s-scoreMin)/(scoreMax-scoreMin)*(innerW-40);
-  const gridW=innerW-32, gridH=matrixH-120;
-  const cellW=gridW/nNeg, cellH=gridH/nPos;
+  const W=900, matrixH=540, scatterH=180, margin=48, innerW=W-2*margin;
+  const posColor="#2ca02c", negColor="#d62728";
+  const palePos="#c7f0c7", paleNeg="#f7b3b3";
 
-  const mk=(t,a={})=>{const e=document.createElementNS('http://www.w3.org/2000/svg',t);for(const k in a)e.setAttribute(k,a[k]);return e;};
-  const diamond=(x,y,r)=>`${x},${y-r} ${x+r},${y} ${x},${y+r} ${x-r},${y}`;
-  const SHAPE_R=10, DIAMOND_R=12;
-  const setC=(n,x,y)=>{if(n.isPos){n.shape.setAttribute('cx',x);n.shape.setAttribute('cy',y);}else{n.shape.setAttribute('points',diamond(x,y,DIAMOND_R));}n.label.setAttribute('x',x);n.label.setAttribute('y',y);};
+  let nodes=[], posAnch=[], negAnch=[], cellLayer, rocPath, rocPoints, samplesOld, samplesNew;
 
-  const scatterTop=60, scatterBot=120;
-  scatter.appendChild(mk('text',{x:W/2,y:20,'text-anchor':'middle','font-weight':'600'})).textContent='Scatterplot of Scores';
-  scatter.appendChild(mk('text',{x:W/2,y:scatterH-5,'text-anchor':'middle','font-weight':'500'})).textContent='Score';
+  function buildVisualization(scores, labels){
+    scatter.innerHTML=''; matrix.innerHTML=''; overlay.innerHTML='';
+    const n=scores.length, nPos=labels.filter(x=>x===1).length, nNeg=labels.filter(x=>x===0).length;
+    const scoreMin=Math.min(...scores), scoreMax=Math.max(...scores);
+    const scaleX=s=>margin+(s-scoreMin)/(scoreMax-scoreMin)*(innerW-40);
+    const gridW=innerW-32, gridH=matrixH-120;
+    const cellW=gridW/nNeg, cellH=gridH/nPos;
+    const mk=(t,a={})=>{const e=document.createElementNS('http://www.w3.org/2000/svg',t);for(const k in a)e.setAttribute(k,a[k]);return e;};
+    const diamond=(x,y,r)=>`${x},${y-r} ${x+r},${y} ${x},${y+r} ${x-r},${y}`;
+    const SHAPE_R=10, DIAMOND_R=12;
 
-  // Add tick marks along scatter x-axis
-  const numTicks=5;
-  for(let i=0;i<=numTicks;i++){
-    const val=scoreMin+(scoreMax-scoreMin)*i/numTicks;
-    const x=scaleX(val);
-    scatter.appendChild(mk('line',{x1:x,y1:scatterH-20,x2:x,y2:scatterH-10,stroke:'#555'}));
-    scatter.appendChild(mk('text',{x:x,y:scatterH-25,'text-anchor':'middle'})).textContent=val.toFixed(1);
-  }
+    const setC=(n,x,y)=>{if(n.isPos){n.shape.setAttribute('cx',x);n.shape.setAttribute('cy',y);}else{n.shape.setAttribute('points',diamond(x,y,DIAMOND_R));}n.label.setAttribute('x',x);n.label.setAttribute('y',y);};
 
-  scatter.appendChild(mk('text',{x:margin,y:scatterTop-20,'text-anchor':'start','font-weight':'500'})).textContent=labelPos;
-  scatter.appendChild(mk('text',{x:margin,y:scatterBot+25,'text-anchor':'start','font-weight':'500'})).textContent=labelNeg;
+    const scatterTop=60, scatterBot=120;
+    scatter.appendChild(mk('text',{x:W/2,y:20,'text-anchor':'middle','font-weight':'600'})).textContent=STRINGS.scatterTitle;
+    scatter.appendChild(mk('text',{x:W/2,y:scatterH-5,'text-anchor':'middle','font-weight':'500'})).textContent=STRINGS.scatterXAxis;
 
-  const scatterAnchors=[];
-  for(let i=0;i<n;i++){
-    const x=scaleX(scores[i]); const y=labels[i]?scatterTop:scatterBot;
-    const a=labels[i]
-      ? mk('circle',{cx:x,cy:y,r:SHAPE_R,fill:'none',stroke:palePos,'stroke-width':'4','stroke-dasharray':'2 2'})
-      : mk('polygon',{points:diamond(x,y,DIAMOND_R),fill:'none',stroke:paleNeg,'stroke-width':'4','stroke-dasharray':'2 2'});
-    scatter.appendChild(a); scatterAnchors.push({x,y,isPos:!!labels[i],svg:scatter});
-  }
-
-  matrix.appendChild(mk('text',{x:W/2,y:20,'text-anchor':'middle','font-weight':'600'})).textContent=labelNeg;
-  const labelRightX=margin+gridW+60;
-  matrix.appendChild(mk('text',{x:labelRightX,y:matrixH/2,transform:`rotate(-90 ${labelRightX},${matrixH/2})`,'text-anchor':'middle','font-weight':'600'})).textContent=labelPos;
-
-  const posAnch=[], negAnch=[];
-  for(let r=0;r<nPos;r++){
-    const y=margin+(nPos-r-0.5)*cellH; const x=margin+gridW+28;
-    matrix.appendChild(mk('circle',{cx:x,cy:y,r:SHAPE_R,fill:'none',stroke:palePos,'stroke-width':'4','stroke-dasharray':'2 2'}));
-    posAnch.push({x,y,svg:matrix,occupied:null,isPos:true});
-  }
-  for(let c=0;c<nNeg;c++){
-    const x=margin+(c+0.5)*cellW; const y=margin-30; // more space above grid
-    matrix.appendChild(mk('polygon',{points:diamond(x,y,DIAMOND_R),fill:'none',stroke:paleNeg,'stroke-width':'4','stroke-dasharray':'2 2'}));
-    negAnch.push({x,y,svg:matrix,occupied:null,isPos:false});
-  }
-  for(let r=0;r<nPos;r++){
-    for(let c=0;c<nNeg;c++){
-      matrix.appendChild(mk('rect',{x:margin+c*cellW,y:margin+(nPos-r-1)*cellH,width:cellW,height:cellH,fill:'#fff',stroke:'#e5e7eb'}));
-    }
-  }
-
-  // Add row/column numbers
-  for(let c=0;c<nNeg;c++){
-    const x=margin+(c+0.5)*cellW;
-    matrix.appendChild(mk('text',{x:x,y:matrixH-20,'text-anchor':'middle'})).textContent=c+1;
-  }
-  for(let r=0;r<nPos;r++){
-    const y=margin+(nPos-r-0.5)*cellH;
-    matrix.appendChild(mk('text',{x:margin-20,y:y,'text-anchor':'end'})).textContent=r+1;
-  }
-
-  const entries=[
-    {color:'#ffff66',text:'Positive > Negative (yellow)'},
-    {color:'#ff3333',text:'Positive < Negative (red)'},
-    {color:'#ff9900',text:'Tie (orange)'},
-    {color:'#0077ff',text:'ROC curve (blue)'}
-  ];
-  entries.forEach((e,i)=>{
-    const y=20+i*26;
-    legend.appendChild(mk('rect',{x:20,y,width:14,height:14,fill:e.color,stroke:'#111'}));
-    legend.appendChild(mk('text',{x:40,y:y+11})).textContent=e.text;
-  });
-
-  // ----------------- Draggable nodes (cases) -----------------
-  const nodes=[];
-  for(let i=0;i<n;i++){
-    const x=scaleX(scores[i]), y=labels[i]?scatterTop:scatterBot;
-    const shape = labels[i]
-      ? mk('circle',{cx:x,cy:y,r:SHAPE_R,fill:posColor,stroke:'#222'})
-      : mk('polygon',{points:diamond(x,y,DIAMOND_R),fill:negColor,stroke:'#222'});
-    const lbl=mk('text',{x,y,'text-anchor':'middle','dominant-baseline':'central','font-size':'11',fill:'#fff'});
-    lbl.textContent=scores[i];
-    scatter.append(shape,lbl);
-    nodes.push({isPos:!!labels[i],score:scores[i],shape,label:lbl,home:{x,y,svg:scatter},currentSVG:scatter});
-  }
-
-  // layers for cell coloring, ROC, and sampling
-  const cellLayer=mk('g',{}); matrix.appendChild(cellLayer);
-  const rocPath=mk('path',{stroke:'#0077ff','stroke-width':'5',fill:'none',visibility:'hidden'});
-  const rocPoints=mk('g',{visibility:'hidden'});
-  matrix.append(rocPath,rocPoints); // ???
-  const samplesOld=mk('g',{}), samplesNew=mk('g',{});
-  matrix.append(samplesOld,samplesNew);
-
-  // ----------------- AUC helpers -----------------
-  let cumY=0,cumR=0,cumO=0;
-  function resetSamples(){cumY=cumR=cumO=0;samplesOld.innerHTML='';samplesNew.innerHTML='';}
-  function calcMatrixAUC(){
-    const rects=cellLayer.querySelectorAll('rect');
-    let y=0,o=0,r=0;
-    rects.forEach(c=>{
-      const f=c.getAttribute('fill');
-      if(f==='#ffff66')y++; else if(f==='#ff3333')r++; else if(f==='#ff9900')o++;
-    });
-    const tot=y+o+r; return tot>0?(y+0.5*o)/tot:null;
-  }
-  function updateAUCDisplay(){
-    const tot=cumY+cumO+cumR;
-    if(tot>0){
-      const auc=(cumY+0.5*cumO)/tot;
-      const calc=calcMatrixAUC();
-      aucDisplay.textContent=`AUC (calc): ${calc?.toFixed(3)||'—'} | AUC (sample): ${auc.toFixed(3)} (${tot} pts)`;
-    }
-  }
-
-  // ----------------- ROC helpers -----------------
-  function inProperOrder(){
-    const ps=posAnch.map(a=>a.occupied?a.occupied.score:null);
-    const ns=negAnch.map(a=>a.occupied?a.occupied.score:null);
-    if(ps.some(v=>v===null) || ns.some(v=>v===null)) return false;
-    for(let i=1;i<ps.length;i++){ if(ps[i]>ps[i-1]) return false; }
-    for(let i=1;i<ns.length;i++){ if(ns[i]>ns[i-1]) return false; }
-    return true;
-  }
-
-  function drawROC() {
-    // Hide everything if cases are not properly arranged
-    if (!inProperOrder()) {
-      rocPath.setAttribute('visibility', 'hidden');
-      rocPoints.setAttribute('visibility', 'hidden');
-      return;
+    const numTicks=5;
+    for(let i=0;i<=numTicks;i++){
+      const val=scoreMin+(scoreMax-scoreMin)*i/numTicks;
+      const x=scaleX(val);
+      scatter.appendChild(mk('line',{x1:x,y1:scatterH-20,x2:x,y2:scatterH-10,stroke:'#555'}));
+      scatter.appendChild(mk('text',{x:x,y:scatterH-25,'text-anchor':'middle'})).textContent=val.toFixed(1);
     }
 
-    const posScores = posAnch.map(a => a.occupied.score);
-    const negScores = negAnch.map(a => a.occupied.score);
-    const pts = [[0, 0]];
-    let currY = 0;
+    scatter.appendChild(mk('text',{x:margin,y:scatterTop-20,'text-anchor':'start','font-weight':'500'})).textContent=STRINGS.labelPos;
+    scatter.appendChild(mk('text',{x:margin,y:scatterBot+25,'text-anchor':'start','font-weight':'500'})).textContent=STRINGS.labelNeg;
 
-    // Build ROC points
-    for (let c = 0; c < negScores.length; c++) {
-      const sN = negScores[c];
-      let gt = 0, eq = 0;
-      for (let r = 0; r < posScores.length; r++) {
-        if (posScores[r] > sN) gt++;
-        else if (posScores[r] === sN) eq++;
-      }
-      if (pts[pts.length - 1][0] !== c || pts[pts.length - 1][1] !== gt)
-        pts.push([c, gt]);
-      pts.push([c + 1, gt + eq]);
-      currY = gt + eq;
+    // Scatter anchor outlines (ghosts)
+    for (let i = 0; i < n; i++) {
+      const x = scaleX(scores[i]);
+      const y = labels[i] ? scatterTop : scatterBot;
+      const ghost = labels[i]
+        ? mk('circle', { cx: x, cy: y, r: SHAPE_R, fill: 'none', stroke: palePos, 'stroke-width': '4', 'stroke-dasharray': '2 2' })
+        : mk('polygon', { points: diamond(x, y, DIAMOND_R), fill: 'none', stroke: paleNeg, 'stroke-width': '4', 'stroke-dasharray': '2 2' });
+      scatter.appendChild(ghost);
     }
-    if (currY !== posScores.length)
-      pts.push([negScores.length, posScores.length]);
 
-    const toXY = ([gx, gy]) => [margin + gx * cellW, margin + (nPos - gy) * cellH];
-    const svgPts = pts.map(toXY);
+    nodes=[]; posAnch=[]; negAnch=[];
+    for(let i=0;i<n;i++){
+      const x=scaleX(scores[i]); const y=labels[i]?scatterTop:scatterBot;
+      const shape=labels[i]?mk('circle',{cx:x,cy:y,r:SHAPE_R,fill:posColor,stroke:'#222'}):mk('polygon',{points:diamond(x,y,DIAMOND_R),fill:negColor,stroke:'#222'});
+      const lbl=mk('text',{x,y,'text-anchor':'middle','dominant-baseline':'central','font-size':'11',fill:'#fff'});
+      lbl.textContent=scores[i];
+      scatter.append(shape,lbl);
+      nodes.push({isPos:!!labels[i],score:scores[i],shape,label:lbl,home:{x,y,svg:scatter},currentSVG:scatter});
+    }
 
-    // Draw ROC line
-    rocPath.setAttribute(
-      'd',
-      svgPts.map((p, i) => (i ? `L${p[0]},${p[1]}` : `M${p[0]},${p[1]}`)).join(' ')
-    );
-    rocPath.setAttribute('visibility', 'visible');
-
-    // Draw ROC points (only when visible)
-    rocPoints.innerHTML = '';
-    svgPts.forEach(p =>
-      rocPoints.appendChild(
-        mk('circle', {
-          cx: p[0],
-          cy: p[1],
-          r: 6,
-          fill: '#0077ff',
-          stroke: '#000',
-          'stroke-width': 1
-        })
-      )
-    );
-    rocPoints.setAttribute('visibility', 'visible');
-
-    // Ensure ROC elements are on top
-    matrix.appendChild(rocPath);
-    matrix.appendChild(rocPoints);
-  }
-
-  // ----------------- Cell coloring -----------------
-  function updateColors(){
-    cellLayer.innerHTML='';
-    rocPath.setAttribute('visibility','hidden');
-    rocPoints.setAttribute('visibility','hidden');
-    let filled=0;
+    // Matrix anchors
     for(let r=0;r<nPos;r++){
-      const p=posAnch[r].occupied; if(!p) continue;
+      const y=margin+(nPos-r-0.5)*cellH; const x=margin+gridW+28;
+      matrix.appendChild(mk('circle',{cx:x,cy:y,r:SHAPE_R,fill:'none',stroke:palePos,'stroke-width':'4','stroke-dasharray':'2 2'}));
+      posAnch.push({x,y,svg:matrix,occupied:null,isPos:true});
+    }
+    for(let c=0;c<nNeg;c++){
+      const x=margin+(c+0.5)*cellW; const y=margin-30;
+      matrix.appendChild(mk('polygon',{points:diamond(x,y,DIAMOND_R),fill:'none',stroke:paleNeg,'stroke-width':'4','stroke-dasharray':'2 2'}));
+      negAnch.push({x,y,svg:matrix,occupied:null,isPos:false});
+    }
+
+    for(let r=0;r<nPos;r++){
       for(let c=0;c<nNeg;c++){
-        const ng=negAnch[c].occupied; if(!ng) continue;
-        filled++;
-        let fill='#ff9900';
-        if(p.score>ng.score) fill='#ffff66'; else if(p.score<ng.score) fill='#ff3333';
-        cellLayer.appendChild(mk('rect',{
-          x:margin+c*cellW,
-          y:margin+(nPos-r-1)*cellH,
-          width:cellW,
-          height:cellH,
-          fill,
-          stroke:'#ccc'
-        }));
+        matrix.appendChild(mk('rect',{x:margin+c*cellW,y:margin+(nPos-r-1)*cellH,width:cellW,height:cellH,fill:'#fff',stroke:'#e5e7eb'}));
       }
     }
-    if(filled===nPos*nNeg){
-      controls.style.display='block';
-      const auc=calcMatrixAUC();
-      aucDisplay.textContent=`AUC (calc): ${auc.toFixed(3)} | AUC (sample): — (0 pts)`;
-      drawROC();
-    } else {
-      controls.style.display='none';
-      aucDisplay.textContent='AUC estimate: — (0 pts)';
-      resetSamples();
+
+    for(let c=0;c<nNeg;c++){
+      const x=margin+(c+0.5)*cellW;
+      matrix.appendChild(mk('text',{x:x,y:matrixH-20,'text-anchor':'middle'})).textContent=c+1;
     }
-  }
+    for(let r=0;r<nPos;r++){
+      const y=margin+(nPos-r-0.5)*cellH;
+      matrix.appendChild(mk('text',{x:margin-20,y:y,'text-anchor':'end'})).textContent=r+1;
+    }
 
-  // ----------------- Drag & drop across SVGs -----------------
-  let drag=null;
-  let dragOffset={x:0,y:0};
-
-  document.addEventListener('mousedown',e=>{
-    const n=nodes.find(n=>n.shape===e.target);
-    if(!n) return;
-    drag=n;
-
-    // calculate offset between cursor and shape center
-    const shapeBox=n.shape.getBoundingClientRect();
-    dragOffset.x = shapeBox.left + shapeBox.width/2 - e.clientX;
-    dragOffset.y = shapeBox.top + shapeBox.height/2 - e.clientY;
-
-    // Capture the shape’s current screen position before moving it to overlay
-    const screenX = shapeBox.left + shapeBox.width/2;
-    const screenY = shapeBox.top + shapeBox.height/2;
-
-    // Append to overlay
-    overlay.append(n.shape, n.label);
-    n.currentSVG = overlay;
-
-    // Immediately reproject shape into overlay coordinates to prevent visual jump
-    const pt = overlay.createSVGPoint();
-    pt.x = screenX;
-    pt.y = screenY;
-    const local = pt.matrixTransform(overlay.getScreenCTM().inverse());
-    setC(n, local.x, local.y);
-
-    e.preventDefault();
-  });
-
-  document.addEventListener('mousemove',e=>{
-    if(!drag) return;
-    const pt=overlay.createSVGPoint();
-    pt.x=e.clientX + dragOffset.x;
-    pt.y=e.clientY + dragOffset.y;
-    const p=pt.matrixTransform(overlay.getScreenCTM().inverse());
-    setC(drag,p.x,p.y);
-  });
-
-  document.addEventListener('mouseup',e=>{
-    if(!drag) return;
-    const cx=e.clientX, cy=e.clientY;
-    posAnch.forEach(a=>a.occupied===drag&&(a.occupied=null));
-    negAnch.forEach(a=>a.occupied===drag&&(a.occupied=null));
-
-    const rectS=scatter.getBoundingClientRect();
-    const inScatter = cx>=rectS.left && cx<=rectS.right && cy>=rectS.top && cy<=rectS.bottom;
-
-    const anchors=[...posAnch,...negAnch];
-    let best={d:1e9,a:null};
-    anchors.forEach(a=>{
-      const p=a.svg.createSVGPoint(); p.x=a.x; p.y=a.y;
-      const sc=p.matrixTransform(a.svg.getScreenCTM());
-      const d=Math.hypot(sc.x-cx, sc.y-cy);
-      if(d<best.d) best={d,a};
+    STRINGS.legend.forEach((e,i)=>{
+      const y=20+i*26;
+      legend.appendChild(mk('rect',{x:20,y,width:14,height:14,fill:e.color,stroke:'#111'}));
+      legend.appendChild(mk('text',{x:40,y:y+11})).textContent=e.text;
     });
 
-    const t=best.a, near=best.d<40;
-    let targetSVG=drag.home.svg, to={x:drag.home.x, y:drag.home.y};
+    cellLayer=mk('g',{}); matrix.appendChild(cellLayer);
+    rocPath=mk('path',{stroke:'#0077ff','stroke-width':'5',fill:'none',visibility:'hidden'});
+    rocPoints=mk('g',{visibility:'hidden'});
+    matrix.append(rocPath,rocPoints);
+    samplesOld=mk('g',{}); samplesNew=mk('g',{});
+    matrix.append(samplesOld,samplesNew);
 
-    if(inScatter){
-      animateTo(drag, drag.home.svg, drag.home.x, drag.home.y, 800);
-    } else if(near && t && ((drag.isPos&&t.isPos)||(!drag.isPos&&!t.isPos))){
-      t.occupied=drag; targetSVG=t.svg; to={x:t.x,y:t.y};
-      animateTo(drag, targetSVG, to.x, to.y, 800);
-    } else {
-      animateTo(drag, drag.home.svg, drag.home.x, drag.home.y, 800);
+    // --- Helper functions ---
+    let cumY=0,cumR=0,cumO=0;
+    function resetSamples(){cumY=cumR=cumO=0;samplesOld.innerHTML='';samplesNew.innerHTML='';}
+    function calcMatrixAUC(){
+      const rects=cellLayer.querySelectorAll('rect');
+      let y=0,o=0,r=0;
+      rects.forEach(c=>{
+        const f=c.getAttribute('fill');
+        if(f==='#ffff66')y++; else if(f==='#ff3333')r++; else if(f==='#ff9900')o++;
+      });
+      const tot=y+o+r; return tot>0?(y+0.5*o)/tot:null;
     }
-    drag=null;
-  });
-
-  // ----------------- Smooth auto-arrange animation -----------------
-  function animateTo(n,destSVG,x2,y2,dur=800){
-    // start (screen)
-    const startBox=n.shape.getBoundingClientRect();
-    const start={x:startBox.left+startBox.width/2, y:startBox.top+startBox.height/2};
-    // dest (screen)
-    const pt=destSVG.createSVGPoint(); pt.x=x2; pt.y=y2;
-    const dest=pt.matrixTransform(destSVG.getScreenCTM());
-    // animate in overlay
-    overlay.append(n.shape,n.label);
-    const t0=performance.now();
-    function step(t){
-      const f=Math.min((t-t0)/dur,1);
-      const sx=start.x+(dest.x-start.x)*f;
-      const sy=start.y+(dest.y-start.y)*f;
-      const p=overlay.createSVGPoint(); p.x=sx; p.y=sy;
-      const local=p.matrixTransform(overlay.getScreenCTM().inverse());
-      setC(n,local.x,local.y);
-      if(f<1){ requestAnimationFrame(step); }
-      else { destSVG.append(n.shape,n.label); setC(n,x2,y2); updateColors(); }
+    function updateAUCDisplay(){
+      const tot=cumY+cumO+cumR;
+      if(tot>0){
+        const auc=(cumY+0.5*cumO)/tot;
+        const calc=calcMatrixAUC();
+        aucDisplay.textContent=`AUC (calc): ${calc?.toFixed(3)||'—'} | AUC (sample): ${auc.toFixed(3)} (${tot} pts)`;
+      }
     }
-    requestAnimationFrame(step);
-  }
 
-  autoBtn.onclick=()=>{
-    posAnch.forEach(a=>a.occupied=null); negAnch.forEach(a=>a.occupied=null);
-    const posNodes=nodes.filter(n=>n.isPos).sort((a,b)=>b.score-a.score);
-    const negNodes=nodes.filter(n=>!n.isPos).sort((a,b)=>b.score-a.score);
-    posNodes.forEach((nd,i)=>{ const t=posAnch[i]; t.occupied=nd; animateTo(nd,matrix,t.x,t.y,800); nd.currentSVG=matrix; });
-    negNodes.forEach((nd,i)=>{ const t=negAnch[i]; t.occupied=nd; animateTo(nd,matrix,t.x,t.y,800); nd.currentSVG=matrix; });
-  };
+    function inProperOrder(){
+      const ps=posAnch.map(a=>a.occupied?a.occupied.score:null);
+      const ns=negAnch.map(a=>a.occupied?a.occupied.score:null);
+      if(ps.some(v=>v===null)||ns.some(v=>v===null))return false;
+      for(let i=1;i<ps.length;i++){if(ps[i]>ps[i-1])return false;}
+      for(let i=1;i<ns.length;i++){if(ns[i]>ns[i-1])return false;}
+      return true;
+    }
 
-  // ----------------- Random sampling -----------------
-  randBtn.onclick=()=>{
-    // grey previous batch
-    [...samplesNew.childNodes].forEach(node=>{ if(node.setAttribute){ node.setAttribute('fill','#777'); node.setAttribute('opacity','0.5'); samplesOld.appendChild(node); } });
-    const N=parseInt(sampleSel.value,10);
-    for(let i=0;i<N;i++){
-      const rx=margin+Math.random()*(cellW*nNeg);
-      const ry=margin+Math.random()*(cellH*nPos);
-      const col=Math.floor((rx-margin)/cellW);
-      const row=nPos-1-Math.floor((ry-margin)/cellH);
-      if(col>=0&&col<nNeg&&row>=0&&row<nPos){
-        const p=posAnch[row].occupied, ng=negAnch[col].occupied;
-        if(p&&ng){
-          if(p.score>ng.score) cumY++; else if(p.score<ng.score) cumR++; else cumO++;
-          samplesNew.appendChild(mk('circle',{cx:rx,cy:ry,r:2,fill:'#000',opacity:'0.9'}));
+    function drawROC(){
+      if(!inProperOrder()){
+        rocPath.setAttribute('visibility','hidden');
+        rocPoints.setAttribute('visibility','hidden');
+        return;
+      }
+      const posScores=posAnch.map(a=>a.occupied.score);
+      const negScores=negAnch.map(a=>a.occupied.score);
+      const pts=[[0,0]];
+      let currY=0;
+      for(let c=0;c<negScores.length;c++){
+        const sN=negScores[c];
+        let gt=0,eq=0;
+        for(let r=0;r<posScores.length;r++){
+          if(posScores[r]>sN)gt++;else if(posScores[r]===sN)eq++;}
+        if(pts[pts.length-1][0]!==c||pts[pts.length-1][1]!==gt)pts.push([c,gt]);
+        pts.push([c+1,gt+eq]); currY=gt+eq;
+      }
+      if(currY!==posScores.length)pts.push([negScores.length,posScores.length]);
+      const toXY=([gx,gy])=>[margin+gx*cellW,margin+(nPos-gy)*cellH];
+      const svgPts=pts.map(toXY);
+      rocPath.setAttribute('d',svgPts.map((p,i)=>i?`L${p[0]},${p[1]}`:`M${p[0]},${p[1]}`).join(' '));
+      rocPath.setAttribute('visibility','visible');
+      rocPoints.innerHTML='';
+      svgPts.forEach(p=>rocPoints.appendChild(mk('circle',{cx:p[0],cy:p[1],r:6,fill:'#0077ff',stroke:'#000','stroke-width':1})));
+      rocPoints.setAttribute('visibility','visible');
+      matrix.appendChild(rocPath); matrix.appendChild(rocPoints);
+    }
+
+    function updateColors(){
+      cellLayer.innerHTML='';
+      rocPath.setAttribute('visibility','hidden');
+      rocPoints.setAttribute('visibility','hidden');
+      let filled=0;
+      for(let r=0;r<nPos;r++){
+        const p=posAnch[r].occupied; if(!p) continue;
+        for(let c=0;c<nNeg;c++){
+          const ng=negAnch[c].occupied; if(!ng) continue;
+          filled++;
+          let fill='#ff9900';
+          if(p.score>ng.score)fill='#ffff66';else if(p.score<ng.score)fill='#ff3333';
+          cellLayer.appendChild(mk('rect',{
+            x:margin+c*cellW,
+            y:margin+(nPos-r-1)*cellH,
+            width:cellW,
+            height:cellH,
+            fill,
+            stroke:'#ccc'
+          }));
         }
       }
+      if(filled===nPos*nNeg){
+        controls.style.display='block';
+        const auc=calcMatrixAUC();
+        aucDisplay.textContent=`AUC (calc): ${auc.toFixed(3)} | AUC (sample): — (0 pts)`;
+        drawROC();
+      } else {
+        controls.style.display='none';
+        aucDisplay.textContent='AUC estimate: — (0 pts)';
+        resetSamples();
+      }
     }
-    updateAUCDisplay();
-  };
 
-})();
+    // ----------------- Drag & Drop -----------------
+    let drag=null, dragOffset={x:0,y:0};
+    document.addEventListener('mousedown',e=>{
+      const n=nodes.find(n=>n.shape===e.target);
+      if(!n)return;
+      drag=n;
+      const shapeBox=n.shape.getBoundingClientRect();
+      dragOffset.x = shapeBox.left + shapeBox.width/2 - e.clientX;
+      dragOffset.y = shapeBox.top + shapeBox.height/2 - e.clientY;
+      const screenX = shapeBox.left + shapeBox.width/2;
+      const screenY = shapeBox.top + shapeBox.height/2;
+      overlay.append(n.shape,n.label);
+      n.currentSVG=overlay;
+      const pt=overlay.createSVGPoint();
+      pt.x=screenX; pt.y=screenY;
+      const local=pt.matrixTransform(overlay.getScreenCTM().inverse());
+      setC(n,local.x,local.y);
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove',e=>{
+      if(!drag)return;
+      const pt=overlay.createSVGPoint();
+      pt.x=e.clientX+dragOffset.x;
+      pt.y=e.clientY+dragOffset.y;
+      const p=pt.matrixTransform(overlay.getScreenCTM().inverse());
+      setC(drag,p.x,p.y);
+    });
+
+    document.addEventListener('mouseup',e=>{
+      if(!drag)return;
+      const cx=e.clientX, cy=e.clientY;
+      posAnch.forEach(a=>a.occupied===drag&&(a.occupied=null));
+      negAnch.forEach(a=>a.occupied===drag&&(a.occupied=null));
+      const rectS=scatter.getBoundingClientRect();
+      const inScatter = cx>=rectS.left && cx<=rectS.right && cy>=rectS.top && cy<=rectS.bottom;
+      const anchors=[...posAnch,...negAnch];
+      let best={d:1e9,a:null};
+      anchors.forEach(a=>{
+        const p=a.svg.createSVGPoint(); p.x=a.x; p.y=a.y;
+        const sc=p.matrixTransform(a.svg.getScreenCTM());
+        const d=Math.hypot(sc.x-cx,sc.y-cy);
+        if(d<best.d)best={d,a};
+      });
+      const t=best.a, near=best.d<40;
+      let targetSVG=drag.home.svg,to={x:drag.home.x,y:drag.home.y};
+      if(inScatter){
+        animateTo(drag,drag.home.svg,drag.home.x,drag.home.y,800);
+      } else if(near && t && ((drag.isPos&&t.isPos)||(!drag.isPos&&!t.isPos))){
+        t.occupied=drag; targetSVG=t.svg; to={x:t.x,y:t.y};
+        animateTo(drag,targetSVG,to.x,to.y,800);
+      } else {
+        animateTo(drag,drag.home.svg,drag.home.x,drag.home.y,800);
+      }
+      drag=null;
+    });
+
+    function animateTo(n,destSVG,x2,y2,dur=800){
+      const startBox=n.shape.getBoundingClientRect();
+      const start={x:startBox.left+startBox.width/2,y:startBox.top+startBox.height/2};
+      const pt=destSVG.createSVGPoint(); pt.x=x2; pt.y=y2;
+      const dest=pt.matrixTransform(destSVG.getScreenCTM());
+      overlay.append(n.shape,n.label);
+      const t0=performance.now();
+      function step(t){
+        const f=Math.min((t-t0)/dur,1);
+        const sx=start.x+(dest.x-start.x)*f;
+        const sy=start.y+(dest.y-start.y)*f;
+        const p=overlay.createSVGPoint(); p.x=sx; p.y=sy;
+        const local=p.matrixTransform(overlay.getScreenCTM().inverse());
+        setC(n,local.x,local.y);
+        if(f<1)requestAnimationFrame(step);
+        else { destSVG.append(n.shape,n.label); setC(n,x2,y2); updateColors(); }
+      }
+      requestAnimationFrame(step);
+    }
+
+    // ----------------- Auto-arrange -----------------
+    autoBtn.onclick=()=>{
+      posAnch.forEach(a=>a.occupied=null);
+      negAnch.forEach(a=>a.occupied=null);
+      const posNodes=nodes.filter(n=>n.isPos).sort((a,b)=>b.score-a.score);
+      const negNodes=nodes.filter(n=>!n.isPos).sort((a,b)=>b.score-a.score);
+      posNodes.forEach((nd,i)=>{const t=posAnch[i];t.occupied=nd;animateTo(nd,matrix,t.x,t.y,800);nd.currentSVG=matrix;});
+      negNodes.forEach((nd,i)=>{const t=negAnch[i];t.occupied=nd;animateTo(nd,matrix,t.x,t.y,800);nd.currentSVG=matrix;});
+    };
+
+    // ----------------- Random Sampling -----------------
+    randBtn.onclick=()=>{
+      [...samplesNew.childNodes].forEach(node=>{
+        if(node.setAttribute){
+          node.setAttribute('fill','#777');
+          node.setAttribute('opacity','0.5');
+          samplesOld.appendChild(node);
+        }
+      });
+      const N=parseInt(sampleSel.value,10);
+      for(let i=0;i<N;i++){
+        const rx=margin+Math.random()*(cellW*nNeg);
+        const ry=margin+Math.random()*(cellH*nPos);
+        const col=Math.floor((rx-margin)/cellW);
+        const row=nPos-1-Math.floor((ry-margin)/cellH);
+        if(col>=0&&col<nNeg&&row>=0&&row<nPos){
+          const p=posAnch[row].occupied,ng=negAnch[col].occupied;
+          if(p&&ng){
+            if(p.score>ng.score)cumY++;
+            else if(p.score<ng.score)cumR++;
+            else cumO++;
+            samplesNew.appendChild(mk('circle',{cx:rx,cy:ry,r:2,fill:'#000',opacity:'0.9'}));
+          }
+        }
+      }
+      updateAUCDisplay();
+    };
+  } // end buildVisualization
+
+  // Dataset switching
+  datasetSelect.onchange=(e)=>buildVisualization(datasets[e.target.value].scores,datasets[e.target.value].labels);
+  buildVisualization(Object.values(datasets)[0].scores,Object.values(datasets)[0].labels);
+})(); 
 });
 </script>
 </body>
