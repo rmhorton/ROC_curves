@@ -69,8 +69,9 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('aucDisplay').textContent = STRINGS.aucEstimate;
 
   const datasets = {
-    "Dataset A": { scores: [20,19,18,17,16,15,14,13,11.5,11.5,10,9,8,7,6,5,4,3,2,1], labels: [1,1,1,1,0,1,1,0,1,0,1,0,1,0,0,1,0,0,0,0] },
-    "Dataset B": { scores: [15,14,13,12,11,10,9,8,7,6,5,4,3,2,1], labels: [1,1,1,1,1,0,0,0,0,0,1,0,0,0,0] }
+    "Test Set A": { scores: [20,19,18,17,16,15,14,13,11.5,11.5,10,9,8,7,6,5,4,3,2,1], labels: [1,1,1,1,0,1,1,0,1,0,1,0,1,0,0,1,0,0,0,0] },
+    "Test Set B": { scores: [20,19,18,17,16,15,14,13,11.5,11.5,9.5,9.5,8,7,6,5,4,3,2,1], labels: [1,1,1,1,1,1,1,0,1,0,1,0,1,0,0,1,0,0,0,0] },
+    "Test Set C": { scores: [15,14,13,12,11,10,9,8,7,6,5,4,3,2,1], labels: [1,1,1,1,1,0,0,0,0,0,1,0,0,0,0] }
   };
 
   const datasetSelect=document.getElementById('datasetSelect');
