@@ -7,12 +7,23 @@
   /* Base layout and typography */
   body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; margin: 18px; background: #f9fafb; color: #111827; user-select: none; }
   h2 { text-align: center; margin: 0 0 8px; }
-  #datasetSelector, #arrangeBar, #controls, #legend-container { text-align: center; }
+  #datasetSelector { text-align: center; }
+  #actionsRow { display: grid; grid-template-columns: auto 1fr auto; align-items: flex-start; column-gap: 24px; margin: 16px auto 0; }
+  #controlColumn { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+  #arrangeBar { display: flex; align-items: center; }
+  #arrangeBar button { margin: 0; }
+  #sampleControls { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; visibility: hidden; opacity: 0; pointer-events: none; min-width: 0; }
+  #sampleControls button { margin: 0; }
+  #sampleControls .sample-row { display: flex; align-items: center; gap: 8px; }
+  #sampleControls label { white-space: nowrap; }
+  #legend-container { display: flex; justify-content: flex-end; align-items: flex-start; justify-self: end; }
+  #aucColumn { display: flex; flex-direction: column; justify-content: flex-start; align-items: center; min-width: 0; }
+  #aucDisplay { text-align: center; min-height: 36px; width: 100%; white-space: nowrap; }
   #stage { margin: auto; position: relative; }
   /* Ensure overlay is actually on top and visible during drags */
   #dragOverlay { position: absolute; left: 0; top: 0; z-index: 10; pointer-events: none; }
   button, select { padding: 6px 12px; border-radius: 6px; border: 1px solid #9ca3af; cursor: pointer; background: #e5e7eb; margin: 5px; }
-  #legend-container svg { display: inline-block; margin-top: 10px; }
+  #legend-container svg { display: inline-block; margin-top: 0; }
   text { user-select: none; pointer-events: none; font-size: 12px; fill: #111827; }
   #scatter-container, #matrix-container { border: 1px solid #d1d5db; border-radius: 8px; background: #fff; margin: 10px auto; }
 </style>
@@ -28,14 +39,22 @@
   <div id="matrix-container"><svg id="matrixSVG"></svg></div>
   <svg id="dragOverlay"></svg>
 </div>
-<div id="arrangeBar"><button id="autoArrange"></button></div>
-<div id="controls" style="display:none">
-  <button id="randomSample"></button>
-  <label for="sampleCount" id="pointsPerClick"></label>
-  <select id="sampleCount"><option value="1">1</option><option value="10">10</option><option value="100">100</option></select>
-  <div id="aucDisplay"></div>
+<div id="actionsRow">
+  <div id="controlColumn">
+    <div id="arrangeBar"><button id="autoArrange"></button></div>
+    <div id="sampleControls">
+      <button id="randomSample"></button>
+      <div class="sample-row">
+        <label for="sampleCount" id="pointsPerClick"></label>
+        <select id="sampleCount"><option value="1">1</option><option value="10">10</option><option value="100">100</option></select>
+      </div>
+    </div>
+  </div>
+  <div id="aucColumn">
+    <div id="aucDisplay"></div>
+  </div>
+  <div id="legend-container"><svg id="legendSVG" width="560" height="160"></svg></div>
 </div>
-<div id="legend-container"><svg id="legendSVG" width="560" height="160"></svg></div>
 
 <script>
 // ==================== Localized Strings ====================
@@ -44,7 +63,8 @@ const STRINGS = {
   autoArrange: "Auto-Arrange Cases",
   randomSample: "Random Sample",
   pointsPerClick: "Points per click:",
-  aucEstimate: "AUC estimate: — (0 pts)",
+  aucCalcLabel: "AUC (calculated)",
+  aucSampleLabel: "AUC (sampled)",
   scatterTitle: "Scatterplot of Scores",
   matrixTitle: "Matrix of Case Comparisons",
   scatterXAxis: "Score",
@@ -55,7 +75,8 @@ const STRINGS = {
     { color: '#ff3333', text: 'Positive < Negative (red)' },
     { color: '#ff9900', text: 'Tie (orange)' },
     { color: '#0077ff', text: 'ROC curve (blue)' }
-  ]
+  ],
+  legendTitle: "Legend"
 };
 
 // ==================== Static Text Injection ====================
@@ -64,7 +85,6 @@ const STRINGS = {
   document.getElementById('autoArrange').textContent = STRINGS.autoArrange;
   document.getElementById('randomSample').textContent = STRINGS.randomSample;
   document.getElementById('pointsPerClick').textContent = STRINGS.pointsPerClick;
-  document.getElementById('aucDisplay').textContent = STRINGS.aucEstimate;
 })();
 
 // ==================== Datasets ====================
@@ -91,7 +111,7 @@ const randBtn = document.getElementById('randomSample');
 const sampleSel = document.getElementById('sampleCount');
 const aucDisplay = document.getElementById('aucDisplay');
 const legend = document.getElementById('legendSVG');
-const controls = document.getElementById('controls');
+const sampleControls = document.getElementById('sampleControls');
 
 // ==================== Utility Makers ====================
 function mk(tag, attrs={}){ const e=document.createElementNS('http://www.w3.org/2000/svg', tag); for(const k in attrs) e.setAttribute(k, attrs[k]); return e; }
@@ -119,12 +139,11 @@ function resizeForDataset(nNeg, nPos){
   overlay.style.width = newW + 'px';
   overlay.style.height = (newMatrixH + 300) + 'px';
 
-  // Match container widths to avoid layout overflow hiding controls/buttons
+  // Match container widths so stage, controls, and legend stay aligned
   document.getElementById('stage').style.width = newW + 'px';
-  document.getElementById('arrangeBar').style.width = newW + 'px';
-  document.getElementById('controls').style.width = newW + 'px';
   document.getElementById('scatter-container').style.width = newW + 'px';
   document.getElementById('matrix-container').style.width = newW + 'px';
+  document.getElementById('actionsRow').style.width = newW + 'px';
 }
 
 // ==================== Globals (reset each build) ====================
@@ -209,6 +228,7 @@ function buildVisualization(scores, labels){
   updateColors();
 }
 
+// Render the scatter plot anchors and draggable nodes; populates global `nodes` using scores/labels from `vizState`.
 function drawScatter(){
   const { scores, labels, scaleX, scoreMin, scoreMax } = vizState;
   const scatterTop = SCATTER_TOP;
@@ -271,6 +291,7 @@ function drawScatter(){
   }
 }
 
+// Lay out the comparison matrix, initialize anchor arrays, and allocate shared layers recorded in globals.
 function drawMatrix(){
   const { nPos, nNeg } = vizState;
   const gridW = innerW - 32;
@@ -335,14 +356,35 @@ function drawMatrix(){
   matrix.append(samplesOld, samplesNew);
 }
 
+// Populate the static legend using `STRINGS.legend`; only touches the legend SVG.
 function drawLegend(){
+  const content = mk('g', {});
+  legend.appendChild(content);
+
+  const title = mk('text', { x: 20, y: 18, 'font-weight': '600' });
+  title.textContent = STRINGS.legendTitle;
+  content.appendChild(title);
+
   STRINGS.legend.forEach((entry, i) => {
-    const y = 20 + i * 26;
-    legend.appendChild(mk('rect', { x: 20, y, width: 14, height: 14, fill: entry.color, stroke: '#111' }));
-    legend.appendChild(mk('text', { x: 40, y: y + 11 })).textContent = entry.text;
+    const y = 36 + i * 26;
+    content.appendChild(mk('rect', { x: 20, y, width: 14, height: 14, fill: entry.color, stroke: '#111' }));
+    content.appendChild(mk('text', { x: 40, y: y + 11 })).textContent = entry.text;
   });
+
+  const bbox = content.getBBox();
+  const pad = 12;
+  const newWidth = Math.ceil(bbox.x + bbox.width + pad);
+  const newHeight = Math.ceil(bbox.y + bbox.height + pad);
+  if (newWidth > 0){
+    legend.setAttribute('width', newWidth);
+  }
+  if (newHeight > 0){
+    legend.setAttribute('height', newHeight);
+  }
+  legend.setAttribute('viewBox', `0 0 ${Math.max(newWidth, 1)} ${Math.max(newHeight, 1)}`);
 }
 
+// Attach UI handlers once (guarded by `eventsBound`), wiring buttons, sampling, and drag/drop behaviors across globals.
 function bindEvents(){
   autoBtn.onclick = () => {
     posAnch.forEach(a => a.occupied = null);
@@ -463,6 +505,7 @@ function bindEvents(){
   });
 }
 
+// Clear sampling state counters and associated SVG groups; resets globals `cumY`, `cumR`, `cumO`, `samplesOld`, `samplesNew`.
 function resetSamples(){
   cumY = 0;
   cumR = 0;
@@ -471,6 +514,7 @@ function resetSamples(){
   if (samplesNew) samplesNew.innerHTML = '';
 }
 
+// Derive the deterministic matrix AUC from the colored cell layer; reads `cellLayer`.
 function calcMatrixAUC(){
   if (!cellLayer) return null;
   const rects = cellLayer.querySelectorAll('rect');
@@ -485,15 +529,19 @@ function calcMatrixAUC(){
   return tot > 0 ? (y + 0.5 * o) / tot : null;
 }
 
+// Refresh the on-screen AUC summary using sampling tallies and matrix calculation helpers.
 function updateAUCDisplay(){
   const total = cumY + cumO + cumR;
   if (total > 0){
     const aucSample = (cumY + 0.5 * cumO) / total;
     const calc = calcMatrixAUC();
-    aucDisplay.textContent = `AUC (calc): ${calc?.toFixed(3) || '—'} | AUC (sample): ${aucSample.toFixed(3)} (${total} pts)`;
+    const calcLabel = STRINGS.aucCalcLabel;
+    const sampleLabel = STRINGS.aucSampleLabel;
+    aucDisplay.innerHTML = `${calcLabel}: ${calc?.toFixed(3) || '—'}<br>${sampleLabel}: ${aucSample.toFixed(3)} (${total} pts)`;
   }
 }
 
+// Verify that all anchors are filled and ordered monotonically by score; inspects `posAnch` and `negAnch`.
 function inProperOrder(){
   const ps = posAnch.map(a => a.occupied ? a.occupied.score : null);
   const ns = negAnch.map(a => a.occupied ? a.occupied.score : null);
@@ -501,6 +549,47 @@ function inProperOrder(){
   for (let i = 1; i < ps.length; i++) if (ps[i] > ps[i - 1]) return false;
   for (let i = 1; i < ns.length; i++) if (ns[i] > ns[i - 1]) return false;
   return true;
+}
+
+// Compute ROC metrics grouped by score thresholds for reuse across visualizations.
+function computeROC(scores, labels){
+  if (!Array.isArray(scores) || !Array.isArray(labels) || scores.length !== labels.length) return [];
+
+  const byScore = new Map();
+  let totalPos = 0;
+  let totalNeg = 0;
+
+  for (let i = 0; i < scores.length; i++){
+    const threshold = Number(scores[i]);
+    const label = labels[i] === 1 ? 1 : 0;
+    const entry = byScore.get(threshold) || { threshold, pos: 0, neg: 0 };
+    if (label === 1){
+      entry.pos++;
+      totalPos++;
+    } else {
+      entry.neg++;
+      totalNeg++;
+    }
+    byScore.set(threshold, entry);
+  }
+
+  const sorted = [...byScore.values()].sort((a, b) => b.threshold - a.threshold);
+  let cumPos = 0;
+  let cumNeg = 0;
+
+  return sorted.map(group => {
+    cumPos += group.pos;
+    cumNeg += group.neg;
+    const fpr = totalNeg ? cumNeg / totalNeg : 0;
+    const tpr = totalPos ? cumPos / totalPos : 0;
+    return {
+      threshold: group.threshold,
+      fpr,
+      tpr,
+      fpCount: cumNeg,
+      tpCount: cumPos
+    };
+  });
 }
 
 /*
@@ -525,35 +614,21 @@ function drawROC(){
     return;
   }
 
-  const posScores = posAnch.map(a => a.occupied.score);
-  const negScores = negAnch.map(a => a.occupied.score);
+  const scores = [];
+  const labels = [];
+  posAnch.forEach(a => { if (a.occupied){ scores.push(a.occupied.score); labels.push(1); } });
+  negAnch.forEach(a => { if (a.occupied){ scores.push(a.occupied.score); labels.push(0); } });
 
-  const byScore = new Map();
-  for (const s of posScores){
-    const bucket = byScore.get(s) || { pos: 0, neg: 0 };
-    bucket.pos++;
-    byScore.set(s, bucket);
-  }
-  for (const s of negScores){
-    const bucket = byScore.get(s) || { pos: 0, neg: 0 };
-    bucket.neg++;
-    byScore.set(s, bucket);
+  const rocData = computeROC(scores, labels);
+  if (!rocData.length){
+    rocPath.setAttribute('visibility', 'hidden');
+    rocPoints.setAttribute('visibility', 'hidden');
+    return;
   }
 
-  const groups = [...byScore.entries()]
-    .sort((a, b) => Number(b[0]) - Number(a[0]))
-    .map(([score, cnt]) => ({ score: Number(score), pos: cnt.pos | 0, neg: cnt.neg | 0 }));
-
-  let tpr = 0;
-  let fpr = 0;
-  const roc = [[0, 0]];
-  groups.forEach(g => {
-    fpr += g.neg / nNeg;
-    tpr += g.pos / nPos;
-    roc.push([fpr * nNeg, tpr * nPos]);
-  });
+  const roc = [[0, 0], ...rocData.map(d => [d.fpCount, d.tpCount])];
   const last = roc[roc.length - 1];
-  if (last[0] !== nNeg || last[1] !== nPos){
+  if (last && (last[0] !== nNeg || last[1] !== nPos)){
     roc.push([nNeg, nPos]);
   }
 
@@ -571,12 +646,15 @@ function drawROC(){
   matrix.append(rocPath, rocPoints);
 }
 
+// Recompute matrix cell colors, toggle control visibility, and optionally draw the ROC curve; leverages multiple globals.
 function updateColors(){
   const { nPos, nNeg, cellW, cellH } = vizState;
   if (!cellW || !cellH){
     if (cellLayer) cellLayer.innerHTML = '';
-    controls.style.display = 'none';
-    aucDisplay.textContent = STRINGS.aucEstimate;
+    sampleControls.style.visibility = 'hidden';
+    sampleControls.style.opacity = '0';
+    sampleControls.style.pointerEvents = 'none';
+    aucDisplay.innerHTML = '';
     resetSamples();
     return;
   }
@@ -600,17 +678,24 @@ function updateColors(){
   }
 
   if (filled === nPos * nNeg && nPos && nNeg){
-    controls.style.display = 'block';
+    sampleControls.style.visibility = 'visible';
+    sampleControls.style.opacity = '1';
+    sampleControls.style.pointerEvents = 'auto';
     const auc = calcMatrixAUC();
-    aucDisplay.textContent = `AUC (calc): ${auc?.toFixed(3) || '—'} | AUC (sample): — (0 pts)`;
+    const calcLabel = STRINGS.aucCalcLabel;
+    const sampleLabel = STRINGS.aucSampleLabel;
+    aucDisplay.innerHTML = `${calcLabel}: ${auc?.toFixed(3) || '—'}<br>${sampleLabel}: — (0 pts)`;
     drawROC();
   } else {
-    controls.style.display = 'none';
-    aucDisplay.textContent = STRINGS.aucEstimate;
+    sampleControls.style.visibility = 'hidden';
+    sampleControls.style.opacity = '0';
+    sampleControls.style.pointerEvents = 'none';
+    aucDisplay.innerHTML = '';
     resetSamples();
   }
 }
 
+// Smoothly move a node between SVGs; drives `updateColors` after positioning to keep visuals in sync.
 function animateTo(node, destSVG, x2, y2, dur = 800){
   const startBox = node.shape.getBoundingClientRect();
   const start = { x: startBox.left + startBox.width / 2, y: startBox.top + startBox.height / 2 };
