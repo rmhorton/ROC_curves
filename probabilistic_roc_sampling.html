@@ -71,12 +71,19 @@ const STRINGS = {
   labelPos: "Positive Cases",
   labelNeg: "Negative Cases",
   legend: [
-    { colorKey: 'cellPosWin', text: 'Positive > Negative (yellow)' },
-    { colorKey: 'cellNegWin', text: 'Positive < Negative (red)' },
-    { colorKey: 'cellTie', text: 'Tie (orange)' },
-    { colorKey: 'rocLine', text: 'ROC curve (blue)' }
+    { type: 'circle', colorKey: 'positiveFill', text: 'Positive case' },
+    { type: 'diamond', colorKey: 'negativeFill', text: 'Negative case' },
+    { type: 'rect', colorKey: 'cellPosWin', text: 'Positive > Negative (yellow)' },
+    { type: 'rect', colorKey: 'cellNegWin', text: 'Positive < Negative (red)' },
+    { type: 'rect', colorKey: 'cellTie', text: 'Tie (orange)' },
+    { type: 'lineDot', colorKey: 'rocLine', text: 'ROC curve (blue)' }
   ],
-  legendTitle: "Legend"
+  legendTitle: "Legend",
+  tooltipPositive: 'Positive case',
+  tooltipNegative: 'Negative case',
+  tooltipScoreLabel: 'Score',
+  tooltipCalcFormula: 'Calculated AUC = (wins + 0.5 × ties) ÷ total comparisons',
+  tooltipSampleFormula: 'Sampled AUC = (sample wins + 0.5 × sample ties) ÷ sampled comparisons'
 };
 
 const PALETTE = {
@@ -298,6 +305,9 @@ function drawScatter(){
     const shape = isPos
       ? mk('circle', { cx: x, cy: y, r: SHAPE_R, fill: PALETTE.positiveFill, stroke: PALETTE.shapeStroke })
       : mk('polygon', { points: diamondPoints(x, y, DIAMOND_R), fill: PALETTE.negativeFill, stroke: PALETTE.shapeStroke });
+    const tooltip = mk('title');
+    tooltip.textContent = `${isPos ? STRINGS.tooltipPositive : STRINGS.tooltipNegative} – ${STRINGS.tooltipScoreLabel}: ${score}`;
+    shape.appendChild(tooltip);
     const lblColor = isPos ? PALETTE.positiveLabel : PALETTE.negativeLabel;
     const lbl = mk('text', { x, y, 'text-anchor': 'middle', 'dominant-baseline': 'central', 'font-size': '11' });
     lbl.style.fill = lblColor;
@@ -382,11 +392,28 @@ function drawLegend(){
   title.textContent = STRINGS.legendTitle;
   content.appendChild(title);
 
+  const baseX = 20;
+  const baseY = 36;
+  const gap = 26;
+
   STRINGS.legend.forEach((entry, i) => {
-    const y = 36 + i * 26;
-    const swatch = PALETTE[entry.colorKey];
-    content.appendChild(mk('rect', { x: 20, y, width: 14, height: 14, fill: swatch, stroke: PALETTE.legendStroke }));
-    content.appendChild(mk('text', { x: 40, y: y + 11 })).textContent = entry.text;
+    const y = baseY + i * gap;
+    const color = PALETTE[entry.colorKey] || '#ccc';
+    switch(entry.type){
+      case 'circle':
+        content.appendChild(mk('circle', { cx: baseX + 7, cy: y + 7, r: 7, fill: color, stroke: PALETTE.shapeStroke }));
+        break;
+      case 'diamond':
+        content.appendChild(mk('polygon', { points: diamondPoints(baseX + 7, y + 7, 7), fill: color, stroke: PALETTE.shapeStroke }));
+        break;
+      case 'lineDot':
+        content.appendChild(mk('line', { x1: baseX, y1: y + 7, x2: baseX + 14, y2: y + 7, stroke: color, 'stroke-width': 3 }));
+        content.appendChild(mk('circle', { cx: baseX + 7, cy: y + 7, r: 3, fill: color, stroke: PALETTE.rocPointStroke }));
+        break;
+      default:
+        content.appendChild(mk('rect', { x: baseX, y, width: 14, height: 14, fill: color, stroke: PALETTE.legendStroke }));
+    }
+    content.appendChild(mk('text', { x: baseX + 20, y: y + 11 })).textContent = entry.text;
   });
 
   const bbox = content.getBBox();
@@ -532,6 +559,7 @@ function resetSamples(){
   cumO = 0;
   if (samplesOld) samplesOld.innerHTML = '';
   if (samplesNew) samplesNew.innerHTML = '';
+  aucDisplay.textContent = '';
 }
 
 // Derive the deterministic matrix AUC from the colored cell layer; reads `cellLayer`.
@@ -555,10 +583,22 @@ function updateAUCDisplay(){
   if (total > 0){
     const aucSample = (cumY + 0.5 * cumO) / total;
     const calc = calcMatrixAUC();
-    const calcLabel = STRINGS.aucCalcLabel;
-    const sampleLabel = STRINGS.aucSampleLabel;
-    aucDisplay.innerHTML = `${calcLabel}: ${calc?.toFixed(3) || '—'}<br>${sampleLabel}: ${aucSample.toFixed(3)} (${total} pts)`;
+    renderAUCDisplay(calc?.toFixed(3) || '—', `${aucSample.toFixed(3)} (${total} pts)`);
   }
+}
+
+function renderAUCDisplay(calcText, sampleText){
+  if (!aucDisplay) return;
+  aucDisplay.innerHTML = '';
+  const calcSpan = document.createElement('span');
+  calcSpan.title = STRINGS.tooltipCalcFormula;
+  calcSpan.textContent = `${STRINGS.aucCalcLabel}: ${calcText}`;
+  aucDisplay.appendChild(calcSpan);
+  aucDisplay.appendChild(document.createElement('br'));
+  const sampleSpan = document.createElement('span');
+  sampleSpan.title = STRINGS.tooltipSampleFormula;
+  sampleSpan.textContent = `${STRINGS.aucSampleLabel}: ${sampleText}`;
+  aucDisplay.appendChild(sampleSpan);
 }
 
 // Verify that all anchors are filled and ordered monotonically by score; inspects `posAnch` and `negAnch`.
@@ -697,20 +737,18 @@ function updateColors(){
     }
   }
 
-  if (filled === nPos * nNeg && nPos && nNeg){
+ if (filled === nPos * nNeg && nPos && nNeg){
     sampleControls.style.visibility = 'visible';
     sampleControls.style.opacity = '1';
     sampleControls.style.pointerEvents = 'auto';
     const auc = calcMatrixAUC();
-    const calcLabel = STRINGS.aucCalcLabel;
-    const sampleLabel = STRINGS.aucSampleLabel;
-    aucDisplay.innerHTML = `${calcLabel}: ${auc?.toFixed(3) || '—'}<br>${sampleLabel}: — (0 pts)`;
+    renderAUCDisplay(auc?.toFixed(3) || '—', '— (0 pts)');
     drawROC();
   } else {
     sampleControls.style.visibility = 'hidden';
     sampleControls.style.opacity = '0';
     sampleControls.style.pointerEvents = 'none';
-    aucDisplay.innerHTML = '';
+    aucDisplay.textContent = '';
     resetSamples();
   }
 }
