@@ -18,10 +18,7 @@ Everything runs client-side. Opening `turtle_path.html` in any modern browser is
 ```
 turtle_path.html          # Main application page
 turtle_config.js         # Configuration: strings, colours, datasets, layout
-turtle_cursor.svg        # (Optional) sample turtle art you can incorporate
 turtle_user_manual.md    # This document
-probabilistic_roc_sampling_copy.html # Companion ROC exploration
-Turtle_tales.txt         # Running notes / ideas
 ```
 
 Only the highlighted HTML and JS files are required for the app; the rest provide supporting material.
