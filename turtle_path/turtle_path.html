@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Turtle Path ROC Curve</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    body { font-family: sans-serif; position: relative; margin: 20px; }
+    .control-panel {
+      margin-top: 16px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .dataset-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+    }
+    .dataset-controls label { font-weight: 600; }
+    .dataset-controls select {
+      padding: 4px 10px;
+      font-size: 14px;
+      border-radius: 4px;
+      border: 1px solid #bbb;
+    }
+    .point { stroke: var(--color-point-stroke, #000); stroke-width: 1.5px; stroke-linejoin: round; }
+    .axis-label { font-size: 16px; fill: #111; font-weight: 600; }
+    .grid-line { pointer-events: none; }
+    .confusion-matrix {
+      font-size: 18px;
+      border-collapse: collapse;
+    }
+    .confusion-matrix th, .confusion-matrix td {
+      border: 1px solid var(--color-table-border, #000);
+      width: 50px;
+      height: 30px;
+      text-align: center;
+      vertical-align: middle;
+    }
+    .confusion-matrix th { background-color: var(--color-table-header-bg, #f0f0f0); font-weight: bold; }
+    #tp, #tn { background-color: var(--color-matrix-positive-bg, lightblue); }
+    #fp, #fn { background-color: var(--color-matrix-negative-bg, pink); }
+
+    .confusion-container {
+      position: absolute;
+      top: 160px;
+      right: 30px;
+      background: var(--color-panel-bg, #fff);
+      border: 1px solid var(--color-panel-border, #000);
+      padding: 5px;
+      cursor: grab;
+      touch-action: none;
+      box-shadow: var(--shadow-panel, 0 4px 12px rgba(0, 0, 0, 0.1));
+    }
+    .confusion-container.dragging { cursor: grabbing; }
+    #controlButton {
+      padding: 6px 14px;
+      font-size: 14px;
+      border-radius: 4px;
+      border: 1px solid var(--color-control-border, #777);
+      background: var(--color-control-bg, #f2f2f2);
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <svg id="roc" width="600" height="600" style="display:block;"></svg>
+  <div class="control-panel">
+    <div class="dataset-controls" id="datasetControls">
+      <label for="datasetSelect" id="datasetLabel"></label>
+      <select id="datasetSelect"></select>
+    </div>
+    <button id="controlButton"></button>
+  </div>
+  <div class="confusion-container" id="confusionContainer">
+    <table class="confusion-matrix">
+      <tr>
+        <th rowspan="2" id="cmActualHeader"></th>
+        <th colspan="2" id="cmPredictedHeader"></th>
+      </tr>
+      <tr>
+        <th id="cmPredictedTrue"></th>
+        <th id="cmPredictedFalse"></th>
+      </tr>
+      <tr>
+        <th id="cmTrueRowLabel"></th>
+        <td id="tp">0</td>
+        <td id="fn">0</td>
+      </tr>
+      <tr>
+        <th id="cmFalseRowLabel"></th>
+        <td id="fp">0</td>
+        <td id="tn">0</td>
+      </tr>
+    </table>
+  </div>
+
+  <script src="turtle_config.js"></script>
+  <script>
+    const margin = { ...LAYOUT.margin };
+    const SYMBOLS = LAYOUT.symbolSizes;
+    const OPACITY = LAYOUT.opacities;
+    const ANIMATION = LAYOUT.animation;
+    const OFFSETS = LAYOUT.layoutOffsets;
+    const GRID = LAYOUT.grid;
+    const TURTLE = LAYOUT.turtle;
+
+    const svg = d3.select("#roc");
+    const width = +svg.attr("width");
+    const height = +svg.attr("height");
+
+    const plotBackground = svg.insert("rect", ":first-child")
+      .attr("class", "plot-background")
+      .attr("width", width)
+      .attr("height", height)
+      .attr("fill", PALETTE.plotBackground);
+
+    const plotWidth = width - margin.left - margin.right;
+    const plotHeight = height - margin.top - margin.bottom;
+
+    const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
+    const axisLabels = svg.append("g").attr("class", "axis-labels");
+
+    const baseXScale = d3.scaleLinear().domain([0, 1]).range([0, plotWidth]);
+    const axisDirection = (LAYOUT.axes && LAYOUT.axes.xDirection) || "ltr";
+    const isXReversed = axisDirection === "rtl";
+    const axisScale = isXReversed
+      ? d3.scaleLinear().domain([1, 0]).range([0, plotWidth])
+      : baseXScale;
+    const projectX = value => axisScale(isXReversed ? 1 - value : value);
+    const yScale = d3.scaleLinear().domain([0, 1]).range([plotHeight, 0]);
+
+    const datasetSelect = document.getElementById("datasetSelect");
+    const datasetLabelEl = document.getElementById("datasetLabel");
+    const datasetControlsEl = document.getElementById("datasetControls");
+    const controlButton = document.getElementById("controlButton");
+    const confusionContainer = document.getElementById("confusionContainer");
+    const cmActualHeader = document.getElementById("cmActualHeader");
+    const cmPredictedHeader = document.getElementById("cmPredictedHeader");
+    const cmPredictedTrue = document.getElementById("cmPredictedTrue");
+    const cmPredictedFalse = document.getElementById("cmPredictedFalse");
+    const cmTrueRowLabel = document.getElementById("cmTrueRowLabel");
+    const cmFalseRowLabel = document.getElementById("cmFalseRowLabel");
+
+    function applyPalette() {
+      const root = document.documentElement;
+      root.style.setProperty("--color-point-stroke", PALETTE.pointStroke);
+      root.style.setProperty("--color-table-border", PALETTE.tableBorder);
+      root.style.setProperty("--color-table-header-bg", PALETTE.tableHeaderBg);
+      root.style.setProperty("--color-matrix-positive-bg", PALETTE.matrixPositiveBg);
+      root.style.setProperty("--color-matrix-negative-bg", PALETTE.matrixNegativeBg);
+      root.style.setProperty("--color-panel-bg", PALETTE.panelBg);
+      root.style.setProperty("--color-panel-border", PALETTE.panelBorder);
+      root.style.setProperty("--color-control-bg", PALETTE.controlBg);
+      root.style.setProperty("--color-control-border", PALETTE.controlBorder);
+      root.style.setProperty("--shadow-panel", PALETTE.panelShadow);
+      plotBackground.attr("fill", PALETTE.plotBackground);
+    }
+
+    function applyStrings() {
+      document.title = STRINGS.pageTitle;
+      datasetLabelEl.textContent = STRINGS.datasetLabel;
+      cmActualHeader.textContent = STRINGS.confusion.actual;
+      cmPredictedHeader.textContent = STRINGS.confusion.predicted;
+      cmPredictedTrue.textContent = STRINGS.confusion.trueLabel;
+      cmPredictedFalse.textContent = STRINGS.confusion.falseLabel;
+      cmTrueRowLabel.textContent = STRINGS.confusion.trueLabel;
+      cmFalseRowLabel.textContent = STRINGS.confusion.falseLabel;
+    }
+
+    function applyDatasetOptions() {
+      if (LAYOUT.controls.showDatasetSelector && datasetSelect) {
+        datasetSelect.innerHTML = "";
+        DATASET_ORDER.forEach(key => {
+          if (!DATASETS[key]) return;
+          const option = document.createElement("option");
+          option.value = key;
+          option.textContent = STRINGS.datasets[key] || key;
+          datasetSelect.appendChild(option);
+        });
+      }
+    }
+
+    function diamondPoints(r) {
+      return `${0},${-r} ${r},${0} ${0},${r} ${-r},${0}`;
+    }
+
+    function formatCaseCount(count, singular, plural) {
+      return `${count} ${count === 1 ? singular : plural}`;
+    }
+
+    function formatPointTooltip(point) {
+      if (point.origin) {
+        return STRINGS.tooltip.start;
+      }
+      const parts = [`${STRINGS.tooltip.score}: ${point.score}`];
+      if (point.deltaPos > 0) {
+        parts.push(formatCaseCount(point.deltaPos, STRINGS.tooltip.positiveSingular, STRINGS.tooltip.positivePlural));
+      }
+      if (point.deltaNeg > 0) {
+        parts.push(formatCaseCount(point.deltaNeg, STRINGS.tooltip.negativeSingular, STRINGS.tooltip.negativePlural));
+      }
+      return parts.join(STRINGS.tooltip.separator);
+    }
+
+    let paused = LAYOUT.controls.showPlayPause === true;
+
+    function updateControlButtonLabel() {
+      if (LAYOUT.controls.showPlayPause && controlButton) {
+        controlButton.textContent = paused ? STRINGS.control.play : STRINGS.control.pause;
+      }
+    }
+
+    applyPalette();
+    applyStrings();
+    applyDatasetOptions();
+    updateControlButtonLabel();
+
+    let points;
+    let turtle;
+    let curvePoints = [];
+    let tieRegions;
+    let positives = 0;
+    let negatives = 0;
+    let tp = 0;
+    let fp = 0;
+    let fn = 0;
+    let tn = 0;
+    let i = 0;
+    let timeoutId = null;
+    let userPositionedMatrix = false;
+
+    function updateConfusionMatrix() {
+      d3.select("#tp").text(tp);
+      d3.select("#fp").text(fp);
+      d3.select("#fn").text(fn);
+      d3.select("#tn").text(tn);
+    }
+
+    function cancelAnimation() {
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+    }
+
+    function resetPointStyles() {
+      if (points) {
+        points.each(function(d) {
+          const groupSel = d3.select(this);
+          if (d.origin) {
+            groupSel.selectAll(".origin-case")
+              .attr("fill", PALETTE.originFill)
+              .attr("stroke", PALETTE.originStroke)
+              .attr("opacity", 1);
+          } else {
+            groupSel.selectAll(".positive-case")
+              .attr("fill", PALETTE.positive)
+              .attr("opacity", OPACITY.idle);
+            groupSel.selectAll(".negative-case")
+              .attr("fill", PALETTE.negative)
+              .attr("opacity", OPACITY.idle);
+            groupSel.selectAll(".tie-case")
+              .attr("fill", PALETTE.tie)
+              .attr("opacity", OPACITY.tieIdle);
+          }
+        });
+      }
+      if (tieRegions && !tieRegions.empty()) {
+        tieRegions.select("rect")
+          .attr("fill", PALETTE.tieRegionFill)
+          .attr("stroke", PALETTE.tieRegionStroke)
+          .attr("opacity", OPACITY.tieRegionIdle);
+        tieRegions.select("line")
+          .attr("stroke", PALETTE.tieRegionLine)
+          .attr("opacity", OPACITY.tieLineIdle);
+      }
+    }
+
+    function animateStep() {
+      if (paused || !curvePoints.length) return;
+
+      if (i === 0) {
+        resetPointStyles();
+        tp = 0;
+        fp = 0;
+        fn = positives;
+        tn = negatives;
+        updateConfusionMatrix();
+      }
+
+      const step = curvePoints[i];
+      if (step && turtle) {
+        turtle.attr("transform", `translate(${projectX(step.x)},${yScale(step.y)})`);
+      }
+
+      if (i > 0 && step) {
+        tp += step.deltaPos;
+        fp += step.deltaNeg;
+        fn = positives - tp;
+        tn = negatives - fp;
+        updateConfusionMatrix();
+
+        const activePoint = points.filter((_, idx) => idx === i);
+        activePoint.selectAll(".positive-case").attr("fill", PALETTE.positive).attr("opacity", 1);
+        activePoint.selectAll(".negative-case").attr("fill", PALETTE.negative).attr("opacity", 1);
+        activePoint.selectAll(".tie-case").attr("fill", PALETTE.tie).attr("opacity", 1);
+
+        if (tieRegions && !tieRegions.empty()) {
+          tieRegions.select("rect").attr("opacity", OPACITY.tieRegionIdle);
+          tieRegions.select("line").attr("opacity", OPACITY.tieLineIdle);
+
+          const activeRegion = tieRegions.filter(d => d.pointIndex === i);
+          activeRegion.select("rect").attr("opacity", OPACITY.tieRegionActive);
+          activeRegion.select("line").attr("opacity", OPACITY.tieLineActive);
+        }
+      }
+
+      if (i === curvePoints.length - 1) {
+        timeoutId = setTimeout(() => { i = 0; animateStep(); }, ANIMATION.resetDelay);
+      } else {
+        i = (i + 1) % curvePoints.length;
+        timeoutId = setTimeout(animateStep, ANIMATION.stepDelay);
+      }
+    }
+
+    function setDefaultConfusionPosition() {
+      const svgRect = svg.node().getBoundingClientRect();
+      const containerRect = confusionContainer.getBoundingClientRect();
+      const containerWidth = containerRect.width || confusionContainer.offsetWidth || 0;
+      const containerHeight = containerRect.height || confusionContainer.offsetHeight || 0;
+      const targetX = svgRect.left + window.scrollX + margin.left + plotWidth * OFFSETS.confusionQuadrantX - containerWidth / 2;
+      const targetY = svgRect.top + window.scrollY + margin.top + plotHeight * OFFSETS.confusionQuadrantY - containerHeight;
+      const maxLeft = document.documentElement.clientWidth + window.scrollX - containerWidth - OFFSETS.minPadding;
+      const maxTop = document.documentElement.clientHeight + window.scrollY - containerHeight - OFFSETS.minPadding;
+      const clamp = (value, max) => Math.min(Math.max(OFFSETS.minPadding, value), Math.max(OFFSETS.minPadding, max));
+      confusionContainer.style.left = `${clamp(targetX, maxLeft)}px`;
+      confusionContainer.style.top = `${clamp(targetY, maxTop)}px`;
+      confusionContainer.style.right = "auto";
+      confusionContainer.style.bottom = "auto";
+    }
+
+    function buildVisualization(datasetKey) {
+      cancelAnimation();
+      const dataset = DATASETS[datasetKey];
+      if (!dataset) return;
+
+      const data = dataset.scores.map((score, idx) => ({
+        score,
+        actual: dataset.labels[idx] ? 1 : 0
+      })).sort((a, b) => b.score - a.score);
+
+      positives = data.filter(d => d.actual === 1).length;
+      negatives = data.length - positives;
+
+      if (positives === 0 || negatives === 0) {
+        const message = "Each dataset must include at least one positive and one negative case to render the ROC curve.";
+        console.error(message);
+        alert(message);
+        return;
+      }
+
+      const positiveStep = positives ? 1 / positives : 0;
+      const negativeStep = negatives ? 1 / negatives : 0;
+
+      const groups = [];
+      data.forEach(datum => {
+        const last = groups[groups.length - 1];
+        if (last && last.score === datum.score) {
+          if (datum.actual === 1) last.positives += 1;
+          else last.negatives += 1;
+        } else {
+          groups.push({
+            score: datum.score,
+            positives: datum.actual === 1 ? 1 : 0,
+            negatives: datum.actual === 1 ? 0 : 1
+          });
+        }
+      });
+
+      let x = 0;
+      let y = 0;
+      const pathPoints = [{
+        x: 0,
+        y: 0,
+        origin: true,
+        deltaPos: 0,
+        deltaNeg: 0,
+        score: null,
+        index: 0
+      }];
+      const tieRectangles = [];
+
+      groups.forEach(group => {
+        const startX = x;
+        const startY = y;
+        const dx = group.negatives * negativeStep;
+        const dy = group.positives * positiveStep;
+        x += dx;
+        y += dy;
+        const pointIndex = pathPoints.length;
+        pathPoints.push({
+          x,
+          y,
+          origin: false,
+          deltaPos: group.positives,
+          deltaNeg: group.negatives,
+          score: group.score,
+          index: pointIndex
+        });
+        if (group.positives > 0 && group.negatives > 0 && dx && dy) {
+          tieRectangles.push({
+            x0: startX,
+            y0: startY,
+            dx,
+            dy,
+            pointIndex
+          });
+        }
+      });
+
+      curvePoints = pathPoints;
+
+      g.selectAll("*").remove();
+      axisLabels.selectAll("*").remove();
+
+      if (GRID.enabled) {
+        const gridLayer = g.append("g").attr("class", "grid-layer");
+
+        const gridLeft = Math.min(projectX(0), projectX(1));
+        const gridRight = Math.max(projectX(0), projectX(1));
+        const gridWidth = gridRight - gridLeft;
+
+        gridLayer.append("rect")
+          .attr("class", "grid-fill")
+          .attr("x", gridLeft)
+          .attr("y", yScale(1))
+          .attr("width", gridWidth)
+          .attr("height", yScale(0) - yScale(1))
+          .attr("fill", PALETTE.gridBackground);
+
+        if (GRID.showOuterBorder) {
+          gridLayer.append("rect")
+            .attr("class", "grid-line grid-border")
+            .attr("x", gridLeft)
+            .attr("y", yScale(1))
+            .attr("width", gridWidth)
+            .attr("height", yScale(0) - yScale(1))
+            .attr("fill", "none")
+            .attr("stroke", PALETTE.gridLine)
+            .attr("stroke-width", GRID.lineWidth);
+        }
+
+        const verticalDivisions = d3.range(negatives + 1).map(idx => idx / negatives);
+        gridLayer.selectAll(".grid-vertical")
+          .data(verticalDivisions)
+          .enter()
+          .append("line")
+          .attr("class", "grid-line grid-vertical")
+          .attr("x1", d => projectX(d))
+          .attr("y1", yScale(0))
+          .attr("x2", d => projectX(d))
+          .attr("y2", yScale(1))
+          .attr("stroke", PALETTE.gridLine)
+          .attr("stroke-width", GRID.lineWidth);
+
+        const horizontalDivisions = d3.range(positives + 1).map(idx => idx / positives);
+        gridLayer.selectAll(".grid-horizontal")
+          .data(horizontalDivisions)
+          .enter()
+          .append("line")
+          .attr("class", "grid-line grid-horizontal")
+          .attr("x1", projectX(0))
+          .attr("y1", d => yScale(d))
+          .attr("x2", projectX(1))
+          .attr("y2", d => yScale(d))
+          .attr("stroke", PALETTE.gridLine)
+          .attr("stroke-width", GRID.lineWidth);
+      }
+
+      const axesLayer = g.append("g").attr("class", "axes-layer");
+      axesLayer.append("g")
+        .attr("transform", `translate(0,${plotHeight})`)
+        .call(d3.axisBottom(axisScale));
+      axesLayer.append("g")
+        .call(d3.axisLeft(yScale));
+
+      g.append("g")
+        .attr("class", "baseline-layer")
+        .append("line")
+        .attr("x1", projectX(0))
+        .attr("y1", yScale(0))
+        .attr("x2", projectX(1))
+        .attr("y2", yScale(1))
+        .attr("stroke", PALETTE.baselineStroke)
+        .attr("stroke-dasharray", "4,4");
+
+      tieRegions = g.append("g")
+        .attr("class", "tie-layer")
+        .selectAll(".tie-region")
+        .data(tieRectangles)
+        .enter()
+        .append("g")
+        .attr("class", "tie-region");
+
+      tieRegions.append("rect")
+        .attr("x", d => Math.min(projectX(d.x0), projectX(d.x0 + d.dx)))
+        .attr("y", d => yScale(d.y0 + d.dy))
+        .attr("width", d => Math.abs(projectX(d.x0 + d.dx) - projectX(d.x0)))
+        .attr("height", d => yScale(d.y0) - yScale(d.y0 + d.dy))
+        .attr("fill", PALETTE.tieRegionFill)
+        .attr("stroke", PALETTE.tieRegionStroke)
+        .attr("stroke-width", 1)
+        .attr("opacity", OPACITY.tieRegionIdle);
+
+      tieRegions.append("line")
+        .attr("x1", d => projectX(d.x0))
+        .attr("y1", d => yScale(d.y0))
+        .attr("x2", d => projectX(d.x0 + d.dx))
+        .attr("y2", d => yScale(d.y0 + d.dy))
+        .attr("stroke", PALETTE.tieRegionLine)
+        .attr("stroke-width", 1.5)
+        .attr("stroke-dasharray", "4,2")
+        .attr("opacity", OPACITY.tieLineIdle);
+
+      g.append("g")
+        .attr("class", "curve-layer")
+        .append("path")
+        .datum(pathPoints)
+        .attr("fill", "none")
+        .attr("stroke", PALETTE.rocStroke)
+        .attr("stroke-width", GRID.lineWidth * 3)
+        .attr("d", d3.line()
+          .x(d => projectX(d.x))
+          .y(d => yScale(d.y))
+        );
+
+      points = g.append("g")
+        .attr("class", "points-layer")
+        .selectAll(".point-group")
+        .data(pathPoints)
+        .enter()
+        .append("g")
+        .attr("class", "point-group")
+        .attr("transform", d => `translate(${projectX(d.x)},${yScale(d.y)})`);
+
+      points.each(function(d) {
+        const groupSel = d3.select(this);
+        groupSel.attr("data-index", d.index);
+        if (d.origin) {
+      groupSel.append("circle")
+        .attr("class", "point origin-case")
+        .attr("r", SYMBOLS.originRadius)
+        .attr("fill", PALETTE.originFill)
+        .attr("stroke", PALETTE.originStroke)
+        .attr("stroke-width", 1.5)
+        .attr("opacity", 1);
+          groupSel.append("title").text(formatPointTooltip(d));
+          return;
+        }
+
+        const hasPositive = d.deltaPos > 0;
+        const hasNegative = d.deltaNeg > 0;
+        const isTieGroup = hasPositive && hasNegative;
+
+        if (isTieGroup) {
+        groupSel.append("rect")
+          .attr("class", "point tie-case")
+          .attr("x", -SYMBOLS.tieSize / 2)
+          .attr("y", -SYMBOLS.tieSize / 2)
+          .attr("width", SYMBOLS.tieSize)
+          .attr("height", SYMBOLS.tieSize)
+          .attr("fill", PALETTE.tie)
+          .attr("stroke", PALETTE.shapeStroke)
+          .attr("stroke-width", 1.2)
+          .attr("opacity", OPACITY.tieIdle);
+        } else {
+        if (hasPositive) {
+          groupSel.append("circle")
+            .attr("class", "point positive-case")
+            .attr("r", SYMBOLS.positiveRadius)
+            .attr("fill", PALETTE.positive)
+            .attr("stroke", PALETTE.shapeStroke)
+            .attr("stroke-width", 1.2)
+            .attr("opacity", OPACITY.idle);
+        }
+
+        if (hasNegative) {
+          groupSel.append("polygon")
+            .attr("class", "point negative-case")
+            .attr("points", diamondPoints(SYMBOLS.negativeRadius))
+            .attr("fill", PALETTE.negative)
+            .attr("stroke", PALETTE.shapeStroke)
+            .attr("stroke-width", 1.2)
+            .attr("opacity", OPACITY.idle);
+        }
+        }
+
+        groupSel.append("title").text(formatPointTooltip(d));
+      });
+
+      turtle = g.append("g").attr("class", "turtle-layer");
+      if (TURTLE.shape === "square") {
+        turtle.append("rect")
+          .attr("width", TURTLE.size)
+          .attr("height", TURTLE.size)
+          .attr("x", -TURTLE.size / 2)
+          .attr("y", -TURTLE.size / 2)
+          .attr("fill", "none")
+          .attr("stroke", PALETTE.turtleStroke)
+          .attr("stroke-width", TURTLE.strokeWidth);
+      } else {
+        turtle.append("circle")
+          .attr("r", SYMBOLS.turtleRadius)
+          .attr("fill", "none")
+          .attr("stroke", PALETTE.turtleStroke)
+          .attr("stroke-width", 2);
+      }
+
+      resetPointStyles();
+      tp = 0;
+      fp = 0;
+      fn = positives;
+      tn = negatives;
+      updateConfusionMatrix();
+
+      i = 0;
+      updateControlButtonLabel();
+
+      axisLabels.append("text")
+        .attr("class", "axis-label axis-label-x")
+        .attr("x", margin.left + plotWidth / 2)
+        .attr("y", margin.top + plotHeight + GRID.axisLabelOffset)
+        .attr("text-anchor", "middle")
+        .text(STRINGS.axes.xLabel);
+
+      axisLabels.append("text")
+        .attr("class", "axis-label axis-label-y")
+        .attr("text-anchor", "middle")
+        .attr("transform", `rotate(-90 ${margin.left - GRID.axisLabelOffset},${margin.top + plotHeight / 2})`)
+        .attr("x", margin.left - GRID.axisLabelOffset)
+        .attr("y", margin.top + plotHeight / 2)
+        .text(STRINGS.axes.yLabel);
+
+      if (!userPositionedMatrix) {
+        requestAnimationFrame(setDefaultConfusionPosition);
+      }
+      if (!paused) {
+        animateStep();
+      } else {
+        cancelAnimation();
+      }
+    }
+
+    let dragState = null;
+    confusionContainer.addEventListener("pointerdown", event => {
+      const rect = confusionContainer.getBoundingClientRect();
+      const currentLeft = parseFloat(confusionContainer.style.left) || rect.left + window.scrollX;
+      const currentTop = parseFloat(confusionContainer.style.top) || rect.top + window.scrollY;
+      confusionContainer.style.left = `${currentLeft}px`;
+      confusionContainer.style.top = `${currentTop}px`;
+      dragState = {
+        pointerId: event.pointerId,
+        startLeft: currentLeft,
+        startTop: currentTop,
+        startPageX: event.pageX,
+        startPageY: event.pageY
+      };
+      confusionContainer.classList.add("dragging");
+      confusionContainer.style.bottom = "auto";
+      confusionContainer.style.right = "auto";
+      confusionContainer.setPointerCapture(event.pointerId);
+      event.preventDefault();
+      userPositionedMatrix = true;
+    });
+
+    confusionContainer.addEventListener("pointermove", event => {
+      if (!dragState || event.pointerId !== dragState.pointerId) return;
+      const newLeft = dragState.startLeft + (event.pageX - dragState.startPageX);
+      const newTop = dragState.startTop + (event.pageY - dragState.startPageY);
+      confusionContainer.style.left = `${newLeft}px`;
+      confusionContainer.style.top = `${newTop}px`;
+    });
+
+    function endDrag(event) {
+      if (!dragState || event.pointerId !== dragState.pointerId) return;
+      confusionContainer.classList.remove("dragging");
+      confusionContainer.releasePointerCapture(event.pointerId);
+      dragState = null;
+    }
+
+    confusionContainer.addEventListener("pointerup", endDrag);
+    confusionContainer.addEventListener("pointercancel", endDrag);
+
+    if (LAYOUT.controls.showPlayPause && controlButton) {
+      controlButton.addEventListener("click", () => {
+        paused = !paused;
+        updateControlButtonLabel();
+        if (paused) {
+          cancelAnimation();
+        } else {
+          animateStep();
+        }
+      });
+    } else if (controlButton) {
+      controlButton.style.display = "none";
+    }
+
+    if (LAYOUT.controls.showDatasetSelector && datasetSelect) {
+      datasetSelect.addEventListener("change", () => {
+        buildVisualization(datasetSelect.value);
+      });
+    } else if (datasetControlsEl) {
+      datasetControlsEl.style.display = "none";
+    }
+
+    const initialDatasetKey = DATASET_ORDER.find(key => DATASETS[key]) || Object.keys(DATASETS)[0];
+    if (initialDatasetKey) {
+      if (LAYOUT.controls.showDatasetSelector && datasetSelect) {
+        datasetSelect.value = initialDatasetKey;
+      }
+      buildVisualization(initialDatasetKey);
+    }
+  </script>
+</body>
+</html>
