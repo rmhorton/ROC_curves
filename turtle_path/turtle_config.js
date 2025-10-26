@@ -9,7 +9,8 @@ const STRINGS = {
     actual: "Actual",
     predicted: "Predicted",
     trueLabel: "True",
-    falseLabel: "False"
+    falseLabel: "False",
+    title: "Confusion Matrix"
   },
   tooltip: {
     start: "Start of ROC curve",
@@ -29,6 +30,26 @@ const STRINGS = {
   axes: {
     xLabel: "False Positive Rate", // for "Specificity", also change LAYOUT.axes.direction to "rtl"
     yLabel: "True Positive Rate"
+  },
+  legend: {
+    title: "Legend",
+    positive: "Positive case",
+    negative: "Negative case",
+    tie: "Tie (equal scores)",
+    areaBelow: "Cells below ROC",
+    areaAbove: "Cells above ROC",
+    areaTie: "Cells in tie region",
+    aucPartial: "AUC (partial)",
+    aucFinal: "AUC"
+  },
+  plot: {
+    title: "The Turtle Finds its Way"
+  },
+  cursor: {
+    label: "Cursor:",
+    optionNone: "None",
+    optionCircle: "Circle",
+    optionSquare: "Square"
   }
 };
 
@@ -38,6 +59,7 @@ const PALETTE = {
   positive: "#0077ff",
   negative: "#d62728",
   tie: "#7c3aed",
+  tieRegionFill: "#ff9900",
   originFill: "#000000",
   originStroke: "#000000",
   baselineStroke: "#000000",
@@ -54,7 +76,9 @@ const PALETTE = {
   plotBackground: "#c6fafaff",
   gridBackground: "#ffffffff",
   gridLine: "#bbbbbb",
-  rocStroke: "#0077ff"
+  rocStroke: "#0077ff",
+  areaBelowCurve: "#ffeeaa",
+  areaAboveCurve: "#ff3333"
 };
 
 const DATASETS = {
@@ -88,12 +112,7 @@ const LAYOUT = {
     turtleRadius: 12
   },
   opacities: {
-    idle: 0.35,
-    tieIdle: 0.45,
-    tieRegionIdle: 0.18,
-    tieRegionActive: 0.35,
-    tieLineIdle: 0.45,
-    tieLineActive: 0.9
+    idle: 0.2
   },
   animation: {
     stepDelay: 600,
@@ -112,14 +131,30 @@ const LAYOUT = {
   },
   turtle: {
     shape: "square",
-    size: 28,
-    strokeWidth: 2
+    size: 36,
+    strokeWidth: 2,
+    useSvgCursor: true,
+    svgUrl: "cursors/turtle.svg",
+    svgOffsetX: 0,
+    svgOffsetY: 0,
+    rotateWithPath: false,
+    defaultOption: "cursors/turtle.svg",
+    availableOptions: [
+      { label: "Turtle", value: "cursors/turtle.svg" },
+      { label: "Star", value: "cursors/star.svg" },
+      { label: "Arrow", value: "cursors/arrow.svg" },
+      { label: "Smiley", value: "cursors/smiley.svg" }
+    ]
   },
   axes: {
     xDirection: "ltr" // "rtl" for Specificity
   },
   controls: {
     showPlayPause: true,
-    showDatasetSelector: true
+    showDatasetSelector: true,
+    showCursorSelector: true,
+    showConfusionMatrix: true,
+    showLegend: true,
+    showPartialAuc: false
   }
 };

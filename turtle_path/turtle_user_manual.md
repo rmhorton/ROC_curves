@@ -95,6 +95,8 @@ The configuration file exports four constants. Editing them lets you localise te
 | Key | Purpose |
 | --- | --- |
 | `positive`, `negative`, `tie` | Base colours for positive cases, negative cases, and mixed-score (tie) squares. |
+| `tieRegionFill` | Fill colour for mixed-score rectangles. Set this to match `gridBackground` if you prefer not to display tie regions. |
+| `areaBelowCurve`, `areaAboveCurve` | Colours used to shade grid cells below or above the ROC curve once the turtle has passed them. Match these to `gridBackground` to hide the shading. |
 | `pointStroke`, `shapeStroke` | Outline colours for case symbols. |
 | `originFill`, `originStroke` | Styling for the origin point. |
 | `baselineStroke` | Colour for the diagonal baseline. |
@@ -119,11 +121,11 @@ You can add new datasets by defining a new object and referencing its key in `DA
 | --- | --- | --- |
 | `margin` | `top`, `right`, `bottom`, `left` | Padding around the plot inside the SVG. Increase these values if custom axis labels are clipped. |
 | `symbolSizes` | `originRadius`, `positiveRadius`, `negativeRadius`, `tieSize`, `turtleRadius` | Dimensions (in pixels) for the various symbols. Only the turtle size is used when the fallback circle is active. |
-| `opacities` | `idle`, `tieIdle`, `tieRegionIdle`, `tieRegionActive`, `tieLineIdle`, `tieLineActive` | Idle opacity is applied to all non-active case symbols. Active symbols are rendered at opacity `1`. |
+| `opacities` | `idle` | Idle opacity applied to every non-active element (points, segments, tie areas). Active items are rendered at full opacity (`1`). |
 | `animation` | `stepDelay`, `resetDelay` | Delay (ms) between steps and the pause before restarting at the origin. |
 | `layoutOffsets` | `confusionQuadrantX`, `confusionQuadrantY`, `minPadding` | Default position for the confusion matrix relative to the plot. Adjust if the panel overlaps other content. |
 | `grid` | `enabled`, `lineWidth`, `showOuterBorder`, `axisLabelOffset` | Show or hide the grid, change stroke width/offset, and configure label distance from axes. |
-| `turtle` | `shape`, `size`, `strokeWidth` | Currently `shape` accepts `"square"` (default) or `"circle"` for the fallback. You can extend this to inject custom SVG paths (see §9). |
+| `turtle` | `shape`, `size`, `strokeWidth`, `useSvgCursor`, `svgUrl`, `svgOffsetX`, `svgOffsetY`, `rotateWithPath` | Switch between the built-in square/circle markers or load a custom SVG cursor. `size` controls the overall footprint; offsets let you nudge the art after export. Set `rotateWithPath=false` to keep the cursor upright. |
 | `axes` | `xDirection` | `"ltr"` for False Positive Rate, `"rtl"` for Specificity (reverses the axis and labels). |
 | `controls` | `showPlayPause`, `showDatasetSelector` | Toggle UI elements. See §6 for details. |
 
@@ -140,7 +142,7 @@ You can add new datasets by defining a new object and referencing its key in `DA
    - Each step highlights the active case symbols at full opacity.  
    - The turtle moves to the next node along the ROC curve.  
    - Confusion matrix counts update accordingly.  
-   - Tie rectangles lighten to show the rectangular region representing mixed scores.
+   - Each grid column the turtle has passed fills in: cells below the curve use `areaBelowCurve`, cells above use `areaAboveCurve`, and tie rectangles use `tieRegionFill`. Set these colours to match `gridBackground` if you prefer no shading.
 
 3. **Looping**  
    - When the turtle reaches the final point (1,1), the animation pauses for `resetDelay`, resets counts, and restarts.
@@ -151,16 +153,10 @@ You can add new datasets by defining a new object and referencing its key in `DA
 
 The app currently draws the turtle as a square or circle based on `LAYOUT.turtle.shape`. To substitute a custom SVG:
 
-1. Export or hand-draw your turtle in `turtle_cursor.svg`, ensuring it is centered at `(0,0)`.
-2. Add a new configuration array, e.g.:
-   ```javascript
-   LAYOUT.turtle.svgPaths = [
-     { d: "M…Z", fill: "#228b22", stroke: "#064516", strokeWidth: 1.5 }
-   ];
-   ```
-3. Replace the square/circle code block with logic that appends these path definitions.
+1. Export or draw your turtle so that the design is centred in the SVG canvas (the point you want aligned with the ROC threshold should sit at the page origin). If you want the turtle to lead the threshold slightly, simply nudge the drawing upward before exporting.
+2. Place the exported file in the project and point `LAYOUT.turtle.svgUrl` to it. Adjust `size` for overall scale and, if needed, tweak `svgOffsetX`/`svgOffsetY` for fine positioning (defaults are `0`). Set `rotateWithPath` to `false` if your cursor should remain upright.
 
-Because the turtle wrapper `<g>` is animated via `transform: translate(...)`, any nested SVG content will travel along the ROC path automatically.
+The renderer reads the SVG’s intrinsic dimensions at runtime, centres it automatically, then applies the scale/offset so the turtle glides directly atop each threshold point.
 
 ---
 

@@ -26,6 +26,18 @@
       border-radius: 4px;
       border: 1px solid #bbb;
     }
+    .cursor-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+    }
+    .cursor-controls select {
+      padding: 4px 10px;
+      font-size: 14px;
+      border-radius: 4px;
+      border: 1px solid #bbb;
+    }
     .point { stroke: var(--color-point-stroke, #000); stroke-width: 1.5px; stroke-linejoin: round; }
     .axis-label { font-size: 16px; fill: #111; font-weight: 600; }
     .grid-line { pointer-events: none; }
@@ -64,9 +76,60 @@
       background: var(--color-control-bg, #f2f2f2);
       cursor: pointer;
     }
+  
+    .legend-container {
+      margin-top: 12px;
+      font-size: 14px;
+    }
+    .legend-list {
+      list-style: none;
+      padding: 0;
+      margin: 6px 0 8px;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 4px;
+    }
+    .legend-swatch {
+      width: 16px;
+      height: 16px;
+      border: 1px solid #333;
+      flex: 0 0 auto;
+    }
+    .legend-symbol {
+      width: 24px;
+      height: 24px;
+      flex: 0 0 auto;
+      display: block;
+    }
+    .auc-display {
+      margin-top: 6px;
+      font-weight: 600;
+    }
+    .plot-title {
+      text-align: center;
+      font-size: 24px;
+      margin: 8px 0 4px;
+    }
+    #cmTitle, .legend-title {
+      text-align: center;
+      font-size: 18px;
+      margin: 8px 0;
+    }
+    .legend-container {
+      margin-top: 12px;
+      font-size: 14px;
+      border: 1px solid #333;
+      padding: 8px 12px;
+      background: #f5f5f5;
+    }
+
   </style>
 </head>
 <body>
+  <h2 id="plotTitle" class="plot-title"></h2>
   <svg id="roc" width="600" height="600" style="display:block;"></svg>
   <div class="control-panel">
     <div class="dataset-controls" id="datasetControls">
@@ -74,8 +137,13 @@
       <select id="datasetSelect"></select>
     </div>
     <button id="controlButton"></button>
+    <div class="cursor-controls" id="cursorControls">
+      <label for="cursorSelect" id="cursorLabel"></label>
+      <select id="cursorSelect"></select>
+    </div>
   </div>
   <div class="confusion-container" id="confusionContainer">
+    <h3 id="cmTitle"></h3>
     <table class="confusion-matrix">
       <tr>
         <th rowspan="2" id="cmActualHeader"></th>
@@ -96,6 +164,11 @@
         <td id="tn">0</td>
       </tr>
     </table>
+    <div id="legendContainer" class="legend-container">
+      <h4 class="legend-title"></h4>
+      <ul id="legendList" class="legend-list"></ul>
+      <div id="aucDisplay" class="auc-display"></div>
+    </div>
   </div>
 
   <script src="turtle_config.js"></script>
@@ -133,10 +206,14 @@
     const projectX = value => axisScale(isXReversed ? 1 - value : value);
     const yScale = d3.scaleLinear().domain([0, 1]).range([plotHeight, 0]);
 
+    const plotTitleEl = document.getElementById("plotTitle");
     const datasetSelect = document.getElementById("datasetSelect");
     const datasetLabelEl = document.getElementById("datasetLabel");
     const datasetControlsEl = document.getElementById("datasetControls");
     const controlButton = document.getElementById("controlButton");
+    const cursorControlsEl = document.getElementById("cursorControls");
+    const cursorSelect = document.getElementById("cursorSelect");
+    const cursorLabelEl = document.getElementById("cursorLabel");
     const confusionContainer = document.getElementById("confusionContainer");
     const cmActualHeader = document.getElementById("cmActualHeader");
     const cmPredictedHeader = document.getElementById("cmPredictedHeader");
@@ -144,6 +221,28 @@
     const cmPredictedFalse = document.getElementById("cmPredictedFalse");
     const cmTrueRowLabel = document.getElementById("cmTrueRowLabel");
     const cmFalseRowLabel = document.getElementById("cmFalseRowLabel");
+    const cmTitle = document.getElementById("cmTitle");
+    const legendContainer = document.getElementById("legendContainer");
+    const legendList = document.getElementById("legendList");
+    const aucDisplay = document.getElementById("aucDisplay");
+    const confusionTable = confusionContainer ? confusionContainer.querySelector(".confusion-matrix") : null;
+
+    const baseCursorOptions = [
+      { value: "none", label: STRINGS.cursor.optionNone || "None" },
+      { value: "circle", label: STRINGS.cursor.optionCircle || "Circle" },
+      { value: "square", label: STRINGS.cursor.optionSquare || "Square" }
+    ];
+    const svgCursorOptions = (TURTLE.availableOptions || []).map(opt => ({
+      value: opt.value,
+      label: opt.label || opt.value,
+      offsetX: opt.svgOffsetX,
+      offsetY: opt.svgOffsetY,
+      size: opt.size,
+      rotateWithPath: opt.rotateWithPath
+    }));
+    const svgCursorOptionMap = Object.create(null);
+    svgCursorOptions.forEach(opt => { svgCursorOptionMap[opt.value] = opt; });
+    const allCursorOptions = [...baseCursorOptions, ...svgCursorOptions];
 
     function applyPalette() {
       const root = document.documentElement;
@@ -162,6 +261,7 @@
 
     function applyStrings() {
       document.title = STRINGS.pageTitle;
+      if (plotTitleEl) plotTitleEl.textContent = STRINGS.plot?.title || "";
       datasetLabelEl.textContent = STRINGS.datasetLabel;
       cmActualHeader.textContent = STRINGS.confusion.actual;
       cmPredictedHeader.textContent = STRINGS.confusion.predicted;
@@ -169,6 +269,12 @@
       cmPredictedFalse.textContent = STRINGS.confusion.falseLabel;
       cmTrueRowLabel.textContent = STRINGS.confusion.trueLabel;
       cmFalseRowLabel.textContent = STRINGS.confusion.falseLabel;
+      if (cmTitle) cmTitle.textContent = STRINGS.confusion.title || "Confusion Matrix";
+      if (legendContainer) {
+        const legendTitle = legendContainer.querySelector(".legend-title");
+        if (legendTitle) legendTitle.textContent = STRINGS.legend.title || "Legend";
+      }
+      if (cursorLabelEl) cursorLabelEl.textContent = STRINGS.cursor?.label || "Cursor:";
     }
 
     function applyDatasetOptions() {
@@ -184,12 +290,61 @@
       }
     }
 
+    function populateCursorOptions() {
+      if (!cursorSelect) return;
+      cursorSelect.innerHTML = "";
+      allCursorOptions.forEach(opt => {
+        const optionEl = document.createElement("option");
+        optionEl.value = opt.value;
+        optionEl.textContent = opt.label;
+        cursorSelect.appendChild(optionEl);
+      });
+      cursorSelect.value = currentCursorSelection;
+    }
+
+    function applyVisibilitySettings() {
+      if (datasetControlsEl) datasetControlsEl.style.display = LAYOUT.controls.showDatasetSelector ? "" : "none";
+      if (cursorControlsEl) cursorControlsEl.style.display = LAYOUT.controls.showCursorSelector ? "" : "none";
+      const showMatrix = LAYOUT.controls.showConfusionMatrix;
+      if (confusionTable) confusionTable.style.display = showMatrix ? "" : "none";
+      if (cmTitle) cmTitle.style.display = showMatrix ? "" : "none";
+      if (legendContainer) legendContainer.style.display = LAYOUT.controls.showLegend ? "" : "none";
+      if (confusionContainer) {
+        const visible = (LAYOUT.controls.showConfusionMatrix || LAYOUT.controls.showLegend);
+        confusionContainer.style.display = visible ? "" : "none";
+      }
+    }
+
     function diamondPoints(r) {
       return `${0},${-r} ${r},${0} ${0},${r} ${-r},${0}`;
     }
 
     function formatCaseCount(count, singular, plural) {
       return `${count} ${count === 1 ? singular : plural}`;
+    }
+
+    function resolveCursor(selection) {
+      if (!selection || selection === "none") {
+        return { type: "none", rotateWithPath: false };
+      }
+      if (selection === "circle") {
+        return { type: "circle", rotateWithPath: TURTLE.rotateWithPath };
+      }
+      if (selection === "square") {
+        return { type: "square", rotateWithPath: TURTLE.rotateWithPath };
+      }
+      const opt = svgCursorOptionMap[selection];
+      if (opt) {
+        return {
+          type: "svg",
+          url: opt.value,
+          size: opt.size ?? TURTLE.size,
+          offsetX: opt.offsetX ?? TURTLE.svgOffsetX ?? 0,
+          offsetY: opt.offsetY ?? TURTLE.svgOffsetY ?? 0,
+          rotateWithPath: opt.rotateWithPath === undefined ? TURTLE.rotateWithPath : opt.rotateWithPath
+        };
+      }
+      return { type: "square", rotateWithPath: TURTLE.rotateWithPath };
     }
 
     function formatPointTooltip(point) {
@@ -206,6 +361,125 @@
       return parts.join(STRINGS.tooltip.separator);
     }
 
+    function buildLegend() {
+      if (!legendContainer) return;
+      if (!LAYOUT.controls.showLegend) {
+        legendContainer.style.display = "none";
+        if (legendList) legendList.innerHTML = "";
+        if (aucDisplay) aucDisplay.textContent = "";
+        return;
+      }
+      legendContainer.style.display = "block";
+      if (!legendList) return;
+      legendList.innerHTML = "";
+
+      const symbolItems = [
+        { type: "positive", label: STRINGS.legend.positive, color: PALETTE.positive },
+        { type: "negative", label: STRINGS.legend.negative, color: PALETTE.negative }
+      ];
+      if (hasTieRegions) {
+        symbolItems.push({ type: "tie", label: STRINGS.legend.tie, color: PALETTE.tie });
+      }
+
+      const areaItems = [
+        { label: STRINGS.legend.areaBelow, color: PALETTE.areaBelowCurve },
+        { label: STRINGS.legend.areaAbove, color: PALETTE.areaAboveCurve }
+      ];
+      if (hasTieRegions) {
+        areaItems.push({ label: STRINGS.legend.areaTie, color: PALETTE.tieRegionFill });
+      }
+
+      const fragment = document.createDocumentFragment();
+
+      symbolItems.forEach(item => {
+        const li = document.createElement("li");
+        li.className = "legend-item";
+        const symbol = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        symbol.classList.add("legend-symbol");
+        symbol.setAttribute("viewBox", "0 0 24 24");
+        let shape;
+        if (item.type === "positive") {
+          shape = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+          shape.setAttribute("cx", "12");
+          shape.setAttribute("cy", "12");
+          shape.setAttribute("r", "9");
+        } else if (item.type === "negative") {
+          shape = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+          shape.setAttribute("points", "12,3 21,12 12,21 3,12");
+        } else {
+          shape = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+          shape.setAttribute("x", "5");
+          shape.setAttribute("y", "5");
+          shape.setAttribute("width", "14");
+          shape.setAttribute("height", "14");
+        }
+        shape.setAttribute("fill", item.color);
+        shape.setAttribute("stroke", PALETTE.shapeStroke);
+        shape.setAttribute("stroke-width", "1");
+        symbol.appendChild(shape);
+        const label = document.createElement("span");
+        label.textContent = item.label;
+        li.append(symbol, label);
+        fragment.appendChild(li);
+      });
+
+      areaItems.forEach(item => {
+        const li = document.createElement("li");
+        li.className = "legend-item";
+        const swatch = document.createElement("span");
+        swatch.className = "legend-swatch";
+        swatch.style.background = item.color;
+        const label = document.createElement("span");
+        label.textContent = item.label;
+        li.append(swatch, label);
+        fragment.appendChild(li);
+      });
+
+      legendList.appendChild(fragment);
+      updateAucDisplay(0);
+    }
+
+    function updateAucDisplay(processedColumns) {
+      if (!aucDisplay || !LAYOUT.controls.showLegend) return;
+      if (!totalCells) {
+        aucDisplay.textContent = "";
+        return;
+      }
+      let below = 0;
+      let tie = 0;
+      cellData.forEach(d => {
+        if (d.processed) {
+          if (d.category === "below") below += 1;
+          else if (d.category === "tie") tie += 1;
+        }
+      });
+      const auc = totalCells ? (below + 0.5 * tie) / totalCells : 0;
+      const totalColumns = truePositiveRateColumns.length || negatives || 0;
+      const isComplete = totalColumns > 0 && processedColumns >= totalColumns;
+      if (!LAYOUT.controls.showPartialAuc && !isComplete) {
+        aucDisplay.textContent = "";
+        return;
+      }
+      const labelKey = isComplete ? "aucFinal" : "aucPartial";
+      const label = STRINGS.legend[labelKey] || (isComplete ? "AUC" : "AUC (partial)");
+      aucDisplay.textContent = `${label}: ${auc.toFixed(3)}`;
+    }
+
+    function headingForIndex(index) {
+      if (!curvePoints.length) return 0;
+      const current = curvePoints[index];
+      let nextIndex = index + 1;
+      if (nextIndex >= curvePoints.length) {
+        return 90;
+      }
+      const next = curvePoints[nextIndex];
+      if (!current || !next) return 0;
+      const dx = projectX(next.x) - projectX(current.x);
+      const dy = yScale(next.y) - yScale(current.y);
+      if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) return 0;
+      return Math.atan2(dy, dx) * (180/ Math.PI) + 90;
+    }
+
     let paused = LAYOUT.controls.showPlayPause === true;
 
     function updateControlButtonLabel() {
@@ -217,12 +491,25 @@
     applyPalette();
     applyStrings();
     applyDatasetOptions();
+    applyVisibilitySettings();
     updateControlButtonLabel();
+
+    let currentDatasetKey = DATASET_ORDER[0] || null;
+    let currentCursorSelection = TURTLE.defaultOption || (TURTLE.useSvgCursor ? TURTLE.svgUrl : (TURTLE.shape === "circle" ? "circle" : "square"));
+    if (!allCursorOptions.some(opt => opt.value === currentCursorSelection) && !["none", "circle", "square"].includes(currentCursorSelection)) {
+      currentCursorSelection = "square";
+    }
+    let currentCursorConfig = resolveCursor(currentCursorSelection);
 
     let points;
     let turtle;
+    let segments;
+    let cellRects;
+    let cellData = [];
+    let hasTieRegions = false;
+    let totalCells = 0;
+    let truePositiveRateColumns = [];
     let curvePoints = [];
-    let tieRegions;
     let positives = 0;
     let negatives = 0;
     let tp = 0;
@@ -265,18 +552,20 @@
               .attr("opacity", OPACITY.idle);
             groupSel.selectAll(".tie-case")
               .attr("fill", PALETTE.tie)
-              .attr("opacity", OPACITY.tieIdle);
+              .attr("opacity", OPACITY.idle);
           }
         });
       }
-      if (tieRegions && !tieRegions.empty()) {
-        tieRegions.select("rect")
-          .attr("fill", PALETTE.tieRegionFill)
-          .attr("stroke", PALETTE.tieRegionStroke)
-          .attr("opacity", OPACITY.tieRegionIdle);
-        tieRegions.select("line")
-          .attr("stroke", PALETTE.tieRegionLine)
-          .attr("opacity", OPACITY.tieLineIdle);
+      if (segments) {
+        segments.attr("opacity", OPACITY.idle);
+      }
+      if (cellRects && cellData.length) {
+        cellData.forEach(d => { d.processed = false; });
+        cellRects.attr("opacity", 0);
+        updateAucDisplay(0);
+      } else if (cellData.length) {
+        cellData.forEach(d => { d.processed = false; });
+        updateAucDisplay(0);
       }
     }
 
@@ -294,7 +583,16 @@
 
       const step = curvePoints[i];
       if (step && turtle) {
-        turtle.attr("transform", `translate(${projectX(step.x)},${yScale(step.y)})`);
+        if (TURTLE.rotateWithPath) {
+          const heading = headingForIndex(i);
+          turtle.attr("transform", `translate(${projectX(step.x)},${yScale(step.y)}) rotate(${heading})`);
+        } else {
+          turtle.attr("transform", `translate(${projectX(step.x)},${yScale(step.y)})`);
+        }
+      }
+
+      if (segments) {
+        segments.attr("opacity", (segment, idx) => idx <= Math.max(i - 1, 0) ? 1 : OPACITY.idle);
       }
 
       if (i > 0 && step) {
@@ -309,13 +607,11 @@
         activePoint.selectAll(".negative-case").attr("fill", PALETTE.negative).attr("opacity", 1);
         activePoint.selectAll(".tie-case").attr("fill", PALETTE.tie).attr("opacity", 1);
 
-        if (tieRegions && !tieRegions.empty()) {
-          tieRegions.select("rect").attr("opacity", OPACITY.tieRegionIdle);
-          tieRegions.select("line").attr("opacity", OPACITY.tieLineIdle);
-
-          const activeRegion = tieRegions.filter(d => d.pointIndex === i);
-          activeRegion.select("rect").attr("opacity", OPACITY.tieRegionActive);
-          activeRegion.select("line").attr("opacity", OPACITY.tieLineActive);
+        if (cellRects && cellData.length) {
+          const processedColumns = Math.min(fp, negatives);
+          cellData.forEach(d => { d.processed = d.col <= processedColumns; });
+          cellRects.attr("opacity", d => d.processed ? 1 : 0);
+          updateAucDisplay(processedColumns);
         }
       }
 
@@ -392,8 +688,6 @@
         score: null,
         index: 0
       }];
-      const tieRectangles = [];
-
       groups.forEach(group => {
         const startX = x;
         const startY = y;
@@ -411,21 +705,53 @@
           score: group.score,
           index: pointIndex
         });
-        if (group.positives > 0 && group.negatives > 0 && dx && dy) {
-          tieRectangles.push({
-            x0: startX,
-            y0: startY,
-            dx,
-            dy,
-            pointIndex
-          });
-        }
       });
 
       curvePoints = pathPoints;
 
+      const columnData = Array.from({ length: negatives }, (_, idx) => ({
+        index: idx + 1,
+        yBefore: 0,
+        yAfter: 0,
+        tieRange: null
+      }));
+      let negProcessed = 0;
+      let yCurrent = 0;
+      groups.forEach(group => {
+        const yStart = yCurrent;
+        const yDelta = group.positives * positiveStep;
+        const yEnd = yStart + yDelta;
+        if (group.negatives > 0) {
+          for (let n = 0; n < group.negatives; n++) {
+            const colIdx = negProcessed + n;
+            const colEntry = columnData[colIdx];
+            if (!colEntry) break;
+            colEntry.yBefore = yStart;
+            colEntry.yAfter = yEnd;
+            if (group.positives > 0) {
+              colEntry.tieRange = { y0: yStart, y1: yEnd };
+            }
+          }
+          negProcessed += group.negatives;
+        }
+        if (group.positives > 0) {
+          yCurrent = yEnd;
+          if (negProcessed > 0) {
+            const lastCol = columnData[Math.min(negProcessed, columnData.length) - 1];
+            if (lastCol && !lastCol.tieRange) {
+              lastCol.yAfter = Math.max(lastCol.yAfter, yEnd);
+            }
+          }
+        }
+      });
+
       g.selectAll("*").remove();
       axisLabels.selectAll("*").remove();
+      cellRects = null;
+      segments = null;
+      hasTieRegions = columnData.some(col => !!col.tieRange);
+      totalCells = positives * negatives;
+      truePositiveRateColumns = columnData;
 
       if (GRID.enabled) {
         const gridLayer = g.append("g").attr("class", "grid-layer");
@@ -441,6 +767,63 @@
           .attr("width", gridWidth)
           .attr("height", yScale(0) - yScale(1))
           .attr("fill", PALETTE.gridBackground);
+
+        const cellLayer = gridLayer.append("g").attr("class", "grid-cells");
+
+        const generatedCellData = [];
+        const eps = 1e-9;
+        for (let colIdx = 0; colIdx < negatives; colIdx++) {
+          const colInfo = columnData[colIdx];
+          const x0 = projectX(colIdx / negatives);
+          const x1 = projectX((colIdx + 1) / negatives);
+          const rectX = Math.min(x0, x1);
+          const rectWidth = Math.abs(x1 - x0);
+          const baseY = colInfo.yBefore ?? 0;
+          for (let rowIdx = 0; rowIdx < positives; rowIdx++) {
+            const rowBottom = rowIdx / positives;
+            const rowTopVal = (rowIdx + 1) / positives;
+            let category;
+            if (colInfo.tieRange && rowBottom >= colInfo.tieRange.y0 - eps && rowTopVal <= colInfo.tieRange.y1 + eps) {
+              category = "tie";
+            } else {
+              category = rowTopVal <= (baseY + eps) ? "below" : "above";
+            }
+            const yTop = yScale(rowTopVal);
+            const yBottom = yScale(rowBottom);
+            generatedCellData.push({
+              col: colIdx + 1,
+              row: rowIdx + 1,
+              x: rectX,
+              width: rectWidth,
+              y: Math.min(yTop, yBottom),
+              height: Math.abs(yBottom - yTop),
+              category
+            });
+          }
+        }
+
+        cellData = generatedCellData;
+        cellData.forEach(d => { d.processed = false; });
+
+        cellRects = cellLayer.selectAll("rect")
+          .data(cellData)
+          .enter()
+          .append("rect")
+          .attr("class", "grid-cell")
+          .attr("x", d => d.x)
+          .attr("y", d => d.y)
+          .attr("width", d => d.width)
+          .attr("height", d => d.height)
+          .attr("fill", d => {
+            if (d.category === "below") return PALETTE.areaBelowCurve;
+            if (d.category === "above") return PALETTE.areaAboveCurve;
+            return PALETTE.tieRegionFill;
+          })
+          .attr("opacity", 0)
+          .attr("pointer-events", "none");
+
+        buildLegend();
+        updateAucDisplay(0);
 
         if (GRID.showOuterBorder) {
           gridLayer.append("rect")
@@ -481,6 +864,8 @@
           .attr("stroke-width", GRID.lineWidth);
       }
 
+      buildLegend();
+
       const axesLayer = g.append("g").attr("class", "axes-layer");
       axesLayer.append("g")
         .attr("transform", `translate(0,${plotHeight})`)
@@ -498,45 +883,34 @@
         .attr("stroke", PALETTE.baselineStroke)
         .attr("stroke-dasharray", "4,4");
 
-      tieRegions = g.append("g")
-        .attr("class", "tie-layer")
-        .selectAll(".tie-region")
-        .data(tieRectangles)
-        .enter()
-        .append("g")
-        .attr("class", "tie-region");
-
-      tieRegions.append("rect")
-        .attr("x", d => Math.min(projectX(d.x0), projectX(d.x0 + d.dx)))
-        .attr("y", d => yScale(d.y0 + d.dy))
-        .attr("width", d => Math.abs(projectX(d.x0 + d.dx) - projectX(d.x0)))
-        .attr("height", d => yScale(d.y0) - yScale(d.y0 + d.dy))
-        .attr("fill", PALETTE.tieRegionFill)
-        .attr("stroke", PALETTE.tieRegionStroke)
-        .attr("stroke-width", 1)
-        .attr("opacity", OPACITY.tieRegionIdle);
-
-      tieRegions.append("line")
-        .attr("x1", d => projectX(d.x0))
-        .attr("y1", d => yScale(d.y0))
-        .attr("x2", d => projectX(d.x0 + d.dx))
-        .attr("y2", d => yScale(d.y0 + d.dy))
-        .attr("stroke", PALETTE.tieRegionLine)
-        .attr("stroke-width", 1.5)
-        .attr("stroke-dasharray", "4,2")
-        .attr("opacity", OPACITY.tieLineIdle);
-
-      g.append("g")
-        .attr("class", "curve-layer")
+      const curveLayer = g.append("g").attr("class", "curve-layer");
+      curveLayer.append("g")
+        .attr("class", "curve-background")
         .append("path")
         .datum(pathPoints)
         .attr("fill", "none")
         .attr("stroke", PALETTE.rocStroke)
         .attr("stroke-width", GRID.lineWidth * 3)
+        .attr("opacity", OPACITY.idle)
         .attr("d", d3.line()
           .x(d => projectX(d.x))
           .y(d => yScale(d.y))
         );
+
+      segments = curveLayer.append("g")
+        .attr("class", "curve-segments")
+        .selectAll("path")
+        .data(d3.pairs(pathPoints))
+        .enter()
+        .append("path")
+        .attr("fill", "none")
+        .attr("stroke", PALETTE.rocStroke)
+        .attr("stroke-width", GRID.lineWidth * 3)
+        .attr("opacity", OPACITY.idle)
+        .attr("d", segment => d3.line()
+          .x(d => projectX(d.x))
+          .y(d => yScale(d.y))
+        ([segment[0], segment[1]]));
 
       points = g.append("g")
         .attr("class", "points-layer")
@@ -576,7 +950,7 @@
           .attr("fill", PALETTE.tie)
           .attr("stroke", PALETTE.shapeStroke)
           .attr("stroke-width", 1.2)
-          .attr("opacity", OPACITY.tieIdle);
+          .attr("opacity", OPACITY.idle);
         } else {
         if (hasPositive) {
           groupSel.append("circle")
@@ -602,8 +976,47 @@
         groupSel.append("title").text(formatPointTooltip(d));
       });
 
-      turtle = g.append("g").attr("class", "turtle-layer");
-      if (TURTLE.shape === "square") {
+      const cursorSettings = resolveCursor(currentCursorSelection);
+      currentCursorConfig = cursorSettings;
+
+      turtle = g.append("g")
+        .attr("class", "turtle-layer")
+        .attr("transform", `translate(${projectX(0)},${yScale(0)})`);
+
+      if (cursorSettings.type === "svg" && cursorSettings.url) {
+        const svgGroup = turtle.append("g").attr("class", "turtle-cursor");
+        const offsetX = cursorSettings.offsetX ?? 0;
+        const offsetY = cursorSettings.offsetY ?? 0;
+
+        const imageEl = svgGroup.append("image")
+          .attr("href", cursorSettings.url)
+          .attr("preserveAspectRatio", "xMidYMid meet")
+          .style("opacity", 0);
+
+        const imgLoader = new Image();
+        imgLoader.onload = () => {
+          const baseDimension = Math.max(imgLoader.width, imgLoader.height);
+          const scale = cursorSettings.size ? cursorSettings.size / baseDimension : 1;
+          const width = imgLoader.width * scale;
+          const height = imgLoader.height * scale;
+          imageEl
+            .attr("width", width)
+            .attr("height", height)
+            .attr("x", -width / 2 + offsetX)
+            .attr("y", -height / 2 + offsetY)
+            .style("opacity", 1);
+        };
+        imgLoader.src = new URL(cursorSettings.url, window.location.href).href;
+        imageEl.node().addEventListener('error', () => {
+          console.warn('Unable to load turtle svg at', cursorSettings.url);
+          svgGroup.remove();
+          turtle.append("circle")
+            .attr("r", SYMBOLS.turtleRadius)
+            .attr("fill", "none")
+            .attr("stroke", PALETTE.turtleStroke)
+            .attr("stroke-width", 2);
+        }, { once: true });
+      } else if (cursorSettings.type === "square") {
         turtle.append("rect")
           .attr("width", TURTLE.size)
           .attr("height", TURTLE.size)
@@ -612,7 +1025,7 @@
           .attr("fill", "none")
           .attr("stroke", PALETTE.turtleStroke)
           .attr("stroke-width", TURTLE.strokeWidth);
-      } else {
+      } else if (cursorSettings.type === "circle") {
         turtle.append("circle")
           .attr("r", SYMBOLS.turtleRadius)
           .attr("fill", "none")
@@ -695,6 +1108,12 @@
     confusionContainer.addEventListener("pointerup", endDrag);
     confusionContainer.addEventListener("pointercancel", endDrag);
 
+    if (LAYOUT.controls.showCursorSelector && cursorControlsEl && cursorSelect) {
+      populateCursorOptions();
+    } else if (cursorControlsEl) {
+      cursorControlsEl.style.display = "none";
+    }
+
     if (LAYOUT.controls.showPlayPause && controlButton) {
       controlButton.addEventListener("click", () => {
         paused = !paused;
@@ -711,10 +1130,22 @@
 
     if (LAYOUT.controls.showDatasetSelector && datasetSelect) {
       datasetSelect.addEventListener("change", () => {
-        buildVisualization(datasetSelect.value);
+        currentDatasetKey = datasetSelect.value;
+        buildVisualization(currentDatasetKey);
       });
     } else if (datasetControlsEl) {
       datasetControlsEl.style.display = "none";
+    }
+
+    if (LAYOUT.controls.showCursorSelector && cursorSelect) {
+      cursorSelect.addEventListener("change", () => {
+        currentCursorSelection = cursorSelect.value;
+        currentCursorConfig = resolveCursor(currentCursorSelection);
+        const targetDataset = currentDatasetKey || (datasetSelect ? datasetSelect.value : DATASET_ORDER[0]);
+        if (targetDataset) {
+          buildVisualization(targetDataset);
+        }
+      });
     }
 
     const initialDatasetKey = DATASET_ORDER.find(key => DATASETS[key]) || Object.keys(DATASETS)[0];
@@ -722,6 +1153,7 @@
       if (LAYOUT.controls.showDatasetSelector && datasetSelect) {
         datasetSelect.value = initialDatasetKey;
       }
+      currentDatasetKey = initialDatasetKey;
       buildVisualization(initialDatasetKey);
     }
   </script>
