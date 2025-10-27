@@ -1,5 +1,5 @@
 const STRINGS = {
-  pageTitle: "Multi-Distribution ROC Explorer",
+  pageTitle: "Continuous ROC Explorer",
   introText: "Select distributions for positives and negatives and adjust their parameters. The ROC curve is computed from the CDFs (no sampling).",
   controls: {
     positivesTitle: "Positives",
@@ -208,14 +208,14 @@ const DEFAULT_OPTIONS = {
   positives: {
     distribution: "normal",
     parameters: { mean: 0.9, sd: 1 },
-    components: [{ distribution: "normal", weight: 1, parameters: { mean: 0.9, sd: 1 } }]
+    components: [{ distribution: "normal", weight: 1, parameters: { mean: 12.0, sd: 1 } }]
   },
   negatives: {
     distribution: "normal",
     parameters: { mean: 0, sd: 1 },
-    components: [{ distribution: "normal", weight: 1, parameters: { mean: 0, sd: 1 } }]
+    components: [{ distribution: "normal", weight: 1, parameters: { mean: 10.0, sd: 1 } }]
   },
-  threshold: 0.5,
+  threshold: 11.0,
   prevalence: 0.5
 };
 
