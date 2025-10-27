@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Multi-Distribution ROC Explorer</title>
+  <script src="https://cdn.jsdelivr.net/npm/jstat@latest/dist/jstat.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <script src="continuous_ROC_config.js"></script>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:18px;background:#fcfcff;color:#21213a}
+    h2{margin:0 0 6px 0;font-size:24px;font-weight:650;color:#1e1e31}
+    p.description{margin:0 0 18px 0;font-size:14px;color:#515172}
+    .controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:18px;margin-bottom:22px}
+    .ctrl{background:#f5f5fd;border:1px solid #e2e2f2;border-radius:14px;padding:14px;box-shadow:0 1px 3px rgba(15,15,35,0.08)}
+    .ctrl h3{margin:0 0 10px 0;font-size:16px;font-weight:600;color:#2d2d48}
+    .component-list{display:flex;flex-direction:column;gap:12px}
+    .component-card{background:#fff;border:1px solid #d9d9ea;border-radius:10px;padding:10px}
+    .component-header{display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:600;color:#2f2f50;margin-bottom:8px}
+    .component-controls button,.add-component-btn{background:#ececf9;border:1px solid #cfcfe4;border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer;color:#383856}
+    .component-controls button:hover,.add-component-btn:hover{background:#dedef4}
+    .component-row{display:flex;align-items:center;gap:8px;margin:6px 0;font-size:13px;color:#30304a}
+    .component-row label{min-width:110px}
+    .component-row input,.component-row select{flex:1;padding:5px 6px;border-radius:6px;border:1px solid #c6c6db;font-size:13px}
+    .add-component-btn{margin-top:10px;padding:6px 10px}
+    .plots{display:flex;flex-wrap:wrap;gap:20px;margin-bottom:50px}
+    .plot-block{flex:1;min-width:360px}
+    #distPlot,#rocPlot{width:100%;height:420px}
+    #thresholdArea{display:flex;flex-wrap:wrap;gap:40px;align-items:flex-start;margin-bottom:28px}
+    #thresholdControl,#prevalenceControl{flex:1;min-width:280px}
+    #thresholdControl .hint{font-size:12px;color:#60607a;margin-top:6px}
+    .threshold-input{display:flex;flex-direction:column;gap:6px;margin-top:8px;font-size:13px;color:#32324e}
+    .threshold-input input{width:140px;padding:5px 6px;border-radius:6px;border:1px solid #c8c8dc}
+    #prevalenceControl{display:flex;align-items:center;gap:8px;font-size:13px;color:#30304a}
+    #prevalenceControl input[type=range]{flex:1}
+    table{border-collapse:collapse;margin-top:12px;font-size:13px}
+    th,td{border:1px solid #d7d7e8;padding:4px 10px;text-align:center}
+    .chart-title{font-size:16px;font-weight:600;fill:#202038}
+    .axis-label{font-size:13px;fill:#4a4a66}
+    .pdf-line-positive{stroke:#1f77b4;stroke-width:2.4;fill:none}
+    .pdf-line-negative{stroke:#ff7f0e;stroke-width:2.4;fill:none}
+    .area-tp{fill:rgba(54,184,84,0.28);stroke:none}
+    .area-fn{fill:rgba(220,67,67,0.30);stroke:none}
+    .area-tn{fill:rgba(54,184,84,0.28);stroke:none;opacity:0.75}
+    .area-fp{fill:rgba(220,67,67,0.30);stroke:none;opacity:0.75}
+    .threshold-line{stroke:#1b1b32;stroke-width:2;stroke-dasharray:6 4;cursor:ew-resize}
+    .threshold-handle{fill:#1a73ff;stroke:#fff;stroke-width:2;cursor:grab}
+    .threshold-handle:active{cursor:grabbing}
+    .roc-line{stroke:#30307c;stroke-width:2.5;fill:none}
+    .roc-random{stroke:#a0a0ba;stroke-width:1.4;stroke-dasharray:4 4;fill:none}
+    .roc-point{fill:#d62728;stroke:#fff;stroke-width:1.6;cursor:pointer}
+  </style>
+</head>
+<body>
+  <h2 id="pageTitle">Multi-Distribution ROC Explorer</h2>
+  <p class="description" id="pageIntro"></p>
+
+  <div class="controls">
+    <div class="ctrl" id="negControl">
+      <h3 id="negTitle">Negatives</h3>
+      <div id="negParams"></div>
+    </div>
+    <div class="ctrl" id="posControl">
+      <h3 id="posTitle">Positives</h3>
+      <div id="posParams"></div>
+    </div>
+  </div>
+
+  <div class="plots">
+    <div class="plot-block"><div id="distPlot"></div></div>
+    <div class="plot-block"><div id="rocPlot"></div></div>
+  </div>
+
+  <div id="thresholdArea">
+    <div id="thresholdControl">
+      <div id="thresholdLabel">Threshold: <span id="thresholdVal">0.50</span></div>
+      <div class="threshold-input">
+        <label for="thresholdInput" id="thresholdInputLabel">Set exact threshold:</label>
+        <input type="number" id="thresholdInput" step="0.001" value="0.5">
+      </div>
+      <div class="hint" id="thresholdHint"></div>
+      <div id="metrics"></div>
+    </div>
+    <div id="prevalenceControl">
+      <label for="prevalenceSlider" id="prevalenceLabel">Prevalence:</label>
+      <input type="range" id="prevalenceSlider" min="0" max="1" step="0.01" value="0.5">
+      <span id="prevalenceVal">0.50</span>
+      <div id="metricsPrev"></div>
+    </div>
+  </div>
+
+  <script>
+    window.addEventListener('DOMContentLoaded',()=>{
+      const CONFIG=window.MULTIDISTRIBUTION_CONFIG||{};
+      const {STRINGS,FEATURES,DISTRIBUTIONS,DISTRIBUTION_ORDER,DEFAULT_OPTIONS}=CONFIG;
+      if(!STRINGS||!FEATURES||!DISTRIBUTIONS||!DISTRIBUTION_ORDER||!DEFAULT_OPTIONS){
+        document.body.innerHTML='<p style="color:#a20000">Configuration not found. Ensure multidistribution_config.js is loaded.</p>';
+        return;
+      }
+
+      const prevalenceSlider=document.getElementById('prevalenceSlider');
+      const thresholdInput=document.getElementById('thresholdInput');
+      const thresholdValEl=document.getElementById('thresholdVal');
+      const prevalenceValEl=document.getElementById('prevalenceVal');
+
+      document.title=STRINGS.pageTitle;
+      document.getElementById('pageTitle').textContent=STRINGS.pageTitle;
+      document.getElementById('pageIntro').textContent=STRINGS.introText;
+      document.getElementById('negTitle').textContent=STRINGS.controls.negativesTitle;
+      document.getElementById('posTitle').textContent=STRINGS.controls.positivesTitle;
+      document.getElementById('thresholdLabel').firstChild.textContent=STRINGS.controls.thresholdDisplay+' ';
+      document.getElementById('thresholdInputLabel').textContent=STRINGS.controls.thresholdInputLabel;
+      document.getElementById('thresholdHint').textContent=STRINGS.metrics.thresholdHint;
+      document.getElementById('prevalenceLabel').textContent=STRINGS.controls.prevalenceLabel;
+
+      function cloneComponent(src={}){
+        const fallback=DISTRIBUTION_ORDER.find(key=>DISTRIBUTIONS[key])||Object.keys(DISTRIBUTIONS)[0];
+        const key=(src.distribution&&DISTRIBUTIONS[src.distribution])?src.distribution:fallback;
+        const def=DISTRIBUTIONS[key];
+        const params={};
+        def.parameters.forEach(meta=>{
+          params[meta.id]=(src.parameters&&src.parameters.hasOwnProperty(meta.id))?src.parameters[meta.id]:meta.value;
+        });
+        return {distribution:key,weight:src.weight??1,parameters:params};
+      }
+
+      function cloneSet(opts){
+        if(FEATURES.allowMultiComponents){
+          if(opts?.components?.length){
+            return opts.components.map(cloneComponent);
+          }
+          const count=Math.max(1,Math.min(FEATURES.defaultComponents||1,FEATURES.maxComponents||Infinity));
+          return Array.from({length:count},()=>cloneComponent({distribution:opts?.distribution||DISTRIBUTION_ORDER[0],parameters:opts?.parameters||{},weight:1/count}));
+        }
+        return [cloneComponent(opts||{distribution:DISTRIBUTION_ORDER[0]})];
+      }
+
+      const state={
+        threshold:DEFAULT_OPTIONS.threshold??0.5,
+        prevalence:DEFAULT_OPTIONS.prevalence??0.5,
+        thresholdInitialized:false,
+        domain:[0,1],
+        rocPairs:[],
+        rocPairsSorted:[],
+        dataPoints:[],
+        posComponents:cloneSet(DEFAULT_OPTIONS.positives),
+        negComponents:cloneSet(DEFAULT_OPTIONS.negatives)
+      };
+
+      thresholdValEl.textContent=STRINGS.controls.thresholdValue(state.threshold);
+      thresholdInput.value=state.threshold.toFixed(3);
+      prevalenceSlider.value=state.prevalence;
+      prevalenceValEl.textContent=STRINGS.controls.prevalenceValue(state.prevalence);
+
+      const distDims={width:540,height:420,margin:{top:40,right:24,bottom:60,left:64}};
+      const rocDims={width:540,height:420,margin:{top:40,right:24,bottom:60,left:64}};
+
+      const distSvg=d3.select('#distPlot').append('svg')
+        .attr('viewBox',`0 0 ${distDims.width} ${distDims.height}`)
+        .attr('preserveAspectRatio','xMidYMid meet');
+      const distContent=distSvg.append('g')
+        .attr('transform',`translate(${distDims.margin.left},${distDims.margin.top})`);
+      const distWidth=distDims.width-distDims.margin.left-distDims.margin.right;
+      const distHeight=distDims.height-distDims.margin.top-distDims.margin.bottom;
+
+      distSvg.append('text')
+        .attr('class','chart-title')
+        .attr('x',distDims.width/2)
+        .attr('y',24)
+        .attr('text-anchor','middle')
+        .text(STRINGS.plots.scoreTitle);
+
+      const distXScale=d3.scaleLinear().range([0,distWidth]);
+      const distYScale=d3.scaleLinear().range([distHeight,0]);
+      const distXAxisGroup=distContent.append('g').attr('transform',`translate(0,${distHeight})`);
+      const distYAxisGroup=distContent.append('g');
+
+      distContent.append('text')
+        .attr('class','axis-label')
+        .attr('x',distWidth/2)
+        .attr('y',distHeight+42)
+        .attr('text-anchor','middle')
+        .text(STRINGS.plots.scoreXAxis);
+      distContent.append('text')
+        .attr('class','axis-label')
+        .attr('transform','rotate(-90)')
+        .attr('x',-distHeight/2)
+        .attr('y',-46)
+        .attr('text-anchor','middle')
+        .text(STRINGS.plots.scoreYAxis);
+
+      const distAreaGroup=distContent.append('g').attr('class','area-group');
+      const areaTNPath=distAreaGroup.append('path').attr('class','area-tn');
+      const areaFPPath=distAreaGroup.append('path').attr('class','area-fp');
+      const areaFNPath=distAreaGroup.append('path').attr('class','area-fn');
+      const areaTPPath=distAreaGroup.append('path').attr('class','area-tp');
+
+      const distPosLinePath=distContent.append('path').attr('class','pdf-line-positive');
+      const distNegLinePath=distContent.append('path').attr('class','pdf-line-negative');
+      const thresholdLine=distContent.append('line').attr('class','threshold-line');
+      const thresholdHandle=distContent.append('circle').attr('class','threshold-handle').attr('r',6);
+
+      const distAreaGenerator=d3.area().curve(d3.curveMonotoneX)
+        .x(d=>distXScale(d.x))
+        .y0(()=>distYScale(0))
+        .y1(d=>distYScale(d.y));
+      const distPosLineGenerator=d3.line().curve(d3.curveMonotoneX)
+        .x(d=>distXScale(d.x))
+        .y(d=>distYScale(d.posPDF));
+      const distNegLineGenerator=d3.line().curve(d3.curveMonotoneX)
+        .x(d=>distXScale(d.x))
+        .y(d=>distYScale(d.negPDF));
+
+      const dragOverlay=distContent.append('rect')
+        .attr('class','drag-overlay')
+        .attr('width',distWidth)
+        .attr('height',distHeight)
+        .attr('fill','transparent')
+        .style('cursor','ew-resize');
+
+      const tooltip=d3.select('body').append('div')
+        .style('position','absolute')
+        .style('padding','6px 10px')
+        .style('background','#222')
+        .style('color','#fff')
+        .style('border-radius','6px')
+        .style('font-size','12px')
+        .style('pointer-events','none')
+        .style('opacity',0);
+
+      function showTooltip(text,event){
+        const e=event.touches?.[0]||event;
+        if(!e){return;}
+        tooltip.style('opacity',1)
+          .style('left',`${(e.pageX??e.clientX+window.scrollX)+12}px`)
+          .style('top',`${(e.pageY??e.clientY+window.scrollY)-24}px`)
+          .text(text);
+      }
+      function hideTooltip(){tooltip.style('opacity',0);}
+
+      dragOverlay.call(d3.drag()
+        .on('start',handleDrag)
+        .on('drag',handleDrag)
+        .on('end',()=>hideTooltip()));
+      thresholdLine.call(d3.drag()
+        .on('start',handleDrag)
+        .on('drag',handleDrag)
+        .on('end',()=>hideTooltip()));
+      thresholdHandle.call(d3.drag()
+        .on('start',handleDrag)
+        .on('drag',handleDrag)
+        .on('end',()=>hideTooltip()))
+        .on('mouseenter',event=>showTooltip(STRINGS.metrics.thresholdHandleTooltip(state.threshold),event))
+        .on('mousemove',event=>showTooltip(STRINGS.metrics.thresholdHandleTooltip(state.threshold),event))
+        .on('mouseleave',hideTooltip);
+
+      const rocSvg=d3.select('#rocPlot').append('svg')
+        .attr('viewBox',`0 0 ${rocDims.width} ${rocDims.height}`)
+        .attr('preserveAspectRatio','xMidYMid meet');
+      const rocContent=rocSvg.append('g')
+        .attr('transform',`translate(${rocDims.margin.left},${rocDims.margin.top})`);
+      const rocWidth=rocDims.width-rocDims.margin.left-rocDims.margin.right;
+      const rocHeight=rocDims.height-rocDims.margin.top-rocDims.margin.bottom;
+
+      const rocTitle=rocSvg.append('text')
+        .attr('class','chart-title')
+        .attr('x',rocDims.width/2)
+        .attr('y',24)
+        .attr('text-anchor','middle');
+
+      const rocXScale=d3.scaleLinear().domain([0,1]).range([0,rocWidth]);
+      const rocYScale=d3.scaleLinear().domain([0,1]).range([rocHeight,0]);
+      const rocXAxisGroup=rocContent.append('g').attr('transform',`translate(0,${rocHeight})`);
+      const rocYAxisGroup=rocContent.append('g');
+
+      rocContent.append('text')
+        .attr('class','axis-label')
+        .attr('x',rocWidth/2)
+        .attr('y',rocHeight+42)
+        .attr('text-anchor','middle')
+        .text(STRINGS.plots.rocXAxis);
+      rocContent.append('text')
+        .attr('class','axis-label')
+        .attr('transform','rotate(-90)')
+        .attr('x',-rocHeight/2)
+        .attr('y',-48)
+        .attr('text-anchor','middle')
+        .text(STRINGS.plots.rocYAxis);
+
+      const rocLinePath=rocContent.append('path').attr('class','roc-line');
+      rocContent.append('path').attr('class','roc-random')
+        .attr('d',`M${rocXScale(0)},${rocYScale(0)} L${rocXScale(1)},${rocYScale(1)}`);
+      const rocPoint=rocContent.append('circle').attr('class','roc-point').attr('r',6);
+
+      const rocLineGenerator=d3.line().curve(d3.curveMonotoneX)
+        .x(d=>rocXScale(d.fpr))
+        .y(d=>rocYScale(d.tpr));
+
+      rocPoint.call(d3.drag()
+        .on('start',handleRocDrag)
+        .on('drag',handleRocDrag)
+        .on('end',()=>hideTooltip()))
+        .on('mouseenter',event=>showTooltip(STRINGS.metrics.thresholdHandleTooltip(state.threshold),event))
+        .on('mousemove',event=>showTooltip(STRINGS.metrics.thresholdHandleTooltip(state.threshold),event))
+        .on('mouseleave',hideTooltip);
+
+      const areaTooltips=STRINGS.metrics.areaTooltips;
+      const addAreaTooltip=(path,label)=>{
+        path.on('mousemove',event=>{if(path.attr('d')){showTooltip(label,event);}});
+        path.on('mouseleave',hideTooltip);
+      };
+      addAreaTooltip(areaTPPath,areaTooltips.tp);
+      addAreaTooltip(areaFNPath,areaTooltips.fn);
+      addAreaTooltip(areaTNPath,areaTooltips.tn);
+      addAreaTooltip(areaFPPath,areaTooltips.fp);
+
+      function getDistributionKeys(){
+        return DISTRIBUTION_ORDER.filter(key=>Boolean(DISTRIBUTIONS[key]));
+      }
+
+      function normalizeWeights(prefix){
+        if(!FEATURES.allowMultiComponents){return;}
+        const components=state[prefix+'Components'];
+        let sum=components.reduce((acc,c)=>acc+Math.max(Number(c.weight)||0,0),0);
+        if(sum<=0){sum=components.length||1;}
+        if(FEATURES.enforceWeightSum){
+          components.forEach(c=>{c.weight=Math.max(Number(c.weight)||0,0)/sum;});
+        }
+      }
+
+      function renderComponents(prefix){
+        const container=document.getElementById(prefix+'Params');
+        const allowMulti=FEATURES.allowMultiComponents;
+        const distributionKeys=getDistributionKeys();
+        if(!distributionKeys.length){container.textContent='No distributions configured.';return;}
+        const components=state[prefix+'Components'];
+        if(!components.length){components.push(cloneComponent({distribution:distributionKeys[0]}));}
+        if(!allowMulti && components.length>1){components.splice(1);}
+        container.innerHTML='';
+
+        const list=document.createElement('div');
+        list.className='component-list';
+        components.forEach((component,index)=>{
+          if(!DISTRIBUTIONS[component.distribution]){
+            component.distribution=distributionKeys[0];
+            component.parameters=cloneComponent({distribution:distributionKeys[0]}).parameters;
+          }
+          const def=DISTRIBUTIONS[component.distribution];
+          const card=document.createElement('div');
+          card.className='component-card';
+
+          const header=document.createElement('div');
+          header.className='component-header';
+          header.textContent=allowMulti?`${STRINGS.multi.componentLabel(index)} — ${def.label}`:def.label;
+          if(allowMulti && components.length>1){
+            const controls=document.createElement('div');
+            controls.className='component-controls';
+            const removeBtn=document.createElement('button');
+            removeBtn.type='button';
+            removeBtn.textContent=STRINGS.multi.removeComponent;
+            removeBtn.addEventListener('click',()=>{
+              components.splice(index,1);
+              normalizeWeights(prefix);
+              renderComponents(prefix);
+              update();
+            });
+            controls.appendChild(removeBtn);
+            header.appendChild(controls);
+          }
+          card.appendChild(header);
+
+          const distRow=document.createElement('div');
+          distRow.className='component-row';
+          const distLabel=document.createElement('label');
+          distLabel.textContent=STRINGS.controls.distributionLabel;
+          const distSelect=document.createElement('select');
+          distributionKeys.forEach(key=>{
+            const opt=document.createElement('option');
+            opt.value=key;
+            opt.textContent=DISTRIBUTIONS[key].label;
+            distSelect.appendChild(opt);
+          });
+          distSelect.value=component.distribution;
+          distSelect.addEventListener('change',event=>{
+            components[index]=cloneComponent({distribution:event.target.value,weight:component.weight});
+            normalizeWeights(prefix);
+            renderComponents(prefix);
+            update();
+          });
+          distRow.appendChild(distLabel);
+          distRow.appendChild(distSelect);
+          card.appendChild(distRow);
+
+          if(allowMulti){
+            const weightRow=document.createElement('div');
+            weightRow.className='component-row';
+            const weightLabel=document.createElement('label');
+            weightLabel.textContent=STRINGS.multi.weight;
+            const weightInput=document.createElement('input');
+            weightInput.type='number';
+            weightInput.step='0.01';
+            weightInput.min='0';
+            weightInput.value=component.weight??1;
+            weightInput.addEventListener('input',event=>{
+              const numeric=Number(event.target.value);
+              component.weight=Number.isFinite(numeric)?numeric:0;
+              normalizeWeights(prefix);
+              update();
+            });
+            weightRow.appendChild(weightLabel);
+            weightRow.appendChild(weightInput);
+            card.appendChild(weightRow);
+          }
+
+          def.parameters.forEach(meta=>{
+            const row=document.createElement('div');
+            row.className='component-row';
+            const label=document.createElement('label');
+            label.textContent=meta.label;
+            const input=document.createElement('input');
+            input.type=meta.type||'number';
+            if(meta.step!==undefined){input.step=meta.step;}
+            if(meta.min!==undefined){input.min=meta.min;}
+            if(meta.max!==undefined){input.max=meta.max;}
+            const value=component.parameters.hasOwnProperty(meta.id)?component.parameters[meta.id]:meta.value;
+            component.parameters[meta.id]=value;
+            input.value=value;
+            input.addEventListener('input',event=>{
+              const numeric=Number(event.target.value);
+              if(Number.isFinite(numeric)){
+                component.parameters[meta.id]=numeric;
+                update();
+              }
+            });
+            row.appendChild(label);
+            row.appendChild(input);
+            card.appendChild(row);
+          });
+
+          list.appendChild(card);
+        });
+
+        container.appendChild(list);
+
+        if(allowMulti && (!FEATURES.maxComponents || components.length<FEATURES.maxComponents)){
+          const addBtn=document.createElement('button');
+          addBtn.type='button';
+          addBtn.className='add-component-btn';
+          addBtn.textContent=STRINGS.multi.addComponent;
+          addBtn.addEventListener('click',()=>{
+            components.push(cloneComponent({distribution:getDistributionKeys()[0],weight:1}));
+            normalizeWeights(prefix);
+            renderComponents(prefix);
+            update();
+          });
+          container.appendChild(addBtn);
+        }
+      }
+
+      function sanitizePDF(value){return Number.isFinite(value)&&value>=0?value:0;}
+      function clamp(val,min,max){return Math.min(Math.max(val,min),max);}
+
+      function buildDistribution(prefix){
+        const allowMulti=FEATURES.allowMultiComponents;
+        const components=state[prefix+'Components'];
+        const resolved=components.map(component=>{
+          const def=DISTRIBUTIONS[component.distribution];
+          const params=def.mapper?def.mapper(component.parameters):component.parameters;
+          const domain=def.domain?def.domain(params):[-5,5];
+          return {def,params,weight:component.weight??1,domain};
+        });
+        let weightSum=resolved.reduce((acc,item)=>acc+Math.max(item.weight??0,0),0);
+        if(!allowMulti||resolved.length===1){
+          resolved.forEach(item=>item.weight=1);
+        } else {
+          if(weightSum<=0){weightSum=resolved.length;}
+          if(FEATURES.enforceWeightSum){
+            resolved.forEach(item=>{item.weight=Math.max(item.weight??0,0)/weightSum;});
+          }
+        }
+        let minDomain=Math.min(...resolved.map(item=>item.domain[0]));
+        let maxDomain=Math.max(...resolved.map(item=>item.domain[1]));
+        if(!Number.isFinite(minDomain)){minDomain=0;}
+        if(!Number.isFinite(maxDomain)){maxDomain=minDomain+1;}
+        if(maxDomain<=minDomain){maxDomain=minDomain+1;}
+        return {
+          pdf:x=>resolved.reduce((sum,item)=>sum+item.weight*item.def.pdf(item.params,x),0),
+          cdf:x=>resolved.reduce((sum,item)=>sum+item.weight*item.def.cdf(item.params,x),0),
+          domain:[minDomain,maxDomain]
+        };
+      }
+
+      function update(){
+        normalizeWeights('pos');
+        normalizeWeights('neg');
+        const pos=buildDistribution('pos');
+        const neg=buildDistribution('neg');
+
+        let minX=Math.min(pos.domain[0],neg.domain[0]);
+        let maxX=Math.max(pos.domain[1],neg.domain[1]);
+        if(!Number.isFinite(minX)||!Number.isFinite(maxX)){minX=0;maxX=1;}
+        if(maxX<=minX){maxX=minX+1;}
+
+        state.domain=[minX,maxX];
+        if(!state.thresholdInitialized){
+          state.threshold=clamp(DEFAULT_OPTIONS.threshold??(minX+maxX)/2,minX,maxX);
+          state.thresholdInitialized=true;
+        } else if(state.threshold<minX || state.threshold>maxX){
+          state.threshold=clamp((minX+maxX)/2,minX,maxX);
+        }
+        const threshold=state.threshold;
+        thresholdValEl.textContent=STRINGS.controls.thresholdValue(threshold);
+        thresholdInput.value=threshold.toFixed(3);
+
+        const N=500;
+        const xs=Array.from({length:N},(_,i)=>minX+(maxX-minX)*i/(N-1));
+        if(!xs.some(x=>Math.abs(x-threshold)<1e-8)){
+          xs.push(threshold);
+          xs.sort((a,b)=>a-b);
+        }
+
+        const dataPoints=xs.map(x=>{
+          const posPDF=sanitizePDF(pos.pdf(x));
+          const negPDF=sanitizePDF(neg.pdf(x));
+          return {x,posPDF,negPDF,posCDF:clamp(pos.cdf(x),0,1),negCDF:clamp(neg.cdf(x),0,1)};
+        });
+        state.dataPoints=dataPoints;
+
+        const yMax=d3.max(dataPoints,d=>Math.max(d.posPDF,d.negPDF))||0;
+        const yUpper=yMax>0?yMax*1.05:1;
+        distXScale.domain([minX,maxX]);
+        distYScale.domain([0,yUpper]);
+        distXAxisGroup.call(d3.axisBottom(distXScale));
+        distYAxisGroup.call(d3.axisLeft(distYScale));
+
+        distPosLinePath.datum(dataPoints).attr('d',distPosLineGenerator);
+        distNegLinePath.datum(dataPoints).attr('d',distNegLineGenerator);
+
+        const posLeft=dataPoints.filter(d=>d.x<=threshold).map(d=>({x:d.x,y:d.posPDF}));
+        const posRight=dataPoints.filter(d=>d.x>=threshold).map(d=>({x:d.x,y:d.posPDF}));
+        const negLeft=dataPoints.filter(d=>d.x<=threshold).map(d=>({x:d.x,y:d.negPDF}));
+        const negRight=dataPoints.filter(d=>d.x>=threshold).map(d=>({x:d.x,y:d.negPDF}));
+
+        const setArea=(path,data)=>{path.attr('d',data.length>=2?distAreaGenerator(data):null);};
+        setArea(areaTNPath,negLeft);
+        setArea(areaFPPath,negRight);
+        setArea(areaFNPath,posLeft);
+        setArea(areaTPPath,posRight);
+
+        thresholdLine
+          .attr('x1',distXScale(threshold))
+          .attr('x2',distXScale(threshold))
+          .attr('y1',distYScale.range()[0])
+          .attr('y2',distYScale.range()[1])
+          .raise();
+        thresholdHandle
+          .attr('cx',distXScale(threshold))
+          .attr('cy',distYScale.range()[1]-10)
+          .raise();
+
+        const rocPairs=dataPoints.map(d=>({thr:d.x,fpr:1-d.negCDF,tpr:1-d.posCDF}));
+        const rocSorted=[...rocPairs].sort((a,b)=>a.fpr-b.fpr);
+        state.rocPairs=rocPairs;
+        state.rocPairsSorted=rocSorted;
+        const auc=rocSorted.length>=2?rocSorted.reduce((acc,val,i)=>{
+          if(i===0){return acc;}
+          const dx=rocSorted[i].fpr-rocSorted[i-1].fpr;
+          return acc+dx*(rocSorted[i].tpr+rocSorted[i-1].tpr)/2;
+        },0):0;
+        rocTitle.text(STRINGS.plots.rocTitle(auc));
+
+        if(rocSorted.length>=2){rocLinePath.datum(rocSorted).attr('d',rocLineGenerator);} else {rocLinePath.attr('d',null);}    
+        rocXAxisGroup.call(d3.axisBottom(rocXScale).ticks(6));
+        rocYAxisGroup.call(d3.axisLeft(rocYScale).ticks(6));
+
+        const thrPoint=rocPairs.reduce((prev,curr)=>Math.abs(curr.thr-threshold)<Math.abs(prev.thr-threshold)?curr:prev,rocPairs[0]);
+        rocPoint.attr('cx',rocXScale(thrPoint.fpr)).attr('cy',rocYScale(thrPoint.tpr));
+
+        const sensitivity=thrPoint.tpr;
+        const specificity=1-thrPoint.fpr;
+        const [sensLabel,specLabel]=STRINGS.metrics.confusionHeader;
+        document.getElementById('metrics').innerHTML=`<table><tr><th>${sensLabel}</th><th>${specLabel}</th></tr><tr><td>${sensitivity.toFixed(3)}</td><td>${specificity.toFixed(3)}</td></tr></table>`;
+
+        const prevalence=state.prevalence;
+        const ppvDen=(sensitivity*prevalence)+((1-specificity)*(1-prevalence));
+        const npvDen=((1-sensitivity)*prevalence)+(specificity*(1-prevalence));
+        const ppv=ppvDen>0?(sensitivity*prevalence)/ppvDen:0;
+        const npv=npvDen>0?(specificity*(1-prevalence))/npvDen:0;
+        const accuracy=sensitivity*prevalence+specificity*(1-prevalence);
+        const headers=STRINGS.metrics.prevalenceHeader;
+        document.getElementById('metricsPrev').innerHTML=`<table><tr><th>${headers[0]}</th><th>${headers[1]}</th><th>${headers[2]}</th></tr><tr><td>${ppv.toFixed(3)}</td><td>${npv.toFixed(3)}</td><td>${accuracy.toFixed(3)}</td></tr></table>`;
+      }
+
+      function handleDrag(event){
+        const [x]=d3.pointer(event,distContent.node());
+        const domainX=distXScale.invert(x);
+        if(!Number.isFinite(domainX)){return;}
+        const clamped=clamp(domainX,state.domain[0],state.domain[1]);
+        if(Math.abs(clamped-state.threshold)<1e-6){return;}
+        state.thresholdInitialized=true;
+        state.threshold=clamped;
+        thresholdInput.value=clamped.toFixed(3);
+        update();
+        showTooltip(STRINGS.metrics.thresholdHandleTooltip(state.threshold),event.sourceEvent||event);
+      }
+
+      function handleRocDrag(event){
+        const pool=state.rocPairsSorted.length?state.rocPairsSorted:state.rocPairs;
+        if(!pool.length){return;}
+        const [x]=d3.pointer(event,rocContent.node());
+        const targetFpr=clamp(rocXScale.invert(x),0,1);
+        const closest=pool.reduce((prev,curr)=>Math.abs(curr.fpr-targetFpr)<Math.abs(prev.fpr-targetFpr)?curr:prev,pool[0]);
+        if(Math.abs(closest.thr-state.threshold)>1e-6){
+          state.thresholdInitialized=true;
+          state.threshold=closest.thr;
+          thresholdInput.value=closest.thr.toFixed(3);
+          update();
+        }
+        showTooltip(STRINGS.metrics.thresholdHandleTooltip(state.threshold),event.sourceEvent||event);
+      }
+
+      function handleThresholdInput(event){
+        const numeric=Number(event.target.value);
+        if(!Number.isFinite(numeric)){event.target.value=state.threshold.toFixed(3);return;}
+        state.thresholdInitialized=true;
+        state.threshold=clamp(numeric,state.domain[0],state.domain[1]);
+        update();
+      }
+
+      thresholdInput.addEventListener('change',handleThresholdInput);
+      thresholdInput.addEventListener('keypress',event=>{
+        if(event.key==='Enter'){event.preventDefault();handleThresholdInput(event);} });
+
+      prevalenceSlider.addEventListener('input',event=>{
+        const numeric=Number(event.target.value);
+        state.prevalence=clamp(numeric,0,1);
+        prevalenceValEl.textContent=STRINGS.controls.prevalenceValue(state.prevalence);
+        update();
+      });
+
+      renderComponents('neg');
+      renderComponents('pos');
+      normalizeWeights('neg');
+      normalizeWeights('pos');
+      update();
+    });
+  </script>
+</body>
+</html>
