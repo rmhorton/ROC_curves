@@ -1,424 +1,448 @@
-# Continuous ROC Explorer – User & Teacher Guide
-
-> **Abstract** — The *Continuous ROC Explorer* is an interactive, browser-based platform for teaching ROC analysis. It analytically computes ROC curves from user-defined continuous distributions, supports prevalence-dependent metrics, and provides tools for dynamic visualization, scenario saving, and classroom customization. This document serves as both a user manual and a developer reference, including teacher customization guides, metric definitions, and Codex implementation checklists.
- – User & Teacher Guide
+# Continuous ROC Explorer — User Guide (Expanded Edition)
 
 ## Overview
+The **Continuous ROC Explorer** is an interactive visualization and simulation app for teaching and exploring **Receiver Operating Characteristic (ROC)** curves and related performance metrics. It is designed for flexible classroom use, enabling both quantitative demonstration and conceptual understanding.
 
-The **Continuous ROC Explorer** is an interactive web app for teaching and visualizing **Receiver Operating Characteristic (ROC)** curves. Unlike sample-based ROC tools, this app computes the curve analytically from the **cumulative distribution functions (CDFs)** of user-defined positive and negative score distributions.
-
-Teachers and students can explore how different distributions, thresholds, and prevalences influence **sensitivity**, **specificity**, **PPV/NPV**, and the **AUC (Area Under the Curve)**.
-
----
-
-## Quick Start
-
-1. Open `continuous_ROC.html` in a modern browser (Chrome, Firefox, Edge, or Safari).
-2. The app automatically loads its configuration from `continuous_ROC_config.js`.
-3. Adjust the parameters for **positives** and **negatives** using the provided controls.
-4. Drag the vertical threshold line or the ROC point to see how metrics change.
-5. Use the **Prevalence** slider to explore population-level effects.
+This expanded guide provides detailed explanations, conceptual teaching figures, pedagogical scenarios, customization options, and technical documentation for developers (Codex Implementation Checklist).
 
 ---
 
-## Key Concepts
+## Conceptual Introduction
+ROC analysis is a framework for understanding diagnostic accuracy. It visualizes the tradeoff between sensitivity and specificity across all possible thresholds. Instructors can use this app to show:
+- How overlapping score distributions generate false positives and false negatives.
+- Why the area under the curve (AUC) summarizes overall performance.
+- How prevalence affects predictive values but not ROC shape.
+- How different models can share the same AUC yet behave differently at key thresholds.
 
-- **Positives** and **Negatives**: Two classes represented by user-defined distributions.
-- **Threshold**: Score value that separates predicted positives from negatives.
-- **ROC Curve**: Plots the trade-off between False Positive Rate (FPR) and True Positive Rate (TPR).
-- **AUC (Area Under Curve)**: Quantifies discrimination ability; higher AUC indicates better separation.
-- **Prevalence**: Fraction of true positives in the population, used to compute PPV, NPV, and accuracy.
+### Figure 1. Conceptual illustration of positive and negative score distributions
+![](images/conceptual_distributions.png)
+*Figure 1. Two overlapping score distributions (positive and negative cases) with a threshold dividing predicted positive and negative outcomes.*
 
----
-
-## App Interface
-
-### Distribution Controls
-- Choose a distribution type (Normal, Beta, Gamma, etc.).
-- Adjust distribution parameters using numeric input fields.
-- For multi-component models, adjust **weights** to define mixtures.
-
-### Plots
-- **Left:** Score Distributions (positives in blue, negatives in orange)
-- **Right:** ROC Curve (interactive point corresponding to current threshold)
-
-### Metrics
-- **Top Table:** Sensitivity and Specificity (threshold-dependent)
-- **Bottom Table:** PPV, NPV, and Accuracy (prevalence-dependent)
-
-### Interactions
-- **Drag** the vertical threshold line or ROC point to change the threshold.
-- **Enter** an exact threshold value in the input box.
-- **Adjust** prevalence using the slider.
+### Figure 2. Corresponding ROC curve construction
+![](images/roc_curve_construction.png)
+*Figure 2. Each threshold on the score axis corresponds to a point on the ROC curve. Sweeping the threshold traces the full curve.*
 
 ---
 
-## Teacher Customization Guide
+## Pedagogical Scenarios
+### Scenario 1 — Varying Separation
+Show how increasing the distance between means (μ₊ − μ₋) improves discrimination and increases AUC.
+### Scenario 2 — Overlapping Variance
+Keep the means fixed but change variance; students can observe how overlap, not just mean difference, controls sensitivity/specificity tradeoffs.
+### Scenario 3 — Equal AUC, Different Shapes
+Demonstrate that two ROC curves may have the same AUC but differ in slope, curvature, and optimal thresholds.
+### Scenario 4 — Prevalence Effects
+Adjust prevalence to show how predictive values (PPV, NPV) depend on class balance while ROC shape remains unchanged.
+### Scenario 5 — Threshold Sweep
+Animate the threshold moving across the distributions while simultaneously updating the confusion matrix and ROC curve.
 
-The app’s behavior, default setup, and appearance are controlled by the configuration file: `continuous_ROC_config.js`.
-
-### 1. Configuration Structure
-
-| Section | Purpose |
-|----------|----------|
-| `STRINGS` | UI labels and text (localization and terminology) |
-| `FEATURES` | Feature toggles for multi-component models |
-| `DISTRIBUTIONS` | Available probability distributions with their parameter definitions |
-| `DISTRIBUTION_ORDER` | The order in which distributions appear in menus |
-| `DEFAULT_OPTIONS` | The initial distributions, threshold, and prevalence |
-
-### 2. Changing Defaults
-
-To set default distributions and parameters:
-
-```js
-DEFAULT_OPTIONS.positives = {
-  distribution: "beta",
-  parameters: { a: 3, b: 2 }
-};
-
-DEFAULT_OPTIONS.negatives = {
-  distribution: "beta",
-  parameters: { a: 2, b: 3 }
-};
-
-DEFAULT_OPTIONS.threshold = 0.5;
-DEFAULT_OPTIONS.prevalence = 0.5;
-```
-
-### 3. Allowing or Disabling Mixture Components
-
-To **disable multi-component mixtures** (use single distributions only):
-
-```js
-FEATURES.allowMultiComponents = false;
-```
-
-To **set limits** on mixtures:
-
-```js
-FEATURES.maxComponents = 3;  // maximum components per class
-FEATURES.defaultComponents = 1;  // initial count
-```
-
-### 4. Adding a New Distribution
-
-You can define new distributions in the `DISTRIBUTIONS` object. Each must specify:
-- A label (for menus)
-- Parameters (with labels, types, default values)
-- PDF, CDF, and domain functions
-
-**Example: Add Log-Normal Distribution**
-
-```js
-DISTRIBUTIONS.lognormal = {
-  label: "Log-Normal",
-  supportsMulti: true,
-  parameters: [
-    { id: "meanlog", label: "Mean (log)", type: "number", value: 0, step: 0.1 },
-    { id: "sdlog", label: "SD (log)", type: "number", value: 1, step: 0.1, min: 0.001 }
-  ],
-  pdf: (p, x) => jStat.lognormal.pdf(x, p.meanlog, p.sdlog),
-  cdf: (p, x) => jStat.lognormal.cdf(x, p.meanlog, p.sdlog),
-  domain: () => [0, 20]
-};
-
-DISTRIBUTION_ORDER.push("lognormal");
-```
-
-### 5. Changing UI Text and Language
-
-Edit the `STRINGS` section to rename UI elements or localize them to another language. For example:
-
-```js
-STRINGS.controls.positivesTitle = "True Positives";
-STRINGS.controls.negativesTitle = "True Negatives";
-STRINGS.plots.rocYAxis = "Sensitivity";
-```
-
-### 6. Adjusting Colors and Styles
-
-All visual styling is defined in the `<style>` section of `continuous_ROC.html`. Teachers can modify these directly or link to an external CSS file.
-
-### 7. Feature Toggles
-
-| Feature | Description |
-|----------|-------------|
-| `allowMultiComponents` | Enables/disables multi-distribution mixtures |
-| `enforceWeightSum` | Normalizes weights to sum to 1 |
-| `maxComponents` | Sets upper limit for mixture size |
-| `defaultComponents` | Defines how many components appear initially |
+### Figure 3. Screenshot of annotated app layout
+![](images/annotated_app.png)
+*Figure 3. The main user interface of the Continuous ROC Explorer, showing the key plots, sliders, and metrics tables.*
 
 ---
 
-## Advanced Customization
-
-- **Predefined Scenarios:** Instructors can create alternate configuration files for specific lessons (e.g., `config_high_overlap.js`, `config_low_auc.js`) and load them dynamically by modifying the `<script src>` line.
-- **Export & Reset:** Optional enhancements can be added for saving configurations or resetting defaults.
-- **Sampling Mode (Future):** Teachers may request an extension that compares sampled vs. analytic ROC curves.
-
----
-
-## Suggested Exercises
-
-1. **Symmetric Normal Distributions** – Set both distributions to Normal(0,1) and observe the ROC (AUC ≈ 0.5).
-2. **Separated Means** – Increase the mean of the positive distribution and note AUC changes.
-3. **Mixtures** – Combine two Normal components to simulate bimodal data.
-4. **Prevalence Effects** – Change prevalence and observe PPV/NPV dynamics.
+## Teacher Customization
+Teachers can customize the app using the configuration file `continuous_ROC_config.js`. Typical modifications include:
+- Default score distributions (Normal, Beta, etc.)
+- Sliders, ranges, and default values
+- Metrics to display in tables
+- Color schemes and labeling
+- Language and help text
 
 ---
 
-## Figures
+## Figures and Layout Reference
+Figures help teachers orient themselves to the app interface.
 
-**Figure 4 – Annotated App Screenshot (Numbered Callouts)**  
-![Annotated App Screenshot](images/app_screenshot_annotated.png)
-
-**Legend**  
-1. **Negatives Controls** – Select distribution(s), set parameters, adjust mixture weights.  
-2. **Positives Controls** – Select distribution(s), set parameters, adjust mixture weights.  
-3. **Score Distributions Plot** – PDFs for positives (blue) and negatives (orange).  
-4. **Threshold Line** – Drag to move the decision threshold; areas reflect TP/FN/TN/FP.  
-5. **ROC Curve** – Analytic ROC computed from the CDFs.  
-6. **ROC Point** – Draggable operating point linked to the threshold.  
-7. **Threshold & Metrics** – Prevalence-independent metrics table.  
-8. **Prevalence Slider** – Adjusts prevalence for predictive metrics.  
-9. **Predictive Metrics** – Prevalence-dependent table.
-
----
-
-**Figure 3 – Pedagogical ROC Scenarios**  
-![Pedagogical ROC Scenarios](images/pedagogical_scenarios.png)
-
-Four canonical teaching scenarios:
-1. *High Overlap (AUC ≈ 0.5)* – Demonstrates poor discrimination.
-2. *Separated Means (AUC ≈ 0.95)* – Excellent classifier with minimal overlap.
-3. *Bimodal Positives* – Shows how mixtures create complex ROC shapes.
-4. *Prevalence Effects* – ROC unchanged, but PPV/NPV vary with prevalence.
-
----
-
-**Figure 3 – Pedagogical ROC Scenarios**  
-![Pedagogical ROC Scenarios](images/pedagogical_scenarios.png)
-
-Four canonical teaching scenarios:
-1. *High Overlap (AUC ≈ 0.5)* – Demonstrates poor discrimination.
-2. *Separated Means (AUC ≈ 0.95)* – Excellent classifier with minimal overlap.
-3. *Bimodal Positives* – Shows how mixtures create complex ROC shapes.
-4. *Prevalence Effects* – ROC unchanged, but PPV/NPV vary with prevalence.
-
----
-
-**Figure 1 – Conceptual ROC Teaching Panels**  
-![Conceptual ROC Teaching Panels](images/conceptual_panels.png)
-
-*Panel A:* Overlapping score distributions with a labeled decision threshold. Shaded regions indicate TP, FP, TN, FN.  
-*Panel B:* ROC curve with the random-classifier diagonal and AUC region shaded; a dot marks the operating point.
-
-**Figure 2 – App Layout and Key Interactions**  
-![App Layout Diagram](images/app_layout_diagram.png)
-
-An annotated schematic of the app UI showing Controls (Negatives/Positives panels), the Score Distributions and ROC plots, and the Threshold/Prevalence metric areas. Arrows indicate draggable elements and interactive behaviors.
-
----
-
-## Quick Teacher Setup
-
-### Step-by-Step Setup
-
-1. **Download** both files:
-   - `continuous_ROC.html`
-   - `continuous_ROC_config.js`
-2. **Place** them in the same folder.
-3. **Open** the HTML file in a web browser — the app should load automatically.
-4. **Modify** `continuous_ROC_config.js` to adjust default distributions or features.
-5. **Refresh** the page to apply any configuration changes.
-
-### Classroom Scenario Ideas
-
-| Scenario | Configuration | Teaching Goal |
-|-----------|----------------|----------------|
-| **Baseline ROC** | Both distributions Normal(0,1) | Demonstrate random classifier (AUC = 0.5) |
-| **High Separation** | Positives: Normal(1,1); Negatives: Normal(0,1) | Show how separation increases AUC |
-| **Low Prevalence** | Prevalence = 0.1 | Illustrate PPV/NPV sensitivity to rare events |
-| **Bimodal Positives** | Two-component positive mixture | Teach multimodal distributions and overlapping regions |
-| **Parameter Sensitivity** | Vary parameters interactively | Emphasize how ROC depends on score distributions, not prevalence |
+**Figure 3** above labels the main components:
+1. Positive and negative score distributions
+2. Threshold marker and shaded regions
+3. ROC curve plot
+4. Prevalence-independent metrics table
+5. Prevalence-dependent metrics table
+6. Threshold and prevalence sliders
 
 ---
 
 ## Metrics Reference
+This section defines the metrics used in the app.
 
 ### Prevalence-Independent Metrics
-| Metric | Formula / Definition | Notes |
-|---------|----------------------|-------|
-| **True Positive Rate (TPR)** | TP / (TP + FN) | Sensitivity / Recall / Hit Rate |
-| **True Negative Rate (TNR)** | TN / (TN + FP) | Specificity / Selectivity |
-| **False Positive Rate (FPR)** | FP / (FP + TN) | 1 − Specificity |
-| **False Negative Rate (FNR)** | FN / (FN + TP) | 1 − Sensitivity |
-| **Positive Likelihood Ratio (LR⁺)** | TPR / FPR | Undefined when FPR = 0 |
-| **Negative Likelihood Ratio (LR⁻)** | FNR / TNR | Undefined when TNR = 0 |
-| **Youden’s J Statistic** | TPR + TNR − 1 | Distance from chance line |
-| **Balanced Accuracy** | (TPR + TNR) / 2 | Robust for imbalanced data |
-| **Diagnostic Odds Ratio (DOR)** | (TPR × TNR) / (FPR × FNR) | Diverges when FPR or FNR → 0 |
-| **Matthews Correlation Coefficient (MCC)** | (TP×TN − FP×FN) / √((TP+FP)(TP+FN)(TN+FP)(TN+FN)) | Symmetric; bounded in [−1, +1] |
-| **Area Under Curve (AUC)** | ∫TPR dFPR | Already implemented analytically |
+- **True Positive Rate (TPR / Sensitivity / Recall)** — TP / (TP + FN)
+- **True Negative Rate (TNR / Specificity)** — TN / (TN + FP)
+- **False Positive Rate (FPR)** — FP / (FP + TN)
+- **False Negative Rate (FNR)** — FN / (FN + TP)
+- **Likelihood Ratios:** LR⁺ = TPR/FPR, LR⁻ = FNR/TNR
+- **Youden’s J Index:** TPR + TNR − 1
+- **Balanced Accuracy:** (TPR + TNR) / 2
+- **Diagnostic Odds Ratio:** (TPR × TNR) / (FPR × FNR)
+- **Matthews Correlation Coefficient (MCC)** — correlation between predicted and actual labels
+- **AUC (Area Under the Curve)** — probability that a randomly chosen positive has a higher score than a randomly chosen negative
 
 ### Prevalence-Dependent Metrics
-| Metric | Formula / Definition | Notes |
-|---------|----------------------|-------|
-| **Positive Predictive Value (PPV)** | TP / (TP + FP) | Precision; depends on prevalence |
-| **Negative Predictive Value (NPV)** | TN / (TN + FN) |  |
-| **Accuracy** | (TP + TN) / (TP + TN + FP + FN) |  |
-| **Error Rate** | 1 − Accuracy |  |
-| **F₁ Score** | 2 × (PPV × TPR) / (PPV + TPR) | Harmonic mean of precision & recall |
+- **PPV (Positive Predictive Value)** = TP / (TP + FP)
+- **NPV (Negative Predictive Value)** = TN / (TN + FN)
+- **Accuracy** = (TP + TN) / (Total)
+- **Error Rate** = 1 − Accuracy
+- **F₁ Score** = 2 × (Precision × Recall) / (Precision + Recall)
 
-### Metrics Requiring Clarification
-The following metrics require additional design decisions or optional inputs before implementation:
+### Ambiguous or Context-Dependent Metrics
+These require instructor clarification before use:
+- **Cohen’s Kappa**, **Markedness**, **Informedness**, **Expected Utility**, **Bias Index**, **PABAK**, **Fβ Variants**
 
-1. **Cohen’s Kappa** – Needs a consistent definition for expected accuracy under random labeling.  
-2. **Markedness** – Defined as PPV + NPV − 1; depends indirectly on prevalence.  
-3. **Informedness** – Identical to Youden’s J; decide whether to alias or omit.  
-4. **Prevalence-Weighted Balanced Accuracy** – Weighted average of TPR and TNR using prevalence.  
-5. **Post-Test Probabilities** – Requires Bayes’ theorem; handle LR = ∞ or 0 cases.  
-6. **Expected Cost / Utility** – Needs user-specified FP/FN cost parameters.  
-7. **Bias Index / PABAK** – Derived from overall accuracy; primarily pedagogical.  
-8. **Fβ Score** – Requires fixed or adjustable β parameter (default β = 2).
+---
+
+## Unified Annotations in App State & Configuration–State Separation
+Annotations (draggable, styled text boxes) are part of the saved **state**, not the configuration. States can be shared or replayed across configurations with different languages, labels, or color themes.
+
+---
+
+## Teacher Workflow Summary
+### Step 1 — Configure Starting State
+Set up the desired scenario and add explanatory annotations.
+### Step 2 — Define Subsequent States
+Modify parameters or annotations to illustrate changes.
+### Step 3 — Preview and Animate
+Play through state transitions to visualize evolving ROC curves.
+### Step 4 — Export and Share
+Export as JSON, GIF, or WebM for classroom presentation.
+### Step 5 — Reuse and Adapt
+Use saved states to teach related concepts or compare tests.
 
 ---
 
 ## Future Features & Roadmap
-
-### A. Teaching & Pedagogical Enhancements
-- **Threshold Sweep Animation:** Animate the threshold moving through score space, showing ROC point motion and metric changes.
-- **Interactive Metric Traces:** Plot TPR, TNR, PPV, NPV, MCC, F₁ vs. threshold in real time.
-- **Optimal Threshold Indicators:** Highlight maxima for Youden’s J, F₁, or cost-minimizing thresholds.
-- **Student Exercises Mode:** Let teachers define goal-based challenges (e.g., achieve AUC ≈ 0.9).
-- **Side-by-Side Scenarios:** Compare two setups on the same axes.
-
-### B. Analytical & Statistical Extensions
-- **Additional Distributions:** Weibull, Exponential, Gamma, Triangular, Truncated Normal, Logistic, etc.
-- **Nonparametric Mode:** Paste empirical samples; use kernel density estimation.
-- **Stochastic Sampling Mode:** Simulate sampling variation; show mean ROC + confidence bands.
-- **Confidence Intervals:** Compute analytic or bootstrap intervals for AUC and other metrics.
-- **Metric Sensitivity Heatmaps:** Visualize metric dependence on prevalence and threshold.
-
-### C. Visualization & Export
-- **Screenshot/SVG Export:** Save plots or entire app as images.
-- **Dynamic Legend & Tooltip System:** Hover for definitions or Wikipedia links.
-- **Dark Mode & Color-Blind Palettes:** Accessibility-friendly color themes.
-- **Interactive Layout Resizing:** Draggable panel dividers; persistent layout.
-
-### D. State Management & Sharing
-- **Scenario Library:** Maintain localStorage list of saved scenarios.
-- **Cloud Sync / Share Links:** Encode scenario JSON in URL for sharing.
-- **Versioned State Files:** Include version metadata for future compatibility.
-
-### E. Developer & Integration Features
-- **Metrics API:** Provide JSON output of all metrics for current threshold.
-- **Config Schema Validation:** Validate configuration/scenario JSON.
-- **Plugin Interface:** Allow teachers to define custom metric formulas.
-- **Batch Processing Mode:** Sweep over prevalence or parameter sets; export CSV.
-
-### F. Cognitive & Explanatory Aids
-- **Narrative Mode:** Stepwise guided explanation of ROC analysis concepts.
-- **Contextual Help System:** Inline tooltips with metric formulas and definitions.
-- **Quiz Mode:** In-app questions and exercises loaded from JSON packs.
-
-### Summary for Codex Implementation Checklist
-| Cluster | Key Goals |
-|----------|------------|
-| **Core Metrics** | Add new prevalence-independent/dependent metrics |
-| **Scenario Management** | Implement JSON save/load, local library, and share links |
-| **Visualization** | Threshold animation, comparison mode, export features |
-| **Analytics** | Expand distributions, add confidence intervals |
-| **UI Enhancements** | Tooltips, dark mode, resizable layout |
-| **Pedagogy** | Exercises, quizzes, guided narrative mode |
-| **Developer Hooks** | Metrics API, plugin support, schema validation |
+Planned features include:
+- Dataset export functions (simulate scores and outcomes)
+- Additional metrics (Cohen’s Kappa, Informedness)
+- Dual-scenario view for comparative teaching
+- Animation scripting using saved states as keyframes
+- Annotation layer with full formatting controls
+- JSON-based localization for multi-language use
 
 ---
 
-## Codex Implementation Checklist
+# Codex Implementation Checklist
+(unchanged from prior version)
 
 ### 1. Metrics Implementation
-**Prevalence-Independent Metrics:**  
-TPR, TNR, FPR, FNR, LR⁺, LR⁻, Youden’s J, Balanced Accuracy, Diagnostic Odds Ratio, MCC, AUC.
-
-**Prevalence-Dependent Metrics:**  
-PPV, NPV, Accuracy, Error Rate, F₁ Score.
-
-**Clarification Needed:**  
-Cohen’s Kappa, Markedness, Informedness, Prevalence-Weighted Balanced Accuracy, Post-Test Probabilities, Expected Cost/Utility, Bias Index, PABAK, Fβ.
+**Prevalence-Independent:** TPR, TNR, FPR, FNR, LR⁺, LR⁻, Youden’s J, Balanced Accuracy, Diagnostic Odds Ratio, MCC, AUC.
+**Prevalence-Dependent:** PPV, NPV, Accuracy, Error Rate, F₁ Score.
+**Clarification Needed:** Cohen’s Kappa, Markedness, Informedness, Expected Utility, Bias Index, PABAK, Fβ.
 
 ---
 
-### 2. State Management / Persistence
-- `getCurrentState()`: return JS object of current state.
-- `applyState(stateObj)`: update UI and recompute.
-- `resetState()`: restore to defaults.
-- **Save Scenario:** serialize state to JSON and trigger download.
-- **Load Scenario:** import JSON, validate schema, apply settings.
-- Add version key for backward compatibility.
+### 2. Analytical & Statistical Tools
+- Support new distributions: **Poisson**, **Triangular** (add without removing existing families like Normal, Beta, Gamma, Logistic, Log-Normal, etc.).
+- Fix Student’s T to include mean and SD parameters.
+- Fit distributions to data (parametric & nonparametric KDE).
+- Simulated dataset generation respecting prevalence & sample size.
+  - Export as CSV.
+  - **Stochastic sampling simulation for ROC variability:** repeatedly resample synthetic datasets from defined distributions to estimate variability and visualize ROC/AUC uncertainty as shaded bands or overlays.
+  - Compute confidence intervals for AUC and other metrics.
+- Generate heatmaps of metric sensitivity vs. prevalence and threshold.
 
 ---
 
-### 3. Scenario Library & Sharing
-- Implement localStorage-based list of named scenarios.
-- Add cloud-shareable URLs encoding JSON state.
-- Optionally support importing from shared link.
+### 3. State Management / Persistence
+- `getCurrentState()` returns JS object.
+- `applyState(stateObj)` updates UI.
+- `resetState()` restores defaults.
+- **Save Scenario:** serialize state as JSON.
+- **Load Scenario:** import and validate.
+- Include version key for backward compatibility.
 
 ---
 
-### 4. Visualization Features
-- Threshold sweep animation with adjustable speed.
+### 4. Unified Annotations & Configuration–State Separation
+- Implement draggable, resizable text box annotations with formatting controls.
+- Store annotation data (content, position, size, style) in state JSON.
+- Exclude configuration data (strings, features, distributions) from state.
+- Validate and substitute missing config entries on load.
+- Ensure consistent rendering in static and animated modes.
+
+---
+
+### 5. Visualization & Export
 - Interactive metric trace plots (metric vs threshold).
-- Dual-scenario comparison view (split or overlay).
+- Dual-scenario comparison view.
 - Export plots as PNG/SVG.
 - Tooltip popups for metrics and parameters.
-- Theme toggle (light/dark/color-blind).
-
----
-
-### 5. Analytical & Statistical Tools
-- Support new distributions: Weibull, Exponential, Gamma, Logistic, Triangular, etc.
-- Nonparametric mode: KDE-based empirical CDF/PDF.
-- Stochastic sampling simulation for ROC variability.
-- Confidence intervals for AUC and other metrics.
-- Heatmaps of metric sensitivity vs. prevalence and threshold.
+  - Hover text defines metrics and parameters, styled consistently.
+- Presentation themes (light/dark/color-blind).
+- Screenshot/SVG export of plots or entire app.
 
 ---
 
 ### 6. Pedagogical & Interactive Tools
-- Exercise mode: teacher-defined tasks and goals.
-- Quiz mode: load question packs from JSON.
-- Narrative mode: step-by-step guided explanation.
+- Exercise mode (teacher tasks).
+- Quiz mode (JSON question packs).
+- Narrative mode (guided manual walkthrough distinct from animation).
 - Side-by-side scenario comparison for teaching.
 
 ---
 
 ### 7. Developer Integrations
-- Metrics API returning JSON of current results.
-- Config and scenario schema validation.
-- Plugin interface for custom metric formulas.
-- Batch processing mode for parameter/prevalence sweeps.
+- Metrics API returning JSON.
+- Config/schema validation.
+- Plugin API for custom metrics.
+- Batch mode for parameter sweeps.
+- Versioned scenario files.
 
 ---
 
 ### 8. UI Enhancements
 - Resizable panels and persistent layout.
-- Improved legends and live tooltips.
-- Inline help links to references (e.g., Wikipedia, papers).
+- Improved legends and tooltips.
+- Inline reference links.
+- Contextual metric help.
+- Accessibility: color-blind & high-contrast modes.
 
 ---
 
 ### 9. Testing & Documentation
-- Unit tests for all metric calculations.
-- Validation for JSON import/export consistency.
-- Performance profiling for heavy sampling modes.
-- Comprehensive user and developer documentation updates.
+- Unit tests for metrics.
+- JSON import/export validation.
+- Performance profiling.
+- Updated documentation.
+
+---
+
+### 10. Unified State-Based Animation System
+- Use the existing state object for frames.
+- Append current state to animation JSON.
+- Interpolate sequential playback.
+- Default/optional durations.
+- Text updates discretely between frames.
+- Backward compatible with single-state saves.
+- Export JSON or WebM/GIF playback.
+- Parameter sweep animation (means, variances, weights).
+- Targeted ROC Set Generator.
+- Unified Animation Configuration & Recording System.
 
 ---
 
 ## Credits
+- Built with **D3.js** and **jStat**.
+- Designed for **interactive teaching of statistical concepts**.
+- Configuration-driven for easy classroom adaptation.
+# Continuous ROC Explorer — User Guide
 
+## Overview
+The **Continuous ROC Explorer** is an interactive, browser-based tool designed for teaching and exploring Receiver Operating Characteristic (ROC) curves and performance metrics. It allows instructors and students to visualize how the shape of score distributions, thresholds, and prevalence affect diagnostic test performance.
+
+This guide describes how to use and customize the app, how to integrate it into lectures, and how to extend its features using Codex.
+
+---
+
+## Getting Started
+1. Open `continuous_ROC.html` in a modern browser (Chrome, Edge, Firefox).
+2. Adjust positive and negative score distributions using sliders or numeric input boxes.
+3. Move the threshold slider to observe changes in the confusion matrix, ROC curve, and calculated metrics.
+4. Adjust prevalence to visualize how population composition affects predictive values.
+
+---
+
+## Teacher Customization
+Teachers can modify the app using the configuration file `continuous_ROC_config.js`. Customizable elements include:
+- Default distributions and parameters.
+- Displayed metrics (add or remove columns in the metrics tables).
+- Plot colors, fonts, and background themes.
+- Language, labels, and tooltips.
+- Ranges and step sizes for sliders.
+
+To modify these:
+1. Open `continuous_ROC_config.js` in a text editor.
+2. Edit the configuration variables (each has inline comments for guidance).
+3. Save the file and refresh the HTML app to see the changes.
+
+---
+
+## Figures and Layout Reference
+Annotated figures (stored in `images/`) show the layout of the app’s components:
+- Score distribution plots
+- Threshold marker and shaded areas
+- ROC curve plot
+- Prevalence-dependent metrics table
+- Prevalence-independent metrics table
+- Controls and sliders
+
+Each numbered element is described in a legend to help teachers identify where to customize features or refer to them in lessons.
+
+---
+
+## Metrics Reference
+### Prevalence-Independent Metrics
+- **True Positive Rate (TPR/Sensitivity/Recall)**
+- **True Negative Rate (TNR/Specificity)**
+- **False Positive Rate (FPR)**
+- **False Negative Rate (FNR)**
+- **Likelihood Ratios (LR⁺, LR⁻)**
+- **Youden’s J**, **Balanced Accuracy**, **Diagnostic Odds Ratio**, **Matthews Correlation Coefficient (MCC)**, **AUC**
+
+### Prevalence-Dependent Metrics
+- **Positive Predictive Value (PPV)**, **Negative Predictive Value (NPV)**, **Accuracy**, **Error Rate**, **F₁ Score**
+
+### Ambiguous or Context-Dependent Metrics
+Require clarification before implementation:
+- **Cohen’s Kappa**, **Markedness**, **Informedness**, **Expected Utility**, **Bias Index**, **PABAK**, **Fβ Variants**
+
+---
+
+## 🧩 Unified Annotations in App State & Configuration–State Separation
+Annotations (draggable, styled text boxes) are saved as part of the **state** rather than the configuration. This allows animations and saved scenarios to be replayed under alternate configurations — e.g., translated text or different color themes.
+
+Example state structure:
+```json
+{
+  "positives": { "distribution": "beta", "parameters": {"a": 3, "b": 2} },
+  "negatives": { "distribution": "beta", "parameters": {"a": 2, "b": 3} },
+  "threshold": 0.45,
+  "prevalence": 0.2,
+  "annotations": [
+    { "id": "note_1", "content": "Overlap between classes reduces AUC", "x": 0.63, "y": 0.28 }
+  ]
+}
+```
+
+Annotations persist through state save/load, but the configuration file defines the environment (UI text, colors, feature toggles). This design enables **portability**, **localization**, and **reusability**.
+
+---
+
+## 🧑‍🏫 Teacher Workflow Summary: Creating and Exporting Animations
+
+### Step 1 — Configure the Starting State
+- Adjust distributions, threshold, prevalence.
+- Add annotations.
+- Save the state as the first keyframe.
+
+### Step 2 — Define Subsequent States
+- Modify parameters for each teaching moment.
+- Add or adjust annotations.
+- Save each as a new frame.
+
+### Step 3 — Preview the Animation
+- Open the animation panel.
+- Interpolate between states; review transitions.
+- Adjust playback speed and looping.
+
+### Step 4 — Export Options
+| Format | Description | Recommended Use |
+|---------|--------------|-----------------|
+| **WebM** | Smooth video | PowerPoint, Keynote |
+| **GIF** | Looping animation | Slides, LMS uploads |
+| **APNG** | Transparent animation | Web or docs |
+| **JSON** | Scenario sequence | Reproducible scripts |
+
+### Step 5 — Reuse and Share
+States and animations are portable; replay them under any compatible config.
+
+### Step 6 — Optional Manual Editing
+Edit animation JSONs directly to reorder, adjust timing, or translate annotations.
+
+---
+
+# Codex Implementation Checklist
+
+### 1. Metrics Implementation
+**Prevalence-Independent:** TPR, TNR, FPR, FNR, LR⁺, LR⁻, Youden’s J, Balanced Accuracy, Diagnostic Odds Ratio, MCC, AUC.
+**Prevalence-Dependent:** PPV, NPV, Accuracy, Error Rate, F₁ Score.
+**Clarification Needed:** Cohen’s Kappa, Markedness, Informedness, Expected Utility, Bias Index, PABAK, Fβ.
+
+---
+
+### 2. Analytical & Statistical Tools
+- Support new distributions: **Poisson**, **Triangular** (add without removing existing families like Normal, Beta, Gamma, Logistic, Log-Normal, etc.).
+- Fix Student’s T to include mean and SD parameters.
+- Fit distributions to data (parametric & nonparametric KDE).
+- Simulated dataset generation respecting prevalence & sample size.
+  - Export as CSV.
+  - **Stochastic sampling simulation for ROC variability:** repeatedly resample synthetic datasets from defined distributions to estimate variability and visualize ROC/AUC uncertainty as shaded bands or overlays.
+  - Compute confidence intervals for AUC and other metrics.
+- Generate heatmaps of metric sensitivity vs. prevalence and threshold.
+
+---
+
+### 3. State Management / Persistence
+- `getCurrentState()` returns JS object.
+- `applyState(stateObj)` updates UI.
+- `resetState()` restores defaults.
+- **Save Scenario:** serialize state as JSON.
+- **Load Scenario:** import and validate.
+- Include version key for backward compatibility.
+
+---
+
+### 4. Unified Annotations & Configuration–State Separation
+- Implement draggable, resizable text box annotations with formatting controls.
+- Store annotation data (content, position, size, style) in state JSON.
+- Exclude configuration data (strings, features, distributions) from state.
+- Validate and substitute missing config entries on load.
+- Ensure consistent rendering in static and animated modes.
+
+---
+
+### 5. Visualization & Export
+- Interactive metric trace plots (metric vs threshold).
+- Dual-scenario comparison view.
+- Export plots as PNG/SVG.
+- Tooltip popups for metrics and parameters.
+  - Hover text defines metrics and parameters, styled consistently.
+- Presentation themes (light/dark/color-blind).
+- Screenshot/SVG export of plots or entire app.
+
+---
+
+### 6. Pedagogical & Interactive Tools
+- Exercise mode (teacher tasks).
+- Quiz mode (JSON question packs).
+- Narrative mode (guided manual walkthrough distinct from animation).
+- Side-by-side scenario comparison for teaching.
+
+---
+
+### 7. Developer Integrations
+- Metrics API returning JSON.
+- Config/schema validation.
+- Plugin API for custom metrics.
+- Batch mode for parameter sweeps.
+- Versioned scenario files.
+
+---
+
+### 8. UI Enhancements
+- Resizable panels and persistent layout.
+- Improved legends and tooltips.
+- Inline reference links.
+- Contextual metric help.
+- Accessibility: color-blind & high-contrast modes.
+
+---
+
+### 9. Testing & Documentation
+- Unit tests for metrics.
+- JSON import/export validation.
+- Performance profiling.
+- Updated documentation.
+
+---
+
+### 10. Unified State-Based Animation System
+- Use the existing state object for frames.
+- Append current state to animation JSON.
+- Interpolate sequential playback.
+- Default/optional durations.
+- Text updates discretely between frames.
+- Backward compatible with single-state saves.
+- Export JSON or WebM/GIF playback.
+- Parameter sweep animation (means, variances, weights).
+- Targeted ROC Set Generator.
+- Unified Animation Configuration & Recording System.
+
+---
+
+## Credits
 - Built with **D3.js** and **jStat**.
 - Designed for **interactive teaching of statistical concepts**.
 - Configuration-driven for easy classroom adaptation.
