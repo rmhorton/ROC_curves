@@ -14,44 +14,90 @@
 </style>
 </head>
 <body>
-<h1>Costs and Benefits</h1>
+<h1 id="appTitle">Costs and Benefits</h1>
 <div class="container">
   <div>
-    <label>Reference model
+    <label id="dropdownLabel"><span id="dropdownLabelText">Reference model</span>
       <select id="rocSelect"></select>
     </label>
-    <div style="margin-top:12px; display:flex; flex-direction:column; gap:6px;">
-      <label>Import ROC Data
+    <div id="importControls" style="margin-top:12px; display:flex; flex-direction:column; gap:6px;">
+      <label><span id="importLabelText">Import ROC Data</span>
         <input type="file" id="rocFileInput" accept=".csv,.json,application/json,text/csv">
       </label>
       <button type="button" id="downloadCurveBtn">Download Selected Curve JSON</button>
     </div>
-    <div id="sliders"></div>
+    <div id="slidersSection">
+      <div id="sliders"></div>
+    </div>
     <div id="bestUtility" style="margin-top:1em;font-weight:bold;"></div>
   </div>
-  <div style="position:relative;">
+  <div id="rocPlotContainer" style="position:relative;">
     <canvas id="canvas" width="600" height="600"></canvas>
     <div id="tooltip" class="tooltip" style="display:none;"></div>
   </div>
 </div>
+<div id="thresholdSection" style="margin-top:20px;">
+  <h2 id="thresholdTitle">Payoff vs Threshold</h2>
+  <canvas id="thresholdCanvas" width="800" height="320" style="border:1px solid #999; border-radius:6px;"></canvas>
+</div>
 <script>
-let rocCurves = {};
-
-// --- Slider configuration data structure ---
-const sliderConfig = {
-  P_POS: {label: "Proportion positive", min: 0.01, max: 0.99, step: 0.01, value: 0.5},
-  TP:    {label: "Value of true positive", min: -100, max: 100, step: 1, value: 50},
-  FP:    {label: "Value of false positive", min: -100, max: 100, step: 1, value: -70},
-  TN:    {label: "Value of true negative", min: -100, max: 100, step: 1, value: 0},
-  FN:    {label: "Value of false negative", min: -100, max: 100, step: 1, value: 0}
+const defaultConfig = {
+  strings: {
+    pageTitle: "ROC Utility",
+    appTitle: "Costs and Benefits",
+    dropdownLabel: "Reference model",
+    importLabel: "Import ROC Data",
+    downloadButton: "Download Selected Curve JSON",
+    thresholdTitle: "Payoff vs Threshold",
+    bestUtilityPrefix: "Best utility = ",
+    bestUtilityUnavailable: "Best utility = —",
+    noThresholdData: "No threshold data available for payoff plot.",
+    axisThreshold: "Threshold",
+    axisUtility: "Expected Utility",
+    legendSelectedSuffix: " (selected)",
+    legendDerivedSuffix: " (derived thresholds)",
+    variantLabelFormat: "{original} ({source})",
+    variantSourceFallback: "variant",
+    tooltipFormat: "FPR: {fpr}, TPR: {tpr}, U: {utility}",
+    alerts: {
+      noCurvesFound: "No ROC curves found in the selected file.",
+      failImport: "Failed to import ROC data: {message}",
+      failRead: "Unable to read the selected file.",
+      noCurveSelectedDownload: "No ROC curve selected to download.",
+      failStaticLoad: "Failed to load static ROC file \"{path}\": {message}",
+      failConfigLoad: "Failed to load configuration: {message}"
+    }
+  },
+  ui: {
+    showRocPlot: true,
+    showThresholdPlot: true,
+    showSliders: true,
+    showImport: true,
+    showDownloadButton: true,
+    showBestUtility: true
+  },
+  sliders: {
+    P_POS: {label: "Proportion positive", min: 0.01, max: 0.99, step: 0.01, value: 0.5},
+    TP:    {label: "Value of true positive", min: -100, max: 100, step: 1, value: 50},
+    FP:    {label: "Value of false positive", min: -100, max: 100, step: 1, value: -70},
+    TN:    {label: "Value of true negative", min: -100, max: 100, step: 1, value: 0},
+    FN:    {label: "Value of false negative", min: -100, max: 100, step: 1, value: 0}
+  },
+  data: {
+    staticFiles: [
+      'roc_data/roadmap_logistic.csv',
+      'roc_data/random_forest_baseline.csv',
+      'roc_data/logistic_baseline.csv',
+      'roc_data/bayesian_model_baseline.csv',
+      'roc_data/roadmap_logistic.json',
+      'roc_data/random_forest_baseline.json',
+      'roc_data/logistic_baseline.json',
+      'roc_data/bayesian_model_baseline.json'
+    ]
+  }
 };
 
-const STATIC_ROC_FILES = [
-  {path: 'roc_data/roadmap_logistic.csv'},
-  {path: 'roc_data/random_forest_baseline.csv'},
-  {path: 'roc_data/logistic_baseline.csv'},
-  {path: 'roc_data/bayesian_model_baseline.csv'}
-];
+const STATIC_DATA_FILES = [...defaultConfig.data.staticFiles];
 
 const HARDCODED_FALLBACK_CURVES = {
   random_forest_baseline: {
@@ -79,14 +125,157 @@ const HARDCODED_FALLBACK_CURVES = {
   }
 };
 
+let rocCurves = {};
+let appConfig = cloneDeep(defaultConfig);
+let strings = appConfig.strings;
+let uiSettings = appConfig.ui;
+
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const thresholdCanvas = document.getElementById('thresholdCanvas');
+const thresholdCtx = thresholdCanvas ? thresholdCanvas.getContext('2d') : null;
+const tooltip = document.getElementById('tooltip');
+const rocSelect = document.getElementById('rocSelect');
+const slidersDiv = document.getElementById('sliders');
+const rocFileInput = document.getElementById('rocFileInput');
+const downloadCurveBtn = document.getElementById('downloadCurveBtn');
+const bestUtilityDiv = document.getElementById('bestUtility');
+const appTitleEl = document.getElementById('appTitle');
+const dropdownLabelText = document.getElementById('dropdownLabelText');
+const importControls = document.getElementById('importControls');
+const importLabelText = document.getElementById('importLabelText');
+const slidersSection = document.getElementById('slidersSection');
+const rocPlotContainer = document.getElementById('rocPlotContainer');
+const thresholdSection = document.getElementById('thresholdSection');
+const thresholdTitleEl = document.getElementById('thresholdTitle');
+
+const values = {};
+
+const POPULATION_SIZE = 1000;
+
+function cloneDeep(obj){
+  return JSON.parse(JSON.stringify(obj));
+}
+
+function mergeDeep(target, source){
+  if(!source || typeof source !== 'object') return target;
+  Object.keys(source).forEach(key=>{
+    const sourceValue = source[key];
+    if(Array.isArray(sourceValue)){
+      target[key] = sourceValue.slice();
+    }else if(sourceValue && typeof sourceValue === 'object'){
+      if(!target[key] || typeof target[key] !== 'object'){
+        target[key] = {};
+      }
+      mergeDeep(target[key], sourceValue);
+    }else{
+      target[key] = sourceValue;
+    }
+  });
+  return target;
+}
+
+function formatString(template, replacements = {}){
+  if(!template || typeof template !== 'string') return '';
+  return template.replace(/\{([^}]+)\}/g, (_, key)=>{
+    const value = key in replacements ? replacements[key] : '';
+    return value === undefined || value === null ? '' : String(value);
+  });
+}
+
+function updateConfigReferences(){
+  strings = appConfig && appConfig.strings ? appConfig.strings : defaultConfig.strings;
+  uiSettings = appConfig && appConfig.ui ? appConfig.ui : defaultConfig.ui;
+}
+
+updateConfigReferences();
+
+function getAlertTemplate(key){
+  const primary = (strings && strings.alerts) ? strings.alerts : {};
+  const fallback = (defaultConfig.strings && defaultConfig.strings.alerts) ? defaultConfig.strings.alerts : {};
+  return primary[key] || fallback[key] || key;
+}
+
+function alertFromConfig(key, params = {}){
+  const template = getAlertTemplate(key);
+  alert(formatString(template, params));
+}
+
+function warnFromConfig(key, params = {}){
+  const template = getAlertTemplate(key);
+  console.warn(formatString(template, params));
+}
+
+function applyConfigToUI(){
+  if(strings.pageTitle || strings.appTitle){
+    document.title = strings.pageTitle || strings.appTitle;
+  }
+  if(appTitleEl) appTitleEl.textContent = strings.appTitle || defaultConfig.strings.appTitle;
+  if(dropdownLabelText) dropdownLabelText.textContent = strings.dropdownLabel || defaultConfig.strings.dropdownLabel;
+  if(importLabelText) importLabelText.textContent = strings.importLabel || defaultConfig.strings.importLabel;
+  if(downloadCurveBtn) downloadCurveBtn.textContent = strings.downloadButton || defaultConfig.strings.downloadButton;
+  if(thresholdTitleEl) thresholdTitleEl.textContent = strings.thresholdTitle || defaultConfig.strings.thresholdTitle;
+  if(importControls) importControls.style.display = isImportVisible() ? 'flex' : 'none';
+  if(downloadCurveBtn) downloadCurveBtn.style.display = isDownloadVisible() ? 'inline-block' : 'none';
+  if(slidersSection) slidersSection.style.display = isSlidersVisible() ? 'block' : 'none';
+  if(rocPlotContainer) rocPlotContainer.style.display = isRocPlotVisible() ? 'block' : 'none';
+  if(thresholdSection) thresholdSection.style.display = isThresholdPlotVisible() ? 'block' : 'none';
+  if(bestUtilityDiv){
+    if(isBestUtilityVisible()){
+      bestUtilityDiv.style.display = '';
+      if(!bestUtilityDiv.textContent){
+        bestUtilityDiv.textContent = strings.bestUtilityUnavailable || defaultConfig.strings.bestUtilityUnavailable;
+      }
+    }else{
+      bestUtilityDiv.style.display = 'none';
+      bestUtilityDiv.textContent = '';
+    }
+  }
+}
+
+async function loadAppConfig(){
+  let fetchedConfig = null;
+  try{
+    const response = await fetch('roc_config.json');
+    if(!response.ok) throw new Error(`HTTP ${response.status}`);
+    fetchedConfig = await response.json();
+  }catch(err){
+    warnFromConfig('failConfigLoad', {message: err.message || err});
+  }
+  appConfig = cloneDeep(defaultConfig);
+  if(fetchedConfig){
+    mergeDeep(appConfig, fetchedConfig);
+  }
+  updateConfigReferences();
+  applyConfigToUI();
+  buildSliders();
+}
+
+function isRocPlotVisible(){ return !(uiSettings && uiSettings.showRocPlot === false); }
+function isThresholdPlotVisible(){ return !(uiSettings && uiSettings.showThresholdPlot === false); }
+function isSlidersVisible(){ return !(uiSettings && uiSettings.showSliders === false); }
+function isImportVisible(){ return !(uiSettings && uiSettings.showImport === false); }
+function isDownloadVisible(){ return !(uiSettings && uiSettings.showDownloadButton === false); }
+function isBestUtilityVisible(){ return !(uiSettings && uiSettings.showBestUtility === false); }
+
+function resolveVariantLabel(curveId, meta){
+  if(!meta || !meta.original_curve_id || meta.original_curve_id === curveId) return curveId;
+  const format = strings.variantLabelFormat || "{original} ({source})";
+  const sourceLabel = meta.loaded_via || meta.source || strings.variantSourceFallback || defaultConfig.strings.variantSourceFallback;
+  return formatString(format, {original: meta.original_curve_id, source: sourceLabel});
+}
+
 function loadROCData(data, preferredSelection) {
   const previousSelection = preferredSelection || rocSelect.value;
   rocCurves = data;
   rocSelect.innerHTML = '';
-  Object.keys(rocCurves).forEach(k => {
+  const curveNames = Object.keys(rocCurves).sort((a,b)=>a.localeCompare(b));
+  curveNames.forEach(k => {
     const opt = document.createElement('option');
     opt.value = k;
-    opt.textContent = k;
+    const curve = rocCurves[k];
+    const meta = curve && curve.metadata;
+    opt.textContent = resolveVariantLabel(k, meta);
     rocSelect.appendChild(opt);
   });
   if (previousSelection && rocCurves[previousSelection]) {
@@ -94,43 +283,100 @@ function loadROCData(data, preferredSelection) {
   } else if (rocSelect.options.length) {
     rocSelect.selectedIndex = 0;
   }
-  draw();
+  drawAll();
 }
 
-const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d');
-const tooltip = document.getElementById('tooltip');
-const rocSelect = document.getElementById('rocSelect');
-const slidersDiv = document.getElementById('sliders');
-const rocFileInput = document.getElementById('rocFileInput');
-const downloadCurveBtn = document.getElementById('downloadCurveBtn');
-const bestUtilityDiv = document.getElementById('bestUtility');
-
-const values = {};
-
-// --- Dynamically create sliders based on sliderConfig ---
-for (const key in sliderConfig) {
-  const cfg = sliderConfig[key];
-  values[key] = cfg.value;
-  const label = document.createElement('label');
-  label.innerHTML = `${cfg.label}: <span id="${key}Val">${cfg.value}</span>`;
-  const range = document.createElement('input');
-  range.type = 'range';
-  range.min = cfg.min;
-  range.max = cfg.max;
-  range.step = cfg.step;
-  range.value = cfg.value;
-  range.id = key;
-  range.oninput = () => {
-    values[key] = +range.value;
-    document.getElementById(key + 'Val').textContent = range.value;
-    draw();
+function getPayoffParams(){
+  return {
+    P_POS: values.P_POS,
+    TP: values.TP,
+    FP: values.FP,
+    TN: values.TN,
+    FN: values.FN
   };
-  label.appendChild(range);
-  slidersDiv.appendChild(label);
 }
 
-rocSelect.onchange = () => draw();
+function utilityAtRates(fpr,tpr,payoffs){
+  if(!Number.isFinite(fpr) || !Number.isFinite(tpr)) return NaN;
+  const {P_POS, TP, FP, TN, FN} = payoffs;
+  const N = POPULATION_SIZE;
+  const ap = N * P_POS;
+  const an = N * (1 - P_POS);
+  const tp = tpr * ap;
+  const fn = (1 - tpr) * ap;
+  const fp = fpr * an;
+  const tn = an - fp;
+  return FP * fp + TN * tn + TP * tp + FN * fn;
+}
+
+function getIsoCoefficients(payoffs){
+  const {P_POS, TP, FP, TN, FN} = payoffs;
+  const N = POPULATION_SIZE;
+  const ap = N * P_POS;
+  const an = N * (1 - P_POS);
+  return {
+    a: TN * an + FN * ap,
+    b: FP * an - TN * an,
+    c: TP * ap - FN * ap
+  };
+}
+
+function getCurveColor(index,total){
+  const hue = (index * 360 / Math.max(total, 1)) % 360;
+  return `hsl(${hue},70%,45%)`;
+}
+
+function buildSliders(){
+  const sliderDefs = (appConfig && appConfig.sliders && Object.keys(appConfig.sliders).length)
+    ? appConfig.sliders
+    : defaultConfig.sliders;
+  Object.keys(values).forEach(existingKey=>{
+    if(!Object.prototype.hasOwnProperty.call(sliderDefs, existingKey)){
+      delete values[existingKey];
+    }
+  });
+  const sliderKeys = Object.keys(sliderDefs);
+  sliderKeys.forEach(key=>{
+    const cfg = sliderDefs[key] || {};
+    const numericValue = Number(cfg.value);
+    values[key] = Number.isFinite(numericValue) ? numericValue : 0;
+  });
+  if(!isSlidersVisible()){
+    slidersDiv.innerHTML = '';
+    return;
+  }
+  slidersDiv.innerHTML = '';
+  sliderKeys.forEach(key=>{
+    const cfg = sliderDefs[key] || {};
+    const label = document.createElement('label');
+    label.setAttribute('for', key);
+    const textSpan = document.createElement('span');
+    textSpan.textContent = cfg.label || key;
+    const separator = document.createTextNode(': ');
+    const valueSpan = document.createElement('span');
+    valueSpan.id = `${key}Val`;
+    valueSpan.textContent = values[key];
+    const range = document.createElement('input');
+    range.type = 'range';
+    range.min = cfg.min ?? 0;
+    range.max = cfg.max ?? 1;
+    range.step = cfg.step ?? 0.01;
+    range.value = values[key];
+    range.id = key;
+    range.oninput = () => {
+      values[key] = +range.value;
+      valueSpan.textContent = range.value;
+      drawAll();
+    };
+    label.appendChild(textSpan);
+    label.appendChild(separator);
+    label.appendChild(valueSpan);
+    label.appendChild(range);
+    slidersDiv.appendChild(label);
+  });
+}
+
+rocSelect.onchange = () => drawAll();
 rocFileInput.addEventListener('change', handleDataFileSelection);
 downloadCurveBtn.addEventListener('click', downloadSelectedCurveAsJson);
 
@@ -143,49 +389,29 @@ function handleDataFileSelection(evt){
     try{
       const text=reader.result;
       const ext=(file.name.split('.').pop()||'').toLowerCase();
-      const parsers=ext==='json'?['json','csv']:ext==='csv'?['csv','json']:['json','csv'];
-      let parsed=null;
-      let parserUsed=null;
-      for(const parser of parsers){
-        try{
-          if(parser==='json'){
-            const raw=JSON.parse(text);
-            parsed=normalizeRocJson(raw);
-          }else{
-            parsed=parseRocCsv(text);
-          }
-          parserUsed=parser;
-          break;
-        }catch(err){
-          parsed=null;
-          parserUsed=null;
-          continue;
-        }
-      }
+      const {data:parsed, sourceType}=parseRocDataFromText(text, ext);
       if(!parsed || !Object.keys(parsed).length){
-        throw new Error('No ROC curves found in the selected file.');
+        alertFromConfig('noCurvesFound');
+        return;
       }
-      const sourceType=parserUsed==='json'?'json':'csv';
       const mergedMetadataKey=file.name || (sourceType==='json'?'import.json':'import.csv');
-      Object.keys(parsed).forEach(id=>{
-        const curve=parsed[id];
-        const metadata={...(curve.metadata||{})};
-        metadata.source=metadata.source||sourceType;
-        metadata.source_file=metadata.source_file||mergedMetadataKey;
-        curve.metadata=metadata;
-      });
-      const merged={...rocCurves,...parsed};
-      loadROCData(merged,Object.keys(parsed)[0]);
+      const merged={...rocCurves};
+      const addedIds=addCurvesToCollection(merged, parsed, {sourceType, sourceFile: mergedMetadataKey});
+      if(!addedIds.length){
+        alertFromConfig('noCurvesFound');
+        return;
+      }
+      loadROCData(merged,addedIds[0]);
     }catch(err){
       console.error(err);
-      alert(`Failed to import ROC data: ${err.message}`);
+      alertFromConfig('failImport', {message: err.message});
     }finally{
       inputEl.value='';
     }
   };
   reader.onerror=()=>{
     console.error(reader.error);
-    alert('Unable to read the selected file.');
+    alertFromConfig('failRead', {message: reader.error ? reader.error.message : ''});
     inputEl.value='';
   };
   reader.readAsText(file);
@@ -194,7 +420,7 @@ function handleDataFileSelection(evt){
 function downloadSelectedCurveAsJson(){
   const curveName=rocSelect.value;
   if(!curveName || !rocCurves[curveName]){
-    alert('No ROC curve selected to download.');
+    alertFromConfig('noCurveSelectedDownload');
     return;
   }
   const curve=rocCurves[curveName];
@@ -209,32 +435,120 @@ function downloadSelectedCurveAsJson(){
   setTimeout(()=>{document.body.removeChild(link);URL.revokeObjectURL(url);},0);
 }
 
+function drawAll(){
+  if(isRocPlotVisible()){
+    drawRocPlot();
+  }else{
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+  }
+  if(isThresholdPlotVisible()){
+    drawThresholdPlot();
+  }else if(thresholdCtx){
+    thresholdCtx.clearRect(0,0,thresholdCanvas.width,thresholdCanvas.height);
+  }
+}
+
+function parseRocDataFromText(text, extHint){
+  const normalizedExt = (extHint || '').toLowerCase();
+  const parserOrder = normalizedExt==='json'
+    ? ['json','csv']
+    : normalizedExt==='csv'
+      ? ['csv','json']
+      : ['json','csv'];
+  let lastError=null;
+  for(const parser of parserOrder){
+    try{
+      if(parser==='json'){
+        const raw=JSON.parse(text);
+        const parsed=normalizeRocJson(raw);
+        if(parsed && Object.keys(parsed).length){
+          return {data:parsed, sourceType:'json'};
+        }
+      }else if(parser==='csv'){
+        const parsed=parseRocCsv(text);
+        if(parsed && Object.keys(parsed).length){
+          return {data:parsed, sourceType:'csv'};
+        }
+      }
+    }catch(err){
+      lastError=err;
+    }
+  }
+  if(lastError) throw lastError;
+  throw new Error(getAlertTemplate('noCurvesFound'));
+}
+
+function slugifyLabel(value){
+  return String(value||'curve').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'')||'curve';
+}
+
+function addCurvesToCollection(target, parsed, {sourceType, sourceFile} = {}){
+  const addedIds=[];
+  if(!parsed || typeof parsed!=='object') return addedIds;
+  const suffixRoot=slugifyLabel(sourceFile ? sourceFile.split('/').pop().replace(/\.[^.]+$/,'') : '');
+  Object.keys(parsed).forEach(originalId=>{
+    const baseCurve=parsed[originalId];
+    if(!baseCurve) return;
+    const curve={...baseCurve};
+    const metadata={...(curve.metadata||{})};
+    if(sourceType){
+      metadata.loaded_via=sourceType;
+      if(!metadata.source) metadata.source=sourceType;
+    }
+    if(sourceFile){
+      metadata.source_file=sourceFile;
+      metadata.loaded_file=sourceFile;
+    }
+    if(originalId && metadata.original_curve_id===undefined) metadata.original_curve_id=originalId;
+    let baseId=curve.name || originalId || (suffixRoot || 'curve');
+    baseId=String(baseId);
+    let finalId=baseId;
+    if(target[finalId]){
+      const baseSlug=slugifyLabel(baseId);
+      const suffixBaseRaw = (suffixRoot && suffixRoot !== baseSlug) ? suffixRoot : (sourceType ? slugifyLabel(sourceType) : 'alt');
+      const suffixBase = suffixBaseRaw || 'alt';
+      let candidate=`${baseId}__${suffixBase}`;
+      let counter=2;
+      while(target[candidate]){
+        candidate=`${baseId}__${suffixBase}_${counter}`;
+        counter++;
+      }
+      finalId=candidate;
+    }
+    curve.name=finalId;
+    curve.metadata=metadata;
+    target[finalId]=curve;
+    addedIds.push(finalId);
+  });
+  return addedIds;
+}
+
 async function loadStaticRocFiles(){
-  const aggregated={};
   let preferredSelection=null;
   let loadedAny=false;
-  for(const entry of STATIC_ROC_FILES){
+  const merged={...rocCurves};
+  const fileList = (appConfig && appConfig.data && Array.isArray(appConfig.data.staticFiles) && appConfig.data.staticFiles.length)
+    ? appConfig.data.staticFiles
+    : STATIC_DATA_FILES;
+  for(const filePath of fileList){
+    if(typeof filePath!=='string' || !filePath.trim()) continue;
+    const trimmedPath=filePath.trim();
     try{
-      const response=await fetch(entry.path);
+      const response=await fetch(trimmedPath);
       if(!response.ok) throw new Error(`HTTP ${response.status}`);
       const text=await response.text();
-      const parsed=parseRocCsv(text);
-      Object.keys(parsed).forEach(curveId=>{
-        const curve=parsed[curveId];
-        const metadata={...(curve.metadata||{})};
-        if(!metadata.source) metadata.source='csv';
-        metadata.source_file=entry.path;
-        curve.metadata=metadata;
-        aggregated[curveId]=curve;
-        if(!preferredSelection) preferredSelection=curveId;
-      });
-      loadedAny=true;
+      const {data:parsed, sourceType}=parseRocDataFromText(text, trimmedPath.split('.').pop());
+      const addedIds=addCurvesToCollection(merged, parsed, {sourceType, sourceFile: trimmedPath});
+      if(addedIds.length){
+        loadedAny=true;
+        if(!preferredSelection) preferredSelection=addedIds[0];
+      }
     }catch(err){
-      console.warn(`Failed to load static ROC file "${entry.path}":`, err);
+      console.error(err);
+      warnFromConfig('failStaticLoad', {path: trimmedPath, message: err.message || err});
     }
   }
   if(loadedAny){
-    const merged={...rocCurves,...aggregated};
     loadROCData(merged,preferredSelection);
   }
   return loadedAny;
@@ -564,9 +878,15 @@ function toNumber(value){
 function hslToRgb(h,s,l){const a=s*Math.min(l,1-l);const f=n=>{const k=(n+h*12)%12;const color=l-a*Math.max(Math.min(k-3,9-k,1),-1);return Math.round(255*color);};return [f(0),f(8),f(4)];}
 function heatColor(s){const h=240-240*s;const [r,g,b]=hslToRgb(h/360,0.6,0.85);return [r,g,b];}
 
-function draw(){
+function drawRocPlot(){
   const rocName=rocSelect.value;
-  if(!rocName || !rocCurves[rocName]) return;
+  if(!rocName || !rocCurves[rocName]){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    if(bestUtilityDiv && isBestUtilityVisible()){
+      bestUtilityDiv.textContent = strings.bestUtilityUnavailable || defaultConfig.strings.bestUtilityUnavailable;
+    }
+    return;
+  }
   const roc=rocCurves[rocName];
   const fpr=roc.fpr, tpr=roc.tpr;
   let lower=roc.tpr_lower, upper=roc.tpr_upper;
@@ -582,8 +902,8 @@ function draw(){
       if(!upper) upper=fallback.upper;
     }
   }
-  const pPos=values.P_POS;
-  const N=1000;const {TP,FP,TN,FN}=values;
+  const payoffs=getPayoffParams();
+  const {P_POS: pPos, TP, FP, TN, FN} = payoffs;
   const width=canvas.width, height=canvas.height;
 
   const margin=0.05; const labelOffsetFactor = 0.6; const labelOffset = labelOffsetFactor * margin;
@@ -591,15 +911,23 @@ function draw(){
   const xScale=(xf)=>x0+xf*plotW; const yScale=(yt)=>y0+(1-yt)*plotH;
   const clamp01=(v)=>Math.max(0,Math.min(1,v));
 
-  const utility=(fpr,tpr,P)=>{const ap=N*P,an=N*(1-P);const tp=tpr*ap,fn=(1-tpr)*ap,fp=fpr*an,tn=an-fp;return FP*fp+TN*tn+TP*tp+FN*fn;};
-  const constants=(P)=>{const ap=N*P,an=N*(1-P);return {a:TN*an+FN*ap,b:FP*an-TN*an,c:TP*ap-FN*ap};};
-  const {a,b,c}=constants(pPos);
+  const {a,b,c}=getIsoCoefficients(payoffs);
+  const isoEnabled=Number.isFinite(c) && Math.abs(c)>1e-9;
 
   ctx.clearRect(0,0,width,height);
 
   const iw=Math.max(2,Math.floor(plotW)); const ih=Math.max(2,Math.floor(plotH));
   const img=ctx.createImageData(iw,ih); const data=img.data; let minU=Infinity,maxU=-Infinity; const utilities=[];
-  for(let j=0;j<ih;j++){const tprVal=1-j/(ih-1);for(let i=0;i<iw;i++){const fprVal=i/(iw-1);const u=utility(fprVal,tprVal,pPos);utilities.push(u);if(u<minU)minU=u;if(u>maxU)maxU=u;}}
+  for(let j=0;j<ih;j++){
+    const tprVal=1-j/(ih-1);
+    for(let i=0;i<iw;i++){
+      const fprVal=i/(iw-1);
+      const u=utilityAtRates(fprVal,tprVal,payoffs);
+      utilities.push(u);
+      if(u<minU)minU=u;
+      if(u>maxU)maxU=u;
+    }
+  }
   const scale=v=>(v-minU)/(maxU-minU||1);
   let k=0;for(let j=0;j<ih;j++){for(let i=0;i<iw;i++){const s=scale(utilities[j*iw+i]);const [r,g,b2]=heatColor(s);data[k++]=r;data[k++]=g;data[k++]=b2;data[k++]=255;}}
   ctx.putImageData(img,Math.round(x0),Math.round(y0));
@@ -607,32 +935,42 @@ function draw(){
   ctx.save();
   ctx.beginPath(); ctx.rect(x0,y0,plotW,plotH); ctx.clip();
 
-  const nLines=10,step=(maxU-minU)/(nLines+1||1);
-  ctx.strokeStyle='rgba(0,0,0,0.4)'; ctx.lineWidth=1; ctx.setLineDash([4,4]);
-  ctx.font='12px sans-serif'; ctx.fillStyle='black'; ctx.textBaseline='middle';
-  for(let i=1;i<=nLines;i++){
-    const level=minU+i*step;
-    const tpr0=(level-a-b*0)/c; const tpr1=(level-a-b*1)/c;
-    const yA=yScale(tpr0), yB=yScale(tpr1);
-    ctx.beginPath(); ctx.moveTo(xScale(0),yA); ctx.lineTo(xScale(1),yB); ctx.stroke();
+  if(isoEnabled){
+    const nLines=10;
+    const step=(maxU-minU)/(nLines+1||1);
+    ctx.strokeStyle='rgba(0,0,0,0.4)'; ctx.lineWidth=1; ctx.setLineDash([4,4]);
+    ctx.font='12px sans-serif'; ctx.fillStyle='black'; ctx.textBaseline='middle';
+    for(let i=1;i<=nLines;i++){
+      const level=minU+i*step;
+      const tpr0=(level-a-b*0)/c; const tpr1=(level-a-b*1)/c;
+      if(!Number.isFinite(tpr0) || !Number.isFinite(tpr1)) continue;
+      const yA=yScale(tpr0), yB=yScale(tpr1);
+      ctx.beginPath(); ctx.moveTo(xScale(0),yA); ctx.lineTo(xScale(1),yB); ctx.stroke();
 
-    const tprLeft=(level-a)/c;
-    const fprBottom=(level-a)/b;
-    const offsetX = labelOffset * plotW; const offsetY = labelOffset * plotH;
-    if(tprLeft>=0 && tprLeft<=1){
-      const xL=xScale(0)+offsetX; const yL=yScale(tprLeft);
-      ctx.fillText(Math.round(level),xL,yL);
-    } else if(fprBottom>=0 && fprBottom<=1){
-      const xB=xScale(clamp01(fprBottom)); const yBtm=yScale(0)-offsetY;
-      ctx.textAlign='center'; ctx.fillText(Math.round(level),xB,yBtm); ctx.textAlign='left';
+      const tprLeft=(level-a)/c;
+      const fprBottom=(level-a)/b;
+      const offsetX = labelOffset * plotW; const offsetY = labelOffset * plotH;
+      if(Number.isFinite(tprLeft) && tprLeft>=0 && tprLeft<=1){
+        const xL=xScale(0)+offsetX; const yL=yScale(tprLeft);
+        ctx.fillText(Math.round(level),xL,yL);
+      } else if(Number.isFinite(fprBottom) && fprBottom>=0 && fprBottom<=1){
+        const xB=xScale(clamp01(fprBottom)); const yBtm=yScale(0)-offsetY;
+        ctx.textAlign='center'; ctx.fillText(Math.round(level),xB,yBtm); ctx.textAlign='left';
+      }
     }
+    ctx.setLineDash([]);
   }
-  ctx.setLineDash([]);
+  else{
+    ctx.setLineDash([]);
+  }
 
-  const s=((1-pPos)*(TN-FP))/(pPos*(TP-FN));
-  ctx.strokeStyle='limegreen'; ctx.lineWidth=3; ctx.setLineDash([10,10]);
-  const drawOne=(intercept)=>{ctx.beginPath();ctx.moveTo(xScale(0),yScale(intercept));ctx.lineTo(xScale(1),yScale(s+intercept));ctx.stroke();};
-  drawOne(0); drawOne(1-s); ctx.setLineDash([]);
+  const denominator = (pPos*(TP-FN));
+  if(denominator){
+    const s=((1-pPos)*(TN-FP))/denominator;
+    ctx.strokeStyle='limegreen'; ctx.lineWidth=3; ctx.setLineDash([10,10]);
+    const drawOne=(intercept)=>{ctx.beginPath();ctx.moveTo(xScale(0),yScale(intercept));ctx.lineTo(xScale(1),yScale(s+intercept));ctx.stroke();};
+    drawOne(0); drawOne(1-s); ctx.setLineDash([]);
+  }
 
   ctx.restore();
 
@@ -643,30 +981,319 @@ function draw(){
     ctx.beginPath(); for(let i=0;i<fpr.length;i++){if(i===0)ctx.moveTo(xScale(fpr[i]),yScale(lower[i]));else ctx.lineTo(xScale(fpr[i]),yScale(lower[i]));} ctx.stroke();
   }
 
-  let bestU=-Infinity,bestPt=null; ctx.beginPath(); ctx.strokeStyle='blue'; ctx.lineWidth=2;
-  for(let i=0;i<fpr.length;i++){const x=xScale(fpr[i]),y=yScale(tpr[i]);if(i===0)ctx.moveTo(x,y); else ctx.lineTo(x,y);const u=utility(fpr[i],tpr[i],pPos);if(u>bestU){bestU=u;bestPt={x,y};}}
-  ctx.stroke();
-  if(bestPt){ctx.beginPath();ctx.arc(bestPt.x,bestPt.y,6,0,2*Math.PI);ctx.fillStyle='yellow';ctx.strokeStyle='red';ctx.fill();ctx.stroke();bestUtilityDiv.textContent='Best utility = '+Math.round(bestU);}
+  let bestU=-Infinity,bestPt=null;
+  ctx.beginPath(); ctx.strokeStyle='blue'; ctx.lineWidth=2;
+  let firstPoint=true;
+  for(let i=0;i<fpr.length;i++){
+    const fVal=Number(fpr[i]);
+    const tVal=Number(tpr[i]);
+    if(!Number.isFinite(fVal) || !Number.isFinite(tVal)) continue;
+    const x=xScale(fVal),y=yScale(tVal);
+    if(firstPoint){ctx.moveTo(x,y); firstPoint=false;} else ctx.lineTo(x,y);
+    const u=utilityAtRates(fVal,tVal,payoffs);
+    if(Number.isFinite(u) && u>bestU){bestU=u;bestPt={x,y};}
+  }
+  if(!firstPoint) ctx.stroke();
+  if(bestPt){
+    ctx.beginPath();ctx.arc(bestPt.x,bestPt.y,6,0,2*Math.PI);
+    ctx.fillStyle='yellow';ctx.strokeStyle='red';ctx.fill();ctx.stroke();
+    if(bestUtilityDiv && isBestUtilityVisible()){
+      const prefix = strings.bestUtilityPrefix || defaultConfig.strings.bestUtilityPrefix;
+      bestUtilityDiv.textContent = `${prefix}${Math.round(bestU)}`;
+    }
+  } else if(bestUtilityDiv && isBestUtilityVisible()){
+    bestUtilityDiv.textContent = strings.bestUtilityUnavailable || defaultConfig.strings.bestUtilityUnavailable;
+  }
 
   ctx.strokeStyle='#666'; ctx.lineWidth=1; ctx.strokeRect(x0,y0,plotW,plotH);
 }
 
+function drawThresholdPlot(){
+  if(!thresholdCanvas || !thresholdCtx){
+    return;
+  }
+  const width=thresholdCanvas.width;
+  const height=thresholdCanvas.height;
+  thresholdCtx.clearRect(0,0,width,height);
+  if(!isThresholdPlotVisible()){
+    return;
+  }
+
+  const payoffs=getPayoffParams();
+  const curveIds=Object.keys(rocCurves).sort((a,b)=>a.localeCompare(b));
+  const selectedId=rocSelect.value;
+
+  const datasets=[];
+  let minThreshold=Infinity,maxThreshold=-Infinity,minUtility=Infinity,maxUtility=-Infinity;
+
+  const buildThresholdSeries=(curve,length)=>{
+    if(Array.isArray(curve.threshold) && curve.threshold.length>=length){
+      const values=[];
+      let valid=true;
+      for(let i=0;i<length;i++){
+        const value=Number(curve.threshold[i]);
+        if(Number.isFinite(value)){
+          values.push(value);
+        }else{
+          valid=false;
+          break;
+        }
+      }
+      if(valid){
+        return {values, synthetic:false, source:'threshold'};
+      }
+    }
+    if(Array.isArray(curve.fpr) && curve.fpr.length>=length){
+      const values=[];
+      let valid=true;
+      for(let i=0;i<length;i++){
+        const value=Number(curve.fpr[i]);
+        if(Number.isFinite(value)){
+          values.push(value);
+        }else{
+          valid=false;
+          break;
+        }
+      }
+      if(valid){
+        return {values, synthetic:true, source:'fpr'};
+      }
+    }
+    const values=[];
+    if(length<=1){
+      values.push(0);
+    }else{
+      for(let i=0;i<length;i++){
+        values.push(i/(length-1));
+      }
+    }
+    return {values, synthetic:true, source:'index'};
+  };
+
+  curveIds.forEach((curveId,curveIndex)=>{
+    const curve=rocCurves[curveId];
+    if(!curve) return;
+    if(!Array.isArray(curve.fpr) || !Array.isArray(curve.tpr)) return;
+    const length=Math.min(curve.fpr.length, curve.tpr.length);
+    if(!length) return;
+    const thresholdSeries=buildThresholdSeries(curve,length);
+    const entries=[];
+    for(let i=0;i<length;i++){
+      const thresholdValue=Number(thresholdSeries.values[i]);
+      const fpr=Number(curve.fpr[i]);
+      const tpr=Number(curve.tpr[i]);
+      if(!Number.isFinite(thresholdValue) || !Number.isFinite(fpr) || !Number.isFinite(tpr)) continue;
+      const utility=utilityAtRates(fpr,tpr,payoffs);
+      if(!Number.isFinite(utility)) continue;
+      entries.push({threshold:thresholdValue, utility});
+    }
+    if(!entries.length) return;
+    entries.sort((a,b)=>a.threshold-b.threshold || a.utility-b.utility);
+    entries.forEach(pt=>{
+      if(pt.threshold<minThreshold) minThreshold=pt.threshold;
+      if(pt.threshold>maxThreshold) maxThreshold=pt.threshold;
+      if(pt.utility<minUtility) minUtility=pt.utility;
+      if(pt.utility>maxUtility) maxUtility=pt.utility;
+    });
+    const meta=curve.metadata||{};
+    const baseLabel = resolveVariantLabel(curveId, meta);
+    datasets.push({
+      id:curveId,
+      label:baseLabel,
+      entries,
+      color:getCurveColor(curveIndex, curveIds.length),
+      isSelected: curveId===selectedId,
+      synthetic: thresholdSeries.synthetic
+    });
+  });
+
+  if(!datasets.length){
+    thresholdCtx.fillStyle='#333';
+    thresholdCtx.font='16px sans-serif';
+    thresholdCtx.textAlign='center';
+    thresholdCtx.textBaseline='middle';
+    thresholdCtx.fillText(strings.noThresholdData || defaultConfig.strings.noThresholdData, width/2, height/2);
+    return;
+  }
+
+  if(minThreshold===Infinity || maxThreshold===-Infinity){
+    minThreshold=0;
+    maxThreshold=1;
+  }
+  if(minThreshold===maxThreshold){
+    minThreshold-=0.5;
+    maxThreshold+=0.5;
+  }
+  if(!Number.isFinite(minUtility) || !Number.isFinite(maxUtility)){
+    minUtility=0;
+    maxUtility=1;
+  }
+  if(minUtility===maxUtility){
+    const adjust=Math.max(1, Math.abs(minUtility||1));
+    minUtility-=adjust/2;
+    maxUtility+=adjust/2;
+  }
+
+  const marginLeft=70;
+  const marginRight=30;
+  const marginTop=30;
+
+  const legendPadding=8;
+  const legendItemHeight=18;
+  const legendHeight=datasets.length ? legendItemHeight*datasets.length+legendPadding*2 : 0;
+  const marginBottom=40+legendHeight;
+
+  const plotW=Math.max(10,width-marginLeft-marginRight);
+  const plotH=Math.max(10,height-marginTop-marginBottom);
+  const xScale=(threshold)=>marginLeft+((threshold-minThreshold)/(maxThreshold-minThreshold||1))*plotW;
+  const yScale=(utility)=>marginTop+(1-((utility-minUtility)/(maxUtility-minUtility||1)))*plotH;
+
+  thresholdCtx.fillStyle='#f8f8f8';
+  thresholdCtx.fillRect(marginLeft,marginTop,plotW,plotH);
+  thresholdCtx.strokeStyle='#ccc';
+  thresholdCtx.lineWidth=1;
+  thresholdCtx.strokeRect(marginLeft,marginTop,plotW,plotH);
+
+  thresholdCtx.strokeStyle='#444';
+  thresholdCtx.lineWidth=1.2;
+  thresholdCtx.beginPath();
+  thresholdCtx.moveTo(marginLeft, marginTop);
+  thresholdCtx.lineTo(marginLeft, marginTop+plotH);
+  thresholdCtx.lineTo(marginLeft+plotW, marginTop+plotH);
+  thresholdCtx.stroke();
+
+  thresholdCtx.fillStyle='#000';
+  thresholdCtx.font='13px sans-serif';
+  thresholdCtx.textAlign='center';
+  thresholdCtx.fillText(strings.axisThreshold || defaultConfig.strings.axisThreshold, marginLeft + plotW/2, marginTop+plotH+28);
+  thresholdCtx.save();
+  thresholdCtx.translate(18, marginTop + plotH/2);
+  thresholdCtx.rotate(-Math.PI/2);
+  thresholdCtx.fillText(strings.axisUtility || defaultConfig.strings.axisUtility, 0,0);
+  thresholdCtx.restore();
+
+  thresholdCtx.fillStyle='#000';
+  thresholdCtx.font='12px sans-serif';
+  thresholdCtx.textAlign='center';
+  const xTickCount=5;
+  for(let i=0;i<xTickCount;i++){
+    const t=minThreshold+(i/(xTickCount-1||1))*(maxThreshold-minThreshold);
+    const x=xScale(t);
+    thresholdCtx.beginPath();
+    thresholdCtx.moveTo(x, marginTop+plotH);
+    thresholdCtx.lineTo(x, marginTop+plotH+6);
+    thresholdCtx.strokeStyle='#444';
+    thresholdCtx.stroke();
+    thresholdCtx.fillText(Number(t).toFixed(2), x, marginTop+plotH+20);
+  }
+
+  thresholdCtx.textAlign='right';
+  const yTickCount=5;
+  for(let i=0;i<yTickCount;i++){
+    const frac=i/(yTickCount-1||1);
+    const u=minUtility+frac*(maxUtility-minUtility);
+    const y=yScale(u);
+    thresholdCtx.beginPath();
+    thresholdCtx.moveTo(marginLeft-6,y);
+    thresholdCtx.lineTo(marginLeft,y);
+    thresholdCtx.strokeStyle='#444';
+    thresholdCtx.stroke();
+    thresholdCtx.fillText(Math.round(u).toString(), marginLeft-8, y+4);
+  }
+
+  if(minUtility<0 && maxUtility>0){
+    const zeroY=yScale(0);
+    thresholdCtx.strokeStyle='rgba(0,0,0,0.2)';
+    thresholdCtx.setLineDash([4,4]);
+    thresholdCtx.beginPath();
+    thresholdCtx.moveTo(marginLeft, zeroY);
+    thresholdCtx.lineTo(marginLeft+plotW, zeroY);
+    thresholdCtx.stroke();
+    thresholdCtx.setLineDash([]);
+  }
+
+  datasets.forEach(dataset=>{
+    thresholdCtx.beginPath();
+    dataset.entries.forEach((pt,idx)=>{
+      const x=xScale(pt.threshold);
+      const y=yScale(pt.utility);
+      if(idx===0) thresholdCtx.moveTo(x,y);
+      else thresholdCtx.lineTo(x,y);
+    });
+    thresholdCtx.strokeStyle=dataset.color;
+    thresholdCtx.lineWidth=dataset.isSelected?3:2;
+    thresholdCtx.stroke();
+    thresholdCtx.lineWidth=1;
+    dataset.entries.forEach(pt=>{
+      const x=xScale(pt.threshold);
+      const y=yScale(pt.utility);
+      thresholdCtx.beginPath();
+      thresholdCtx.arc(x,y,dataset.isSelected?4:3,0,Math.PI*2);
+      thresholdCtx.fillStyle=dataset.color;
+      thresholdCtx.fill();
+    });
+  });
+
+  if(legendHeight>0){
+    const legendWidth=Math.min(260, plotW);
+    const legendX=marginLeft+(plotW-legendWidth)/2;
+    const legendY=marginTop+plotH+10;
+    thresholdCtx.fillStyle='rgba(255,255,255,0.9)';
+    thresholdCtx.strokeStyle='rgba(0,0,0,0.15)';
+    thresholdCtx.lineWidth=1;
+    thresholdCtx.fillRect(legendX, legendY, legendWidth, legendHeight);
+    thresholdCtx.strokeRect(legendX, legendY, legendWidth, legendHeight);
+    thresholdCtx.font='12px sans-serif';
+    thresholdCtx.textAlign='left';
+    datasets.forEach((dataset,index)=>{
+      const y=legendY+legendPadding+legendItemHeight*index+legendItemHeight/2;
+      thresholdCtx.fillStyle=dataset.color;
+      thresholdCtx.fillRect(legendX+10, y-5, 16, 10);
+      thresholdCtx.fillStyle='#000';
+      const label=dataset.label || dataset.id;
+      const selectedSuffix = dataset.isSelected ? (strings.legendSelectedSuffix || defaultConfig.strings.legendSelectedSuffix || '') : '';
+      const syntheticSuffix = dataset.synthetic ? (strings.legendDerivedSuffix || defaultConfig.strings.legendDerivedSuffix || '') : '';
+      thresholdCtx.fillText(`${label}${selectedSuffix}${syntheticSuffix}`, legendX+32, y+4);
+    });
+  }
+}
+
 canvas.addEventListener('mousemove',e=>{
+  if(!isRocPlotVisible()){
+    tooltip.style.display='none';
+    return;
+  }
   const rect=canvas.getBoundingClientRect(); const x=e.clientX-rect.left,y=e.clientY-rect.top;
   const width=canvas.width,height=canvas.height,margin=0.05,x0=margin*width,y0=margin*height,plotW=width*(1-2*margin),plotH=height*(1-2*margin);
   if(x<x0||x>x0+plotW||y<y0||y>y0+plotH){tooltip.style.display='none';return;}
   const fpr=(x-x0)/plotW,tpr=1-(y-y0)/plotH;
-  const pPos=values.P_POS;const N=1000;const {TP,FP,TN,FN}=values;const ap=N*pPos,an=N*(1-pPos),tp=tpr*ap,fn=(1-tpr)*ap,fp=fpr*an,tn=an-fp;const u=FP*fp+TN*tn+TP*tp+FN*fn;
+  const payoffs=getPayoffParams();
+  const pPos=payoffs.P_POS;
+  const N=POPULATION_SIZE;
+  const ap=N*pPos,an=N*(1-pPos),tp=tpr*ap,fn=(1-tpr)*ap,fp=fpr*an,tn=an-fp;
+  const u=utilityAtRates(fpr,tpr,payoffs);
   const tooltipWidth=140,tooltipHeight=48;
-  tooltip.style.left=(x-tooltipWidth-10)+'px'; tooltip.style.top=(y-tooltipHeight-10)+'px'; tooltip.textContent=`FPR: ${fpr.toFixed(2)}, TPR: ${tpr.toFixed(2)}, U: ${Math.round(u)}`; tooltip.style.display='block';
+  tooltip.style.left=(x-tooltipWidth-10)+'px';
+  tooltip.style.top=(y-tooltipHeight-10)+'px';
+  const tooltipTemplate=strings.tooltipFormat || defaultConfig.strings.tooltipFormat;
+  tooltip.textContent=formatString(tooltipTemplate,{
+    fpr:fpr.toFixed(2),
+    tpr:tpr.toFixed(2),
+    utility: Math.round(u)
+  });
+  tooltip.style.display='block';
 });
 canvas.addEventListener('mouseleave',()=>tooltip.style.display='none');
 
 window.addEventListener('DOMContentLoaded',async()=>{
+  await loadAppConfig();
   const loaded=await loadStaticRocFiles();
   if(!loaded){
     const fallbackSelection=Object.keys(HARDCODED_FALLBACK_CURVES)[0]||null;
     loadROCData({...HARDCODED_FALLBACK_CURVES},fallbackSelection);
+  }
+  if(isBestUtilityVisible() && bestUtilityDiv && !bestUtilityDiv.textContent){
+    bestUtilityDiv.textContent = strings.bestUtilityUnavailable || defaultConfig.strings.bestUtilityUnavailable;
   }
 });
 </script>

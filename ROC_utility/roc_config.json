@@ -1,0 +1,55 @@
+{
+  "strings": {
+    "pageTitle": "ROC Utility",
+    "appTitle": "Costs and Benefits",
+    "dropdownLabel": "Reference model",
+    "importLabel": "Import ROC Data",
+    "downloadButton": "Download Selected Curve JSON",
+    "thresholdTitle": "Payoff vs Threshold",
+    "bestUtilityPrefix": "Best utility = ",
+    "bestUtilityUnavailable": "Best utility = —",
+    "noThresholdData": "No threshold data available for payoff plot.",
+    "axisThreshold": "Threshold",
+    "axisUtility": "Expected Utility",
+    "legendSelectedSuffix": " (selected)",
+    "legendDerivedSuffix": " (derived thresholds)",
+    "variantLabelFormat": "{original} ({source})",
+    "variantSourceFallback": "variant",
+    "tooltipFormat": "FPR: {fpr}, TPR: {tpr}, U: {utility}",
+    "alerts": {
+      "noCurvesFound": "No ROC curves found in the selected file.",
+      "failImport": "Failed to import ROC data: {message}",
+      "failRead": "Unable to read the selected file.",
+      "noCurveSelectedDownload": "No ROC curve selected to download.",
+      "failStaticLoad": "Failed to load static ROC file \"{path}\": {message}",
+      "failConfigLoad": "Failed to load configuration: {message}"
+    }
+  },
+  "ui": {
+    "showRocPlot": true,
+    "showThresholdPlot": true,
+    "showSliders": true,
+    "showImport": true,
+    "showDownloadButton": true,
+    "showBestUtility": true
+  },
+  "sliders": {
+    "P_POS": { "label": "Proportion positive", "min": 0.01, "max": 0.99, "step": 0.01, "value": 0.5 },
+    "TP": { "label": "Value of true positive", "min": -100, "max": 100, "step": 1, "value": 50 },
+    "FP": { "label": "Value of false positive", "min": -100, "max": 100, "step": 1, "value": -70 },
+    "TN": { "label": "Value of true negative", "min": -100, "max": 100, "step": 1, "value": 0 },
+    "FN": { "label": "Value of false negative", "min": -100, "max": 100, "step": 1, "value": 0 }
+  },
+  "data": {
+    "staticFiles": [
+      "roc_data/roadmap_logistic.csv",
+      "roc_data/random_forest_baseline.csv",
+      "roc_data/logistic_baseline.csv",
+      "roc_data/bayesian_model_baseline.csv",
+      "roc_data/roadmap_logistic.json",
+      "roc_data/random_forest_baseline.json",
+      "roc_data/logistic_baseline.json",
+      "roc_data/bayesian_model_baseline.json"
+    ]
+  }
+}
