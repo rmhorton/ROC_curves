@@ -21,6 +21,14 @@
     "metadata": {
       "source": "csv",
       "source_file": "random_forest_baseline.csv"
-    }
+    },
+    "threshold": [
+      1.0,
+      0.8,
+      0.5,
+      0.3,
+      0.1,
+      0.0
+    ]
   }
 }

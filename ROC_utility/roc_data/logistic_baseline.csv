@@ -1,7 +1,7 @@
-curve_id,fpr,tpr
-logistic_baseline,0.00,0.00
-logistic_baseline,0.20,0.40
-logistic_baseline,0.40,0.65
-logistic_baseline,0.60,0.80
-logistic_baseline,0.80,0.90
-logistic_baseline,1.00,1.00
+curve_id,threshold,fpr,tpr
+logistic_baseline,1.0,0.00,0.00
+logistic_baseline,0.8,0.20,0.40
+logistic_baseline,0.6,0.40,0.65
+logistic_baseline,0.4,0.60,0.80
+logistic_baseline,0.2,0.80,0.90
+logistic_baseline,0.0,1.00,1.00

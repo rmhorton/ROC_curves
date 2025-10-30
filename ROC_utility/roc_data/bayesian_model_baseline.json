@@ -22,6 +22,14 @@
       "source": "csv",
       "source_file": "bayesian_model_baseline.csv"
     },
+    "threshold": [
+      1.0,
+      0.9,
+      0.8,
+      0.7,
+      0.6,
+      0.0
+    ],
     "tpr_lower": [
       0.0,
       0.35,

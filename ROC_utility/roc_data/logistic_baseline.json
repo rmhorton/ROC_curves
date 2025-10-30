@@ -21,6 +21,14 @@
     "metadata": {
       "source": "csv",
       "source_file": "logistic_baseline.csv"
-    }
+    },
+    "threshold": [
+      1.0,
+      0.8,
+      0.6,
+      0.4,
+      0.2,
+      0.0
+    ]
   }
 }
