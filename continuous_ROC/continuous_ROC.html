@@ -142,6 +142,15 @@ body {
       <span id="prevalenceVal">0.50</span>
       <div id="metricsPrev"></div>
     </div>
+    <div id="exportControl" class="ctrl">
+      <h3>Simulated Dataset</h3>
+      <div class="component-row">
+        <label for="sampleSizeInput">Sample size:</label>
+        <input type="number" id="sampleSizeInput" value="200" min="10" step="10">
+      </div>
+      <button id="exportButton">Export CSV</button>
+      <div id="exportStatus" style="font-size:12px;color:#666;margin-top:6px;"></div>
+    </div>
   </div>
 
   <script>
@@ -692,6 +701,74 @@ body {
         prevalenceValEl.textContent=STRINGS.controls.prevalenceValue(state.prevalence);
         update();
       });
+
+      document.getElementById('exportButton').addEventListener('click', exportDataset);
+
+      function sampleDistribution(prefix, components, nSamples) {
+        const samples = [];
+        const allowMulti = FEATURES.allowMultiComponents;
+        const totalWeight = allowMulti
+          ? components.reduce((a, c) => a + (c.weight || 0), 0)
+          : 1;
+
+        for (const comp of components) {
+          const def = DISTRIBUTIONS[comp.distribution];
+          const w = allowMulti ? (comp.weight || 0) / totalWeight : 1;
+          const nComp = Math.max(1, Math.round(w * nSamples));
+          const params = def.mapper ? def.mapper(comp.parameters) : comp.parameters;
+
+          // Try direct sampling via jStat
+          let sampler;
+          if (jStat[comp.distribution] && jStat[comp.distribution].sample) {
+            const vals = Object.values(params);
+            sampler = () => jStat[comp.distribution].sample(...vals);
+          } else {
+            // fallback: inverse-CDF sampling
+            sampler = () => {
+              const u = Math.random();
+              const [lo0, hi0] = def.domain(params);
+              let lo = lo0, hi = hi0;
+              for (let i = 0; i < 25; i++) {
+                const mid = (lo + hi) / 2;
+                if (def.cdf(params, mid) < u) lo = mid; else hi = mid;
+              }
+              return (lo + hi) / 2;
+            };
+          }
+
+          for (let i = 0; i < nComp; i++) samples.push(sampler());
+        }
+        return samples;
+      }
+
+      function exportDataset() {
+        const N = Math.max(10, Number(document.getElementById('sampleSizeInput').value) || 200);
+        const prevalence = state.prevalence;
+        const nPos = Math.round(N * prevalence);
+        const nNeg = N - nPos;
+
+        const posSamples = sampleDistribution('pos', state.posComponents, nPos);
+        const negSamples = sampleDistribution('neg', state.negComponents, nNeg);
+
+        const rows = [
+          ['score', 'label'],
+          ...posSamples.map(s => [s.toFixed(6), 1]),
+          ...negSamples.map(s => [s.toFixed(6), 0])
+        ];
+
+        const csv = rows.map(r => r.join(',')).join('\n');
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'simulated_dataset.csv';
+        a.click();
+        URL.revokeObjectURL(url);
+
+        document.getElementById('exportStatus').textContent =
+          `Exported ${N} samples (${nPos} positive, ${nNeg} negative).`;
+      }
 
       renderComponents('neg');
       renderComponents('pos');
