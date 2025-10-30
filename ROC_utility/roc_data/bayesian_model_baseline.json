@@ -1,0 +1,42 @@
+{
+  "bayesian_model_baseline": {
+    "name": "bayesian_model_baseline",
+    "type": "ROC",
+    "fpr": [
+      0.0,
+      0.2,
+      0.4,
+      0.6,
+      0.8,
+      1.0
+    ],
+    "tpr": [
+      0.0,
+      0.45,
+      0.7,
+      0.85,
+      0.9,
+      1.0
+    ],
+    "metadata": {
+      "source": "csv",
+      "source_file": "bayesian_model_baseline.csv"
+    },
+    "tpr_lower": [
+      0.0,
+      0.35,
+      0.6,
+      0.75,
+      0.85,
+      0.95
+    ],
+    "tpr_upper": [
+      0.0,
+      0.55,
+      0.8,
+      0.9,
+      0.95,
+      1.0
+    ]
+  }
+}
