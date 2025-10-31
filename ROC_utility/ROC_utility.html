@@ -11,6 +11,13 @@
   label { display: block; margin-top: 8px; }
   input[type=range] { width: 100%; }
   .tooltip { position: absolute; font-size: 12px; background: rgba(255,255,255,0.9); border: 1px solid #ccc; border-radius: 4px; padding: 3px 6px; pointer-events: none; }
+  .payoff-grid { border-collapse: collapse; width: 100%; max-width: 360px; }
+  .payoff-grid th, .payoff-grid td { border: 1px solid #ccc; padding: 6px; text-align: center; }
+  .payoff-grid th { background: #f5f5f5; font-weight: 600; }
+  .payoff-cell { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .payoff-cell-label { font-size: 12px; font-weight: 600; }
+  .payoff-slider-value { font-size: 12px; font-weight: 600; }
+  .payoff-input-number { width: 80px; }
 </style>
 </head>
 <body>
@@ -27,7 +34,8 @@
       <button type="button" id="downloadCurveBtn">Download Selected Curve JSON</button>
     </div>
     <div id="slidersSection">
-      <div id="sliders"></div>
+      <div id="priorControls"></div>
+      <div id="payoffGridSection" style="margin-top:12px;"></div>
     </div>
     <div id="bestUtility" style="margin-top:1em;font-weight:bold;"></div>
   </div>
@@ -59,6 +67,16 @@ const defaultConfig = {
     variantLabelFormat: "{original} ({source})",
     variantSourceFallback: "variant",
     tooltipFormat: "FPR: {fpr}, TPR: {tpr}, U: {utility}",
+    payoffGrid: {
+      actualPositive: "Actual Positive",
+      actualNegative: "Actual Negative",
+      predictedPositive: "Predicted Positive",
+      predictedNegative: "Predicted Negative",
+      TP: "True Positive",
+      FN: "False Negative",
+      FP: "False Positive",
+      TN: "True Negative"
+    },
     alerts: {
       noCurvesFound: "No ROC curves found in the selected file.",
       failImport: "Failed to import ROC data: {message}",
@@ -74,14 +92,17 @@ const defaultConfig = {
     showSliders: true,
     showImport: true,
     showDownloadButton: true,
-    showBestUtility: true
+    showBestUtility: true,
+    payoffInputMode: "slider"
   },
   sliders: {
     P_POS: {label: "Proportion positive", min: 0.01, max: 0.99, step: 0.01, value: 0.5},
-    TP:    {label: "Value of true positive", min: -100, max: 100, step: 1, value: 50},
-    FP:    {label: "Value of false positive", min: -100, max: 100, step: 1, value: -70},
-    TN:    {label: "Value of true negative", min: -100, max: 100, step: 1, value: 0},
-    FN:    {label: "Value of false negative", min: -100, max: 100, step: 1, value: 0}
+  },
+  payoffs: {
+    TP: {label: "TP", value: 50, min: -100, max: 100, step: 1},
+    FP: {label: "FP", value: -70, min: -100, max: 100, step: 1},
+    TN: {label: "TN", value: 0, min: -100, max: 100, step: 1},
+    FN: {label: "FN", value: 0, min: -100, max: 100, step: 1}
   },
   data: {
     staticFiles: [
@@ -136,7 +157,8 @@ const thresholdCanvas = document.getElementById('thresholdCanvas');
 const thresholdCtx = thresholdCanvas ? thresholdCanvas.getContext('2d') : null;
 const tooltip = document.getElementById('tooltip');
 const rocSelect = document.getElementById('rocSelect');
-const slidersDiv = document.getElementById('sliders');
+const priorControls = document.getElementById('priorControls');
+const payoffGridSection = document.getElementById('payoffGridSection');
 const rocFileInput = document.getElementById('rocFileInput');
 const downloadCurveBtn = document.getElementById('downloadCurveBtn');
 const bestUtilityDiv = document.getElementById('bestUtility');
@@ -248,7 +270,7 @@ async function loadAppConfig(){
   }
   updateConfigReferences();
   applyConfigToUI();
-  buildSliders();
+  buildControlPanels();
 }
 
 function isRocPlotVisible(){ return !(uiSettings && uiSettings.showRocPlot === false); }
@@ -326,54 +348,189 @@ function getCurveColor(index,total){
   return `hsl(${hue},70%,45%)`;
 }
 
-function buildSliders(){
-  const sliderDefs = (appConfig && appConfig.sliders && Object.keys(appConfig.sliders).length)
-    ? appConfig.sliders
-    : defaultConfig.sliders;
-  Object.keys(values).forEach(existingKey=>{
-    if(!Object.prototype.hasOwnProperty.call(sliderDefs, existingKey)){
-      delete values[existingKey];
-    }
+function getPriorConfig(){
+  const sliderDefs = (appConfig && appConfig.sliders) ? appConfig.sliders : defaultConfig.sliders;
+  return sliderDefs && sliderDefs.P_POS ? sliderDefs.P_POS : defaultConfig.sliders.P_POS;
+}
+
+function getPayoffConfig(){
+  const base = defaultConfig.payoffs || {};
+  const override = (appConfig && appConfig.payoffs) ? appConfig.payoffs : {};
+  const keys = ['TP','FP','TN','FN'];
+  const merged = {};
+  keys.forEach(key=>{
+    merged[key] = Object.assign({}, base[key] || {}, override[key] || {});
   });
-  const sliderKeys = Object.keys(sliderDefs);
-  sliderKeys.forEach(key=>{
-    const cfg = sliderDefs[key] || {};
-    const numericValue = Number(cfg.value);
-    values[key] = Number.isFinite(numericValue) ? numericValue : 0;
-  });
-  if(!isSlidersVisible()){
-    slidersDiv.innerHTML = '';
-    return;
+  return merged;
+}
+
+function getPayoffInputMode(){
+  const mode = uiSettings && uiSettings.payoffInputMode;
+  return mode === 'text' ? 'text' : 'slider';
+}
+
+function ensureValue(key, defaultVal){
+  if(!Number.isFinite(values[key])){
+    values[key] = Number.isFinite(defaultVal) ? defaultVal : 0;
   }
-  slidersDiv.innerHTML = '';
-  sliderKeys.forEach(key=>{
-    const cfg = sliderDefs[key] || {};
-    const label = document.createElement('label');
-    label.setAttribute('for', key);
-    const textSpan = document.createElement('span');
-    textSpan.textContent = cfg.label || key;
-    const separator = document.createTextNode(': ');
-    const valueSpan = document.createElement('span');
-    valueSpan.id = `${key}Val`;
-    valueSpan.textContent = values[key];
+}
+
+function buildControlPanels(){
+  buildPriorSlider();
+  buildPayoffGrid();
+}
+
+function buildPriorSlider(){
+  if(!priorControls) return;
+  priorControls.innerHTML = '';
+  const priorCfg = getPriorConfig();
+  const defaultVal = Number(priorCfg && priorCfg.value);
+  ensureValue('P_POS', Number.isFinite(defaultVal) ? defaultVal : 0.5);
+  if(!isSlidersVisible()) return;
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'prior-slider';
+  const headerRow = document.createElement('div');
+  headerRow.style.display = 'flex';
+  headerRow.style.justifyContent = 'space-between';
+  headerRow.style.alignItems = 'center';
+
+  const labelSpan = document.createElement('span');
+  labelSpan.textContent = (priorCfg && priorCfg.label) || (defaultConfig.sliders.P_POS && defaultConfig.sliders.P_POS.label) || 'Proportion positive';
+
+  const valueSpan = document.createElement('span');
+  valueSpan.id = 'P_POSVal';
+  valueSpan.textContent = values.P_POS;
+
+  headerRow.appendChild(labelSpan);
+  headerRow.appendChild(valueSpan);
+
+  const range = document.createElement('input');
+  range.type = 'range';
+  range.id = 'P_POS';
+  range.min = priorCfg && priorCfg.min !== undefined ? priorCfg.min : 0;
+  range.max = priorCfg && priorCfg.max !== undefined ? priorCfg.max : 1;
+  range.step = priorCfg && priorCfg.step !== undefined ? priorCfg.step : 0.01;
+  range.value = values.P_POS;
+  range.style.width = '100%';
+  range.addEventListener('input', () => {
+    values.P_POS = +range.value;
+    valueSpan.textContent = range.value;
+    drawAll();
+  });
+
+  wrapper.appendChild(headerRow);
+  wrapper.appendChild(range);
+  priorControls.appendChild(wrapper);
+}
+
+function buildPayoffGrid(){
+  if(!payoffGridSection) return;
+  const payoffCfg = getPayoffConfig();
+  const payoffKeys = ['TP','FN','FP','TN'];
+  payoffKeys.forEach(key=>{
+    const cfg = payoffCfg[key] || {};
+    const defaultVal = Number(cfg.value);
+    ensureValue(key, Number.isFinite(defaultVal) ? defaultVal : 0);
+  });
+  payoffGridSection.innerHTML = '';
+  if(!isSlidersVisible()) return;
+
+  const gridStrings = strings.payoffGrid || defaultConfig.strings.payoffGrid || {};
+  const mode = getPayoffInputMode();
+
+  const table = document.createElement('table');
+  table.className = 'payoff-grid';
+
+  const thead = document.createElement('thead');
+  const headerRow = document.createElement('tr');
+  headerRow.appendChild(document.createElement('th'));
+  const colPos = document.createElement('th');
+  colPos.textContent = gridStrings.predictedPositive || 'Predicted Positive';
+  headerRow.appendChild(colPos);
+  const colNeg = document.createElement('th');
+  colNeg.textContent = gridStrings.predictedNegative || 'Predicted Negative';
+  headerRow.appendChild(colNeg);
+  thead.appendChild(headerRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement('tbody');
+
+  const rowPos = document.createElement('tr');
+  const rowPosHeader = document.createElement('th');
+  rowPosHeader.textContent = gridStrings.actualPositive || 'Actual Positive';
+  rowPos.appendChild(rowPosHeader);
+  rowPos.appendChild(createPayoffCell('TP', payoffCfg, mode));
+  rowPos.appendChild(createPayoffCell('FN', payoffCfg, mode));
+  tbody.appendChild(rowPos);
+
+  const rowNeg = document.createElement('tr');
+  const rowNegHeader = document.createElement('th');
+  rowNegHeader.textContent = gridStrings.actualNegative || 'Actual Negative';
+  rowNeg.appendChild(rowNegHeader);
+  rowNeg.appendChild(createPayoffCell('FP', payoffCfg, mode));
+  rowNeg.appendChild(createPayoffCell('TN', payoffCfg, mode));
+  tbody.appendChild(rowNeg);
+
+  table.appendChild(tbody);
+  payoffGridSection.appendChild(table);
+}
+
+function createPayoffCell(key, payoffCfg, mode){
+  const cfg = payoffCfg[key] || {};
+  const gridStrings = strings.payoffGrid || defaultConfig.strings.payoffGrid || {};
+  const cell = document.createElement('td');
+  const wrapper = document.createElement('div');
+  wrapper.className = 'payoff-cell';
+
+  const label = document.createElement('div');
+  label.className = 'payoff-cell-label';
+  label.textContent = cfg.label || gridStrings[key] || key;
+  wrapper.appendChild(label);
+
+  if(mode === 'text'){
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.className = 'payoff-input-number';
+    if(cfg.min !== undefined) input.min = cfg.min;
+    if(cfg.max !== undefined) input.max = cfg.max;
+    if(cfg.step !== undefined) input.step = cfg.step;
+    input.value = values[key];
+    input.addEventListener('input',()=>{
+      const parsed = Number(input.value);
+      if(Number.isFinite(parsed)){
+        values[key] = parsed;
+        drawAll();
+      }
+    });
+    input.addEventListener('blur',()=>{
+      if(!Number.isFinite(Number(input.value))){
+        input.value = values[key];
+      }
+    });
+    wrapper.appendChild(input);
+  }else{
     const range = document.createElement('input');
     range.type = 'range';
-    range.min = cfg.min ?? 0;
-    range.max = cfg.max ?? 1;
-    range.step = cfg.step ?? 0.01;
+    range.min = cfg.min ?? -100;
+    range.max = cfg.max ?? 100;
+    range.step = cfg.step ?? 1;
     range.value = values[key];
-    range.id = key;
-    range.oninput = () => {
+    range.style.width = '100%';
+    const valueSpan = document.createElement('span');
+    valueSpan.className = 'payoff-slider-value';
+    valueSpan.textContent = values[key];
+    range.addEventListener('input',()=>{
       values[key] = +range.value;
       valueSpan.textContent = range.value;
       drawAll();
-    };
-    label.appendChild(textSpan);
-    label.appendChild(separator);
-    label.appendChild(valueSpan);
-    label.appendChild(range);
-    slidersDiv.appendChild(label);
-  });
+    });
+    wrapper.appendChild(range);
+    wrapper.appendChild(valueSpan);
+  }
+
+  cell.appendChild(wrapper);
+  return cell;
 }
 
 rocSelect.onchange = () => drawAll();
