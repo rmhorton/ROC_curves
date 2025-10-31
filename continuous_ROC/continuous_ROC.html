@@ -26,6 +26,23 @@
     .parameter-number{width:80px;flex:0 0 auto;padding:5px 6px;border-radius:6px;border:1px solid #c6c6db;font-size:13px}
     .parameter-slider{flex:1}
     .component-info{font-size:12px;color:#4e4e70;margin:4px 0 0 110px}
+    .empirical-group rect{stroke:none}
+    .hist-pos-bar{fill:rgba(255,0,0,0.4)}
+    .hist-neg-bar{fill:rgba(0,0,255,0.4)}
+    #dataImportControl{display:flex;flex-direction:column;gap:10px;font-size:13px;color:#30304a}
+    #dataImportDropZone{border:1px dashed #8a8ac5;border-radius:10px;padding:10px;text-align:center;background:#f5f5fd;cursor:pointer;transition:background 0.2s,border-color 0.2s}
+    #dataImportDropZone.dragover{background:#e7e7fb;border-color:#5c5cb8}
+    #dataImportStatus{font-size:12px;color:#4e4e70}
+    .data-import-options{display:flex;flex-direction:column;gap:6px}
+    .data-import-options label{display:flex;align-items:center;gap:6px;font-size:12px;color:#3a3a5a}
+    #empiricalLegend{display:flex;align-items:center;gap:12px;font-size:12px;color:#3a3a5a}
+    #empiricalLegend span{display:flex;align-items:center;gap:6px}
+    .legend-swatch{width:12px;height:12px;border-radius:2px;display:inline-block}
+    .legend-pos{background:rgba(255,0,0,0.4)}
+    .legend-neg{background:rgba(0,0,255,0.4)}
+    .legend-theoretical{background:#1f77b4}
+    .legend-empirical-roc{background:#7d3cff}
+    .roc-empirical{stroke:#7d3cff;stroke-width:2;fill:none;stroke-dasharray:5 4}
     .add-component-btn{margin-top:10px;padding:6px 10px}
     /*
     .plots{display:flex;flex-wrap:wrap;gap:20px;margin-bottom:50px}
@@ -153,8 +170,28 @@ body {
         <label for="sampleSizeInput">Sample size:</label>
         <input type="number" id="sampleSizeInput" value="200" min="10" step="10">
       </div>
-      <button id="exportButton">Export CSV</button>
+      <button id="dataExportButton">Export CSV</button>
       <div id="exportStatus" style="font-size:12px;color:#666;margin-top:6px;"></div>
+      <button id="rocExportButton" style="margin-top:10px;">Export ROC CSV</button>
+    </div>
+    <div class="ctrl" id="dataImportControl">
+      <h3>Data Import</h3>
+      <div id="dataImportDropZone">
+        <label for="dataImportInput">Load empirical data (scores + labels):</label>
+        <input type="file" id="dataImportInput" accept=".csv" style="margin-top:6px;">
+        <div style="font-size:11px;color:#666;margin-top:6px;">Drop a CSV here or use the file picker. Columns required: <code>score</code>, <code>label</code>.</div>
+      </div>
+      <div id="empiricalLegend">
+        <span><span class="legend-swatch legend-pos"></span>Positive histogram</span>
+        <span><span class="legend-swatch legend-neg"></span>Negative histogram</span>
+        <span><span class="legend-swatch legend-empirical-roc"></span>Empirical ROC</span>
+      </div>
+      <div class="data-import-options">
+        <label><input type="checkbox" id="toggleEmpiricalHistogram" checked>Show empirical histograms</label>
+        <label><input type="checkbox" id="toggleNormalizeScores">Normalize scores to [0, 1]</label>
+        <label><input type="checkbox" id="toggleEmpiricalRoc">Show empirical ROC</label>
+      </div>
+      <div id="dataImportStatus">No empirical data loaded.</div>
     </div>
   </div>
 
@@ -223,13 +260,72 @@ body {
         rocPairsSorted:[],
         dataPoints:[],
         posComponents:cloneSet(DEFAULT_OPTIONS.positives),
-        negComponents:cloneSet(DEFAULT_OPTIONS.negatives)
+        negComponents:cloneSet(DEFAULT_OPTIONS.negatives),
+        dataImported:DEFAULT_OPTIONS.dataImported||false,
+        importedDataFilename:DEFAULT_OPTIONS.importedDataFilename||null,
+        importedSampleCount:DEFAULT_OPTIONS.importedSampleCount||0,
+        importedRawPos:[],
+        importedRawNeg:[],
+        showEmpiricalHistogram:DEFAULT_OPTIONS.showEmpiricalHistogram??true,
+        normalizeImportedScores:DEFAULT_OPTIONS.normalizeImportedScores??false,
+        showEmpiricalRoc:DEFAULT_OPTIONS.showEmpiricalRoc??false,
+        empiricalPoints:[]
       };
 
       thresholdValEl.textContent=STRINGS.controls.thresholdValue(state.threshold);
       thresholdInput.value=state.threshold.toFixed(3);
       prevalenceSlider.value=state.prevalence;
       prevalenceValEl.textContent=STRINGS.controls.prevalenceValue(state.prevalence);
+
+      const toggleHistogram=document.getElementById('toggleEmpiricalHistogram');
+      const toggleNormalize=document.getElementById('toggleNormalizeScores');
+      const toggleEmpiricalRoc=document.getElementById('toggleEmpiricalRoc');
+      toggleHistogram.checked=state.showEmpiricalHistogram;
+      toggleNormalize.checked=state.normalizeImportedScores;
+      toggleEmpiricalRoc.checked=state.showEmpiricalRoc;
+      toggleHistogram.addEventListener('change',event=>{
+        state.showEmpiricalHistogram=event.target.checked;
+        update();
+      });
+      toggleNormalize.addEventListener('change',event=>{
+        state.normalizeImportedScores=event.target.checked;
+        update();
+      });
+      toggleEmpiricalRoc.addEventListener('change',event=>{
+        state.showEmpiricalRoc=event.target.checked;
+        update();
+      });
+
+      const dataImportInput=document.getElementById('dataImportInput');
+      dataImportInput.addEventListener('change',event=>{
+        const file=event.target.files?.[0];
+        if(file){handleDataFile(file);}
+      });
+
+      const dataImportDropZone=document.getElementById('dataImportDropZone');
+      ['dragenter','dragover'].forEach(evt=>{
+        dataImportDropZone.addEventListener(evt,event=>{
+          event.preventDefault();
+          event.stopPropagation();
+          dataImportDropZone.classList.add('dragover');
+        });
+      });
+      ['dragleave','drop'].forEach(evt=>{
+        dataImportDropZone.addEventListener(evt,event=>{
+          event.preventDefault();
+          event.stopPropagation();
+          dataImportDropZone.classList.remove('dragover');
+          if(event.type==='drop'){
+            const file=event.dataTransfer?.files?.[0];
+            if(file){
+              handleDataFile(file);
+              dataImportInput.value='';
+            }
+          }
+        });
+      });
+
+      refreshDataImportStatus();
 
       const distDims={width:540,height:420,margin:{top:40,right:24,bottom:60,left:64}};
       const rocDims={width:540,height:420,margin:{top:40,right:24,bottom:60,left:64}};
@@ -267,6 +363,10 @@ body {
         .attr('y',-46)
         .attr('text-anchor','middle')
         .text(STRINGS.plots.scoreYAxis);
+
+      const empiricalGroup=distContent.append('g').attr('class','empirical-group');
+      const histNegGroup=empiricalGroup.append('g').attr('class','hist-neg');
+      const histPosGroup=empiricalGroup.append('g').attr('class','hist-pos');
 
       const distAreaGroup=distContent.append('g').attr('class','area-group');
       const areaTNPath=distAreaGroup.append('path').attr('class','area-tn');
@@ -367,6 +467,7 @@ body {
         .text(STRINGS.plots.rocYAxis);
 
       const rocLinePath=rocContent.append('path').attr('class','roc-line');
+      const empiricalRocPath=rocContent.append('path').attr('class','roc-empirical').style('opacity',0);
       rocContent.append('path').attr('class','roc-random')
         .attr('d',`M${rocXScale(0)},${rocYScale(0)} L${rocXScale(1)},${rocYScale(1)}`);
       const rocPoint=rocContent.append('circle').attr('class','roc-point').attr('r',6);
@@ -472,6 +573,148 @@ body {
             }
           });
         });
+      }
+
+      function hasEmpiricalData(){
+        return state.dataImported && (state.importedRawPos.length>0 || state.importedRawNeg.length>0);
+      }
+
+      function getProcessedEmpiricalSamples(){
+        if(!hasEmpiricalData()){
+          return {positives:[],negatives:[]};
+        }
+        const positives=[...state.importedRawPos];
+        const negatives=[...state.importedRawNeg];
+        if(!state.normalizeImportedScores){
+          return {positives,negatives};
+        }
+        const all=[...positives,...negatives];
+        const min=Math.min(...all);
+        const max=Math.max(...all);
+        if(!Number.isFinite(min)||!Number.isFinite(max)){
+          return {positives,negatives};
+        }
+        const span=max-min;
+        if(span<=0){
+          return {
+            positives:positives.map(()=>0.5),
+            negatives:negatives.map(()=>0.5)
+          };
+        }
+        return {
+          positives:positives.map(v=>(v-min)/span),
+          negatives:negatives.map(v=>(v-min)/span)
+        };
+      }
+
+      function getProcessedEmpiricalPoints(){
+        if(!hasEmpiricalData()){
+          return [];
+        }
+        if(!state.normalizeImportedScores){
+          return state.empiricalPoints;
+        }
+        const scores=state.empiricalPoints.map(d=>d.score);
+        const min=Math.min(...scores);
+        const max=Math.max(...scores);
+        const span=max-min;
+        if(!Number.isFinite(min)||!Number.isFinite(max)||span<=0){
+          return state.empiricalPoints.map(d=>({score:0.5,label:d.label}));
+        }
+        return state.empiricalPoints.map(d=>({score:(d.score-min)/span,label:d.label}));
+      }
+
+      function refreshDataImportStatus(){
+        const statusEl=document.getElementById('dataImportStatus');
+        if(!hasEmpiricalData()){
+          if(state.dataImported && state.importedDataFilename){
+            statusEl.textContent=`Configuration references "${state.importedDataFilename}" (${state.importedSampleCount||0} samples), but the CSV must be reloaded locally.`;
+          } else {
+            statusEl.textContent='No empirical data loaded.';
+          }
+          return;
+        }
+        const positives=state.importedRawPos.length;
+        const negatives=state.importedRawNeg.length;
+        const filename=state.importedDataFilename||'dataset.csv';
+        statusEl.textContent=`Loaded ${positives+negatives} samples from ${filename} (${positives} positive, ${negatives} negative).`;
+      }
+
+      function computeEmpiricalRoc(points){
+        if(!points?.length){return [];}
+        const positives=points.filter(d=>d.label===1).length;
+        const negatives=points.filter(d=>d.label===0).length;
+        if(positives===0 || negatives===0){return [];}
+        const sorted=[...points].sort((a,b)=>b.score-a.score);
+        let tp=0;
+        let fp=0;
+        const roc=[];
+        let idx=0;
+        roc.push({thr:Number.POSITIVE_INFINITY,tpr:0,fpr:0});
+        while(idx<sorted.length){
+          const current=sorted[idx].score;
+          while(idx<sorted.length && sorted[idx].score===current){
+            if(sorted[idx].label===1){tp++;} else {fp++;}
+            idx++;
+          }
+          roc.push({
+            thr:current,
+            tpr:tp/positives,
+            fpr:fp/negatives
+          });
+        }
+        roc.push({thr:Number.NEGATIVE_INFINITY,tpr:1,fpr:1});
+        return roc.sort((a,b)=>a.fpr-b.fpr);
+      }
+
+      function applyImportedData({positives,negatives,points,filename}){
+        state.importedRawPos=positives;
+        state.importedRawNeg=negatives;
+        state.empiricalPoints=points;
+        state.dataImported=true;
+        state.importedDataFilename=filename||'dataset.csv';
+        state.importedSampleCount=points.length;
+        const fileInput=document.getElementById('dataImportInput');
+        if(fileInput){fileInput.value='';}
+        refreshDataImportStatus();
+        update();
+      }
+
+      function parseEmpiricalCsv(text, filename){
+        let parsed;
+        try{
+          parsed=d3.csvParse(text,d=>({
+            score:+d.score,
+            label:+d.label
+          }));
+        } catch(err){
+          console.error(err);
+          alert('Failed to parse CSV: '+err.message);
+          return;
+        }
+        if(!parsed.length || !('score' in parsed[0]) || !('label' in parsed[0])){
+          alert('CSV must contain columns: score, label');
+          return;
+        }
+        const cleaned=parsed.filter(d=>Number.isFinite(d.score)&&(d.label===0||d.label===1));
+        if(!cleaned.length){
+          alert('No valid rows with numeric score and binary label were found.');
+          return;
+        }
+        const positives=cleaned.filter(d=>d.label===1).map(d=>d.score);
+        const negatives=cleaned.filter(d=>d.label===0).map(d=>d.score);
+        applyImportedData({positives,negatives,points:cleaned,filename});
+      }
+
+      function handleDataFile(file){
+        if(!file){return;}
+        const reader=new FileReader();
+        reader.onload=e=>{
+          const text=e.target?.result;
+          if(typeof text!=='string'){return;}
+          parseEmpiricalCsv(text,file.name);
+        };
+        reader.readAsText(file);
       }
 
       function renderComponents(prefix){
@@ -727,8 +970,22 @@ body {
         const neg=buildDistribution('neg');
         refreshStudentTInfo();
 
+        const empiricalSamples=getProcessedEmpiricalSamples();
+        const hasEmpiricalSamples=empiricalSamples.positives.length>0||empiricalSamples.negatives.length>0;
+
         let minX=Math.min(pos.domain[0],neg.domain[0]);
         let maxX=Math.max(pos.domain[1],neg.domain[1]);
+        if(hasEmpiricalSamples){
+          const combined=[...empiricalSamples.positives,...empiricalSamples.negatives];
+          if(combined.length){
+            const dataMin=Math.min(...combined);
+            const dataMax=Math.max(...combined);
+            if(Number.isFinite(dataMin)&&Number.isFinite(dataMax)){
+              minX=Math.min(minX,dataMin);
+              maxX=Math.max(maxX,dataMax);
+            }
+          }
+        }
         if(!Number.isFinite(minX)||!Number.isFinite(maxX)){minX=0;maxX=1;}
         if(maxX<=minX){maxX=minX+1;}
 
@@ -757,7 +1014,28 @@ body {
         });
         state.dataPoints=dataPoints;
 
-        const yMax=d3.max(dataPoints,d=>Math.max(d.posPDF,d.negPDF))||0;
+        const theoreticalMax=d3.max(dataPoints,d=>Math.max(d.posPDF,d.negPDF))||0;
+        let histPosData=[];
+        let histNegData=[];
+        let histMaxDensity=0;
+        const histActive=state.showEmpiricalHistogram && hasEmpiricalSamples;
+        if(histActive){
+          const totalPos=empiricalSamples.positives.length;
+          const totalNeg=empiricalSamples.negatives.length;
+          const total=Math.max(totalPos+totalNeg,1);
+          const binCount=Math.min(40,Math.max(10,Math.round(Math.sqrt(total))));
+          const binGenerator=(d3.histogram?d3.histogram():d3.bin()).domain([minX,maxX]).thresholds(binCount);
+          const toDensity=(bins,totalCount)=>bins.map(bin=>{
+            const width=(bin.x1??bin.x0)-(bin.x0??bin.x1);
+            const density=(totalCount>0 && width>0)?bin.length/(totalCount*width):0;
+            histMaxDensity=Math.max(histMaxDensity,density);
+            return {x0:bin.x0,x1:bin.x1,density};
+          });
+          histPosData=totalPos?toDensity(binGenerator(empiricalSamples.positives),totalPos):[];
+          histNegData=totalNeg?toDensity(binGenerator(empiricalSamples.negatives),totalNeg):[];
+        }
+
+        const yMax=Math.max(theoreticalMax,histMaxDensity);
         const yUpper=yMax>0?yMax*1.05:1;
         distXScale.domain([minX,maxX]);
         distYScale.domain([0,yUpper]);
@@ -766,6 +1044,34 @@ body {
 
         distPosLinePath.datum(dataPoints).attr('d',distPosLineGenerator);
         distNegLinePath.datum(dataPoints).attr('d',distNegLineGenerator);
+
+        const renderHist=(group,data,className)=>{
+          const selection=group.selectAll('rect').data(data);
+          selection.join(
+            enter=>enter.append('rect').attr('class',className),
+            update=>update,
+            exit=>exit.remove()
+          )
+          .attr('x',d=>distXScale(d.x0))
+          .attr('width',d=>{
+            const w=distXScale(d.x1)-distXScale(d.x0);
+            return Number.isFinite(w)&&w>0?w:0;
+          })
+          .attr('y',d=>distYScale(d.density))
+          .attr('height',d=>Math.max(0,distYScale(0)-distYScale(d.density)));
+        };
+
+        if(histActive){
+          histPosGroup.style('display',null);
+          histNegGroup.style('display',null);
+          renderHist(histPosGroup,histPosData,'hist-pos-bar');
+          renderHist(histNegGroup,histNegData,'hist-neg-bar');
+        } else {
+          histPosGroup.selectAll('rect').remove();
+          histNegGroup.selectAll('rect').remove();
+          histPosGroup.style('display','none');
+          histNegGroup.style('display','none');
+        }
 
         const posLeft=dataPoints.filter(d=>d.x<=threshold).map(d=>({x:d.x,y:d.posPDF}));
         const posRight=dataPoints.filter(d=>d.x>=threshold).map(d=>({x:d.x,y:d.posPDF}));
@@ -804,8 +1110,20 @@ body {
         rocXAxisGroup.call(d3.axisBottom(rocXScale).ticks(6));
         rocYAxisGroup.call(d3.axisLeft(rocYScale).ticks(6));
 
+        if(state.showEmpiricalRoc && hasEmpiricalSamples){
+          const empiricalPoints=getProcessedEmpiricalPoints();
+          const empiricalRoc=computeEmpiricalRoc(empiricalPoints);
+          if(empiricalRoc.length>=2){
+            empiricalRocPath.datum(empiricalRoc).attr('d',rocLineGenerator).style('opacity',1).raise();
+          } else {
+            empiricalRocPath.attr('d',null).style('opacity',0);
+          }
+        } else {
+          empiricalRocPath.attr('d',null).style('opacity',0);
+        }
+
         const thrPoint=rocPairs.reduce((prev,curr)=>Math.abs(curr.thr-threshold)<Math.abs(prev.thr-threshold)?curr:prev,rocPairs[0]);
-        rocPoint.attr('cx',rocXScale(thrPoint.fpr)).attr('cy',rocYScale(thrPoint.tpr));
+        rocPoint.attr('cx',rocXScale(thrPoint.fpr)).attr('cy',rocYScale(thrPoint.tpr)).raise();
 
         const sensitivity=thrPoint.tpr;
         const specificity=1-thrPoint.fpr;
@@ -869,7 +1187,8 @@ body {
         update();
       });
 
-      document.getElementById('exportButton').addEventListener('click', exportDataset);
+      document.getElementById('dataExportButton').addEventListener('click', exportDataset);
+      document.getElementById('rocExportButton').addEventListener('click', exportROC);
 
       function sampleDistribution(prefix, components, nSamples) {
         const samples = [];
@@ -950,14 +1269,6 @@ body {
         document.getElementById('exportStatus').textContent =
           `Exported ${N} samples (${nPos} positive, ${nNeg} negative).`;
       }
-
-      
-      document.getElementById('exportROCButton')?.remove(); // avoid duplicates
-      const exportROCButton = document.createElement('button');
-      exportROCButton.textContent = 'Export ROC CSV';
-      document.getElementById('exportControl').appendChild(exportROCButton);
-
-      exportROCButton.addEventListener('click', exportROC);
 
       function exportROC() {
         const rows = [['threshold', 'fpr', 'tpr']];

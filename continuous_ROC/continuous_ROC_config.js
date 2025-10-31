@@ -274,7 +274,10 @@ const DEFAULT_OPTIONS = {
     components: [{ distribution: "normal", weight: 1, parameters: { mean: 10.0, sd: 1 } }]
   },
   threshold: 11.0,
-  prevalence: 0.5
+  prevalence: 0.5,
+  dataImported: false,
+  importedDataFilename: null,
+  importedSampleCount: 0
 };
 
 window.MULTIDISTRIBUTION_CONFIG = {
