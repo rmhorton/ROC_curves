@@ -20,7 +20,12 @@
     .component-controls button:hover,.add-component-btn:hover{background:#dedef4}
     .component-row{display:flex;align-items:center;gap:8px;margin:6px 0;font-size:13px;color:#30304a}
     .component-row label{min-width:110px}
-    .component-row input,.component-row select{flex:1;padding:5px 6px;border-radius:6px;border:1px solid #c6c6db;font-size:13px}
+    .component-row input:not([type=range]),.component-row select{flex:1;padding:5px 6px;border-radius:6px;border:1px solid #c6c6db;font-size:13px}
+    .component-row input[type=range]{flex:1}
+    .parameter-controls{flex:1;display:flex;align-items:center;gap:8px}
+    .parameter-number{width:80px;flex:0 0 auto;padding:5px 6px;border-radius:6px;border:1px solid #c6c6db;font-size:13px}
+    .parameter-slider{flex:1}
+    .component-info{font-size:12px;color:#4e4e70;margin:4px 0 0 110px}
     .add-component-btn{margin-top:10px;padding:6px 10px}
     /*
     .plots{display:flex;flex-wrap:wrap;gap:20px;margin-bottom:50px}
@@ -182,8 +187,18 @@ body {
         const key=(src.distribution&&DISTRIBUTIONS[src.distribution])?src.distribution:fallback;
         const def=DISTRIBUTIONS[key];
         const params={};
+        const source=src.parameters||{};
         def.parameters.forEach(meta=>{
-          params[meta.id]=(src.parameters&&src.parameters.hasOwnProperty(meta.id))?src.parameters[meta.id]:meta.value;
+          let value;
+          if(Object.prototype.hasOwnProperty.call(source,meta.id)){
+            value=source[meta.id];
+          } else if(meta.alias){
+            const aliases=Array.isArray(meta.alias)?meta.alias:[meta.alias];
+            const match=aliases.find(alias=>Object.prototype.hasOwnProperty.call(source,alias));
+            if(match!==undefined){value=source[match];}
+          }
+          if(value===undefined){value=meta.value;}
+          params[meta.id]=value;
         });
         return {distribution:key,weight:src.weight??1,parameters:params};
       }
@@ -392,6 +407,73 @@ body {
         }
       }
 
+      function getStudentTStats(parameters={}){
+        const mu=Number(parameters.mu);
+        const sigmaRaw=Number(parameters.sigma);
+        const nu=Number(parameters.nu);
+        const muVal=Number.isFinite(mu)?mu:0;
+        const sigma=Math.max(Number.isFinite(sigmaRaw)?sigmaRaw:1,1e-6);
+        const nuVal=Number.isFinite(nu)?nu:0;
+        const isCauchy=nuVal>0 && nuVal<=1.01;
+        let meanLabel='undefined';
+        if(!isCauchy && nuVal>1){
+          meanLabel=muVal.toFixed(3);
+        }
+        let varianceLabel='undefined';
+        if(!isCauchy && nuVal>2){
+          const variance=sigma*sigma*nuVal/(nuVal-2);
+          varianceLabel=Number.isFinite(variance)?variance.toFixed(3):'∞';
+        } else if(!isCauchy && nuVal>1){
+          varianceLabel='∞';
+        }
+        return {meanLabel,varianceLabel,mu:muVal,sigma,nu:nuVal,isCauchy};
+      }
+
+      function refreshStudentTInfo(){
+        ['neg','pos'].forEach(prefix=>{
+          const components=state[prefix+'Components'];
+          components.forEach((component,index)=>{
+            const card=document.querySelector(`#${prefix}Params .component-card[data-component-index="${index}"]`);
+            if(!card){return;}
+            card.dataset.distribution=component.distribution;
+            const infoEl=card.querySelector('[data-role="studentt-stats"]');
+            const headerEl=card.querySelector('[data-role="component-header"]');
+            const def=DISTRIBUTIONS[component.distribution];
+            const defaultLabel=(FEATURES.allowMultiComponents?`${STRINGS.multi.componentLabel(index)} — `:'')+(def?.label||component.distribution);
+            if(component.distribution!=='studentT'){
+              if(infoEl){
+                infoEl.textContent='';
+                infoEl.style.display='none';
+              }
+              if(headerEl){headerEl.textContent=defaultLabel;}
+              card.removeAttribute('title');
+              return;
+            }
+            if(headerEl){
+              const nu=Number(component.parameters.nu);
+              if(Number.isFinite(nu) && Math.abs(nu-1)<=0.01){
+                const prefix=FEATURES.allowMultiComponents?`${STRINGS.multi.componentLabel(index)} — `:'';
+                headerEl.textContent=`${prefix}Cauchy distribution (ν = 1)`;
+              } else {
+                headerEl.textContent=defaultLabel;
+              }
+            }
+            if(infoEl){
+              infoEl.style.display='';
+              const stats=getStudentTStats(component.parameters);
+              if(stats.isCauchy){
+                const message='Mean and variance undefined for ν ≤ 1 (Cauchy).';
+                infoEl.textContent=message;
+                card.title=message;
+              } else {
+                infoEl.textContent=`Mean: ${stats.meanLabel} • Variance: ${stats.varianceLabel}`;
+                card.title=`Student t — Mean: ${stats.meanLabel}, Variance: ${stats.varianceLabel}`;
+              }
+            }
+          });
+        });
+      }
+
       function renderComponents(prefix){
         const container=document.getElementById(prefix+'Params');
         const allowMulti=FEATURES.allowMultiComponents;
@@ -412,9 +494,13 @@ body {
           const def=DISTRIBUTIONS[component.distribution];
           const card=document.createElement('div');
           card.className='component-card';
+          card.dataset.componentPrefix=prefix;
+          card.dataset.componentIndex=String(index);
+          card.dataset.distribution=component.distribution;
 
           const header=document.createElement('div');
           header.className='component-header';
+          header.dataset.role='component-header';
           header.textContent=allowMulti?`${STRINGS.multi.componentLabel(index)} — ${def.label}`:def.label;
           if(allowMulti && components.length>1){
             const controls=document.createElement('div');
@@ -481,25 +567,105 @@ body {
             row.className='component-row';
             const label=document.createElement('label');
             label.textContent=meta.label;
-            const input=document.createElement('input');
-            input.type=meta.type||'number';
-            if(meta.step!==undefined){input.step=meta.step;}
-            if(meta.min!==undefined){input.min=meta.min;}
-            if(meta.max!==undefined){input.max=meta.max;}
-            const value=component.parameters.hasOwnProperty(meta.id)?component.parameters[meta.id]:meta.value;
-            component.parameters[meta.id]=value;
-            input.value=value;
-            input.addEventListener('input',event=>{
-              const numeric=Number(event.target.value);
-              if(Number.isFinite(numeric)){
-                component.parameters[meta.id]=numeric;
-                update();
-              }
-            });
             row.appendChild(label);
-            row.appendChild(input);
+
+            const stored=component.parameters.hasOwnProperty(meta.id)?component.parameters[meta.id]:meta.value;
+            let value=Number(stored);
+            if(!Number.isFinite(value)){
+              const fallback=Number(meta.value);
+              value=Number.isFinite(fallback)?fallback:0;
+            }
+            component.parameters[meta.id]=value;
+
+            if(meta.slider){
+              const controls=document.createElement('div');
+              controls.className='parameter-controls';
+
+              const slider=document.createElement('input');
+              slider.type='range';
+              slider.className='parameter-slider';
+              const sliderConfig=meta.slider||{};
+              const resolvedMin=sliderConfig.min??meta.min;
+              const resolvedMax=sliderConfig.max??meta.max;
+              const resolvedStep=sliderConfig.step??meta.step;
+              if(resolvedMin!==undefined){slider.min=resolvedMin;}
+              if(resolvedMax!==undefined){slider.max=resolvedMax;}
+              if(resolvedStep!==undefined){slider.step=resolvedStep;}
+              if(slider.min!==''){
+                const numericMin=Number(slider.min);
+                if(Number.isFinite(numericMin)){value=Math.max(value,numericMin);}
+              }
+              if(slider.max!==''){
+                const numericMax=Number(slider.max);
+                if(Number.isFinite(numericMax)){value=Math.min(value,numericMax);}
+              }
+              component.parameters[meta.id]=value;
+              slider.value=String(value);
+
+              const input=document.createElement('input');
+              input.type=meta.type||'number';
+              input.className='parameter-number';
+              if(meta.step!==undefined){input.step=meta.step;}
+              if(meta.min!==undefined){input.min=meta.min;}
+              if(meta.max!==undefined){input.max=meta.max;}
+              input.value=String(value);
+
+              const commit=val=>{
+                component.parameters[meta.id]=val;
+                input.value=String(val);
+                slider.value=String(val);
+                update();
+              };
+
+              slider.addEventListener('input',event=>{
+                const numeric=Number(event.target.value);
+                if(Number.isFinite(numeric)){commit(numeric);}
+              });
+
+              input.addEventListener('input',event=>{
+                const numeric=Number(event.target.value);
+                if(Number.isFinite(numeric)){
+                  let clamped=numeric;
+                  if(slider.min!==''){
+                    const numericMin=Number(slider.min);
+                    if(Number.isFinite(numericMin)){clamped=Math.max(clamped,numericMin);}
+                  }
+                  if(slider.max!==''){
+                    const numericMax=Number(slider.max);
+                    if(Number.isFinite(numericMax)){clamped=Math.min(clamped,numericMax);}
+                  }
+                  commit(clamped);
+                }
+              });
+
+              controls.appendChild(slider);
+              controls.appendChild(input);
+              row.appendChild(controls);
+            } else {
+              const input=document.createElement('input');
+              input.type=meta.type||'number';
+              if(meta.step!==undefined){input.step=meta.step;}
+              if(meta.min!==undefined){input.min=meta.min;}
+              if(meta.max!==undefined){input.max=meta.max;}
+              input.value=String(value);
+              input.addEventListener('input',event=>{
+                const numeric=Number(event.target.value);
+                if(Number.isFinite(numeric)){
+                  component.parameters[meta.id]=numeric;
+                  update();
+                }
+              });
+              row.appendChild(input);
+            }
             card.appendChild(row);
           });
+
+          if(component.distribution==='studentT'){
+            const info=document.createElement('div');
+            info.className='component-info';
+            info.dataset.role='studentt-stats';
+            card.appendChild(info);
+          }
 
           list.appendChild(card);
         });
@@ -559,6 +725,7 @@ body {
         normalizeWeights('neg');
         const pos=buildDistribution('pos');
         const neg=buildDistribution('neg');
+        refreshStudentTInfo();
 
         let minX=Math.min(pos.domain[0],neg.domain[0]);
         let maxX=Math.max(pos.domain[1],neg.domain[1]);
@@ -719,7 +886,21 @@ body {
 
           // Try direct sampling via jStat
           let sampler;
-          if (jStat[comp.distribution] && jStat[comp.distribution].sample) {
+          if (comp.distribution === 'studentT') {
+            const mu = Number(params.mu) || 0;
+            const sigma = Math.max(Number(params.sigma) || 0, 1e-6);
+            const nu = Number(params.nu);
+            if (Number.isFinite(nu) && nu <= 1.01) {
+              if (jStat.cauchy && jStat.cauchy.sample) {
+                sampler = () => jStat.cauchy.sample(mu, sigma);
+              } else {
+                sampler = () => mu + sigma * Math.tan(Math.PI * (Math.random() - 0.5));
+              }
+            } else {
+              const safeNu = Math.max(nu || 0, 1.01);
+              sampler = () => mu + sigma * jStat.studentt.sample(safeNu);
+            }
+          } else if (jStat[comp.distribution] && jStat[comp.distribution].sample) {
             const vals = Object.values(params);
             sampler = () => jStat[comp.distribution].sample(...vals);
           } else {
@@ -768,6 +949,31 @@ body {
 
         document.getElementById('exportStatus').textContent =
           `Exported ${N} samples (${nPos} positive, ${nNeg} negative).`;
+      }
+
+      
+      document.getElementById('exportROCButton')?.remove(); // avoid duplicates
+      const exportROCButton = document.createElement('button');
+      exportROCButton.textContent = 'Export ROC CSV';
+      document.getElementById('exportControl').appendChild(exportROCButton);
+
+      exportROCButton.addEventListener('click', exportROC);
+
+      function exportROC() {
+        const rows = [['threshold', 'fpr', 'tpr']];
+        for (const p of state.rocPairsSorted) {
+          rows.push([p.thr.toFixed(6), p.fpr.toFixed(6), p.tpr.toFixed(6)]);
+        }
+        const csv = rows.map(r => r.join(',')).join('\n');
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'roc_curve.csv';
+        a.click();
+        URL.revokeObjectURL(url);
+        document.getElementById('exportStatus').textContent =
+          `Exported ROC with ${state.rocPairsSorted.length} points.`;
       }
 
       renderComponents('neg');

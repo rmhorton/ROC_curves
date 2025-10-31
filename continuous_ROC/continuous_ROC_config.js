@@ -141,20 +141,78 @@ const DISTRIBUTIONS = {
     label: "Student t",
     supportsMulti: true,
     parameters: [
-      { id: "df", label: "df", type: "number", value: 5, step: 0.1, min: 0.5 }
+      {
+        id: "mu",
+        label: "μ (location)",
+        type: "number",
+        value: 0,
+        step: 0.1,
+        slider: { min: -15, max: 15, step: 0.1 }
+      },
+      {
+        id: "sigma",
+        label: "σ (scale)",
+        type: "number",
+        value: 1,
+        step: 0.1,
+        min: 0.05,
+        slider: { min: 0.1, max: 10, step: 0.05 }
+      },
+      {
+        id: "nu",
+        label: "ν (df)",
+        type: "number",
+        value: 5,
+        step: 0.1,
+        min: 1,
+        alias: ["df"],
+        slider: { min: 1, max: 40, step: 0.1 }
+      }
     ],
-    pdf: (params, x) => jStat.studentt.pdf(x, params.df),
-    cdf: (params, x) => jStat.studentt.cdf(x, params.df),
+    pdf: (params, x) => {
+      const sigma = Math.max(Number(params.sigma) || 0, 1e-6);
+      const nuRaw = Number(params.nu);
+      const mu = Number(params.mu) || 0;
+      if(Number.isFinite(nuRaw) && nuRaw <= 1.01){
+        return jStat.cauchy.pdf(x, mu, sigma);
+      }
+      const nu = Math.max(nuRaw || 0, 1.01);
+      const z = (x - mu) / sigma;
+      return jStat.studentt.pdf(z, nu) / sigma;
+    },
+    cdf: (params, x) => {
+      const sigma = Math.max(Number(params.sigma) || 0, 1e-6);
+      const nuRaw = Number(params.nu);
+      const mu = Number(params.mu) || 0;
+      if(Number.isFinite(nuRaw) && nuRaw <= 1.01){
+        return jStat.cauchy.cdf(x, mu, sigma);
+      }
+      const nu = Math.max(nuRaw || 0, 1.01);
+      const z = (x - mu) / sigma;
+      return jStat.studentt.cdf(z, nu);
+    },
     domain: (params) => {
-      const df = Math.max(params.df, 0.5);
+      const sigma = Math.max(Number(params.sigma) || 0, 1e-6);
+      const nuRaw = Number(params.nu);
+      const mu = Number(params.mu) || 0;
+      if(Number.isFinite(nuRaw) && nuRaw <= 1.01){
+        const span = 10 * sigma;
+        return [mu - span, mu + span];
+      }
+      const nu = Math.max(nuRaw || 0, 1.01);
       try {
-        const lower = jStat.studentt.inv(0.001, df);
-        const upper = jStat.studentt.inv(0.999, df);
-        if(Number.isFinite(lower) && Number.isFinite(upper) && lower < upper){
-          return [lower, upper];
+        const lowerZ = jStat.studentt.inv(0.001, nu);
+        const upperZ = jStat.studentt.inv(0.999, nu);
+        if(Number.isFinite(lowerZ) && Number.isFinite(upperZ) && lowerZ < upperZ){
+          const lower = mu + sigma * lowerZ;
+          const upper = mu + sigma * upperZ;
+          if(Number.isFinite(lower) && Number.isFinite(upper) && lower < upper){
+            return [lower, upper];
+          }
         }
       } catch (err) {}
-      return [-10, 10];
+      const span = 10 * sigma;
+      return [mu - span, mu + span];
     }
   },
   weibull: {
@@ -207,7 +265,7 @@ const DISTRIBUTION_ORDER = [
 const DEFAULT_OPTIONS = {
   positives: {
     distribution: "normal",
-    parameters: { mean: 0.9, sd: 1 },
+    parameters: { mean: 0, sd: 1 },
     components: [{ distribution: "normal", weight: 1, parameters: { mean: 12.0, sd: 1 } }]
   },
   negatives: {
