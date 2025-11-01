@@ -277,7 +277,9 @@ const DEFAULT_OPTIONS = {
   prevalence: 0.5,
   dataImported: false,
   importedDataFilename: null,
-  importedSampleCount: 0
+  importedSampleCount: 0,
+  showSampledData: false,
+  autoResample: false
 };
 
 window.MULTIDISTRIBUTION_CONFIG = {
