@@ -1,6 +1,6 @@
 # ROC_curves
 
-[open on github.io](https://rmhorton.github.io/ROC_curves/)
+[open in Github Pages](https://rmhorton.github.io/ROC_curves/)
 
 * Slide decks
   - "Intro_to_ROC_curves.pptx" contains the slides from my presentation at the SF Bay ACM Data Science Camp, 2016.
