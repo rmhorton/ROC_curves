@@ -9,13 +9,16 @@
 
 * HTML prototypes of interactive visualizations to add to the [TurtleROC](https://github.com/rmhorton/TurtleROC) package:
 
-	- [Continuous ROC curves](multi_distribution_roc.html) based on the cumulative probability distribution functions for positive and negative cases.
-		+ [Notes](multi_distribution_roc_discussion.md) on possible features and improvements to this app.
+	- [Turtle Path](turtle_path/turtle_path.html)
+		+ [Turtle Path User Manual](https://github.com/rmhorton/ROC_curves/blob/master/turtle_path/turtle_user_manual.md)
+  		+ [Turtle Path Configuration Manual](https://github.com/rmhorton/ROC_curves/blob/master/turtle_path/turtle_configuration_manual.md)
+	- [Continuous ROC curves](continuous_ROC/continuous_ROC.html) based on the cumulative probability distribution functions for positive and negative cases.
+		+ [user guide](continuous_ROC/continuous_ROC_user_guide.html), including notes on possible features and improvements to this app.
+	- [ROC Utility](ROC_utility/ROC_utility.html) app showing cost-based utility on the background of the ROC plane.
 	- [Wilcoxon-Mann-Whitney U statistic meetos AUC](U_stat_meets_AUC_with_sounds.html)
 	- [Probabilistic interpretation](probabilistic_roc_sampling.html) of AUC
-	- [ROC Utility](ROC_utility/ROC_utility.html) app showing cost-based utility on the background of the ROC plane.
 	
-* [ChatGPT-written tutorial](JAGS_ROC_Tutorial.Rmd) on stochastic Bayesian modelling of ROC curves in JAGS and R. There is an [HTML version](JAGS_ROC_Tutorial.html) if you just to read it without running it first.
+* [Tutorial](JAGS_ROC_Tutorial.html) (written by ChatGPT) on stochastic Bayesian modelling of ROC curves in JAGS and R.
 
 
 ## To Do
