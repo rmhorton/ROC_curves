@@ -65,6 +65,9 @@ const defaultConfig = {
     importLabel: "Import ROC Data",
     downloadButton: "Download Selected Curve JSON",
     thresholdTitle: "Payoff vs Threshold",
+    rocPlotTitle: "Receiver Operating Characteristic Curve",
+    rocXAxisLabel: "False Positive Rate",
+    rocYAxisLabel: "True Positive Rate",
     bestUtilityPrefix: "Best utility = ",
     bestUtilityUnavailable: "Best utility = —",
     noThresholdData: "No threshold data available for payoff plot.",
@@ -1161,6 +1164,23 @@ function toNumber(value){
 function hslToRgb(h,s,l){const a=s*Math.min(l,1-l);const f=n=>{const k=(n+h*12)%12;const color=l-a*Math.max(Math.min(k-3,9-k,1),-1);return Math.round(255*color);};return [f(0),f(8),f(4)];}
 function heatColor(s){const h=240-240*s;const [r,g,b]=hslToRgb(h/360,0.6,0.85);return [r,g,b];}
 
+function getRocPlotGeometry(width,height){
+  const marginLeft=0.08*width;
+  const marginRight=0.05*width;
+  const marginTop=0.12*height;
+  const marginBottom=0.10*height;
+  const availableW=width - marginLeft - marginRight;
+  const availableH=height - marginTop - marginBottom;
+  const plotSize=Math.min(availableW, availableH);
+  const x0=marginLeft + (availableW-plotSize)/2;
+  const y0=marginTop + (availableH-plotSize)/2;
+  const plotW=plotSize;
+  const plotH=plotSize;
+  const titleY = marginTop * 0.5;
+  const subtitleY = titleY + 18;
+  return {x0,y0,plotW,plotH,titleY,subtitleY};
+}
+
 function drawRocPlot(){
   const rocName=rocSelect.value;
   if(!rocName || !rocCurves[rocName]){
@@ -1189,8 +1209,8 @@ function drawRocPlot(){
   const {P_POS: pPos, TP, FP, TN, FN} = payoffs;
   const width=canvas.width, height=canvas.height;
 
-  const margin=0.05; const labelOffsetFactor = 0.6; const labelOffset = labelOffsetFactor * margin;
-  const x0=margin*width; const y0=margin*height; const plotW=width*(1-2*margin); const plotH=height*(1-2*margin);
+  const {x0,y0,plotW,plotH,titleY,subtitleY}=getRocPlotGeometry(width,height);
+  const labelOffsetFactor = 0.6; const labelOffset = labelOffsetFactor * 0.05;
   const xScale=(xf)=>x0+xf*plotW; const yScale=(yt)=>y0+(1-yt)*plotH;
   const clamp01=(v)=>Math.max(0,Math.min(1,v));
 
@@ -1198,6 +1218,15 @@ function drawRocPlot(){
   const isoEnabled=Number.isFinite(c) && Math.abs(c)>1e-9;
 
   ctx.clearRect(0,0,width,height);
+
+  const titleText = strings.rocPlotTitle || defaultConfig.strings.rocPlotTitle || '';
+  const subtitleText = resolveVariantLabel(rocName, roc.metadata || {});
+  ctx.fillStyle = '#000';
+  ctx.textAlign = 'center';
+  ctx.font = '16px sans-serif';
+  ctx.fillText(titleText, width/2, titleY);
+  ctx.font = '13px sans-serif';
+  ctx.fillText(subtitleText, width/2, subtitleY);
 
   const iw=Math.max(2,Math.floor(plotW)); const ih=Math.max(2,Math.floor(plotH));
   const img=ctx.createImageData(iw,ih); const data=img.data; let minU=Infinity,maxU=-Infinity; const utilities=[];
@@ -1289,6 +1318,35 @@ function drawRocPlot(){
   }
 
   ctx.strokeStyle='#666'; ctx.lineWidth=1; ctx.strokeRect(x0,y0,plotW,plotH);
+
+  ctx.strokeStyle='#333'; ctx.fillStyle='#333'; ctx.lineWidth=1;
+  ctx.font='11px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='top';
+  const tickCount=11;
+  for(let i=0;i<tickCount;i++){
+    const val=i/10;
+    const x=xScale(val);
+    const yBottom=yScale(0);
+    ctx.beginPath(); ctx.moveTo(x,yBottom); ctx.lineTo(x,yBottom+6); ctx.stroke();
+    ctx.fillText(val.toFixed(1), x, yBottom+8);
+  }
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  for(let i=0;i<tickCount;i++){
+    const val=i/10;
+    const y=yScale(val);
+    const xLeft=xScale(0);
+    ctx.beginPath(); ctx.moveTo(xLeft-6,y); ctx.lineTo(xLeft,y); ctx.stroke();
+    ctx.fillText(val.toFixed(1), xLeft-8, y);
+  }
+
+  ctx.font='13px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='top';
+  const xAxisLabel=strings.rocXAxisLabel || defaultConfig.strings.rocXAxisLabel || '';
+  ctx.fillText(xAxisLabel, x0 + plotW/2, y0 + plotH + 28);
+  ctx.save();
+  ctx.translate(x0 - 36, y0 + plotH/2);
+  ctx.rotate(-Math.PI/2);
+  const yAxisLabel=strings.rocYAxisLabel || defaultConfig.strings.rocYAxisLabel || '';
+  ctx.textBaseline='top'; ctx.fillText(yAxisLabel, 0, 0);
+  ctx.restore();
 }
 
 function drawThresholdPlot(){
@@ -1546,8 +1604,14 @@ canvas.addEventListener('mousemove',e=>{
     tooltip.style.display='none';
     return;
   }
-  const rect=canvas.getBoundingClientRect(); const x=e.clientX-rect.left,y=e.clientY-rect.top;
-  const width=canvas.width,height=canvas.height,margin=0.05,x0=margin*width,y0=margin*height,plotW=width*(1-2*margin),plotH=height*(1-2*margin);
+  const rect=canvas.getBoundingClientRect();
+  const offsetX=e.clientX-rect.left;
+  const offsetY=e.clientY-rect.top;
+  const scaleX=canvas.width/rect.width;
+  const scaleY=canvas.height/rect.height;
+  const x=offsetX*scaleX;
+  const y=offsetY*scaleY;
+  const {x0,y0,plotW,plotH}=getRocPlotGeometry(canvas.width, canvas.height);
   if(x<x0||x>x0+plotW||y<y0||y>y0+plotH){tooltip.style.display='none';return;}
   const fpr=(x-x0)/plotW,tpr=1-(y-y0)/plotH;
   const payoffs=getPayoffParams();
@@ -1556,8 +1620,8 @@ canvas.addEventListener('mousemove',e=>{
   const ap=N*pPos,an=N*(1-pPos),tp=tpr*ap,fn=(1-tpr)*ap,fp=fpr*an,tn=an-fp;
   const u=utilityAtRates(fpr,tpr,payoffs);
   const tooltipWidth=140,tooltipHeight=48;
-  tooltip.style.left=(x-tooltipWidth-10)+'px';
-  tooltip.style.top=(y-tooltipHeight-10)+'px';
+  tooltip.style.left=(offsetX-tooltipWidth-10)+'px';
+  tooltip.style.top=(offsetY-tooltipHeight-10)+'px';
   const tooltipTemplate=strings.tooltipFormat || defaultConfig.strings.tooltipFormat;
   tooltip.textContent=formatString(tooltipTemplate,{
     fpr:fpr.toFixed(2),
