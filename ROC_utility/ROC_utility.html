@@ -16,8 +16,8 @@
   .payoff-grid th { background: #f5f5f5; font-weight: 600; }
   .payoff-cell { display: flex; flex-direction: column; align-items: center; gap: 4px; }
   .slider-input-row { display: flex; align-items: center; gap: 10px; width: 100%; }
+  .slider-input-column { display: flex; flex-direction: column; gap: 6px; width: 100%; align-items: stretch; }
   .payoff-cell-label { font-size: 12px; font-weight: 600; }
-  .payoff-slider-value { font-size: 12px; font-weight: 600; }
   .payoff-input-number { width: 80px; }
   .control-container { max-width: 360px; width: 100%; margin: 0 auto; }
 </style>
@@ -105,6 +105,7 @@ const defaultConfig = {
   },
   sliders: {
     P_POS: {label: "Proportion positive", min: 0.01, max: 0.99, step: 0.01, value: 0.5},
+    N: {label: "Sample size (N)", min: 10, max: 100000, step: 10, value: 1000}
   },
   payoffs: {
     TP: {label: "TP", value: 50, min: -100, max: 100, step: 1},
@@ -180,8 +181,6 @@ const thresholdSection = document.getElementById('thresholdSection');
 const thresholdTitleEl = document.getElementById('thresholdTitle');
 
 const values = {};
-
-const POPULATION_SIZE = 1000;
 
 function cloneDeep(obj){
   return JSON.parse(JSON.stringify(obj));
@@ -326,10 +325,17 @@ function getPayoffParams(){
   };
 }
 
+function getPopulationSize(){
+  const sampleCfg = getSampleSizeConfig();
+  const defaultVal = Number(sampleCfg && sampleCfg.value);
+  ensureValue('N', Number.isFinite(defaultVal) ? defaultVal : 1000);
+  return values.N;
+}
+
 function utilityAtRates(fpr,tpr,payoffs){
   if(!Number.isFinite(fpr) || !Number.isFinite(tpr)) return NaN;
   const {P_POS, TP, FP, TN, FN} = payoffs;
-  const N = POPULATION_SIZE;
+  const N = getPopulationSize();
   const ap = N * P_POS;
   const an = N * (1 - P_POS);
   const tp = tpr * ap;
@@ -341,7 +347,7 @@ function utilityAtRates(fpr,tpr,payoffs){
 
 function getIsoCoefficients(payoffs){
   const {P_POS, TP, FP, TN, FN} = payoffs;
-  const N = POPULATION_SIZE;
+  const N = getPopulationSize();
   const ap = N * P_POS;
   const an = N * (1 - P_POS);
   return {
@@ -359,6 +365,11 @@ function getCurveColor(index,total){
 function getPriorConfig(){
   const sliderDefs = (appConfig && appConfig.sliders) ? appConfig.sliders : defaultConfig.sliders;
   return sliderDefs && sliderDefs.P_POS ? sliderDefs.P_POS : defaultConfig.sliders.P_POS;
+}
+
+function getSampleSizeConfig(){
+  const sliderDefs = (appConfig && appConfig.sliders) ? appConfig.sliders : defaultConfig.sliders;
+  return sliderDefs && sliderDefs.N ? sliderDefs.N : defaultConfig.sliders.N;
 }
 
 function getPayoffConfig(){
@@ -442,6 +453,9 @@ function buildPriorSlider(){
   const priorCfg = getPriorConfig();
   const defaultVal = Number(priorCfg && priorCfg.value);
   ensureValue('P_POS', Number.isFinite(defaultVal) ? defaultVal : 0.5);
+  const sampleCfg = getSampleSizeConfig();
+  const defaultSampleVal = Number(sampleCfg && sampleCfg.value);
+  ensureValue('N', Number.isFinite(defaultSampleVal) ? defaultSampleVal : 1000);
   if(!isSlidersVisible()) return;
 
   const wrapper = document.createElement('div');
@@ -486,7 +500,49 @@ function buildPriorSlider(){
   wrapper.appendChild(headerRow);
   wrapper.appendChild(sliderRow);
   bindSliderWithNumber({slider: range, numberInput, valueSpan, key: 'P_POS'});
+
+  const nWrapper = document.createElement('div');
+  nWrapper.style.marginTop = '12px';
+  const nHeader = document.createElement('div');
+  nHeader.style.display = 'flex';
+  nHeader.style.justifyContent = 'space-between';
+  nHeader.style.alignItems = 'center';
+  const nLabel = document.createElement('span');
+  nLabel.textContent = (sampleCfg && sampleCfg.label) || 'Sample size (N)';
+  const nValueSpan = document.createElement('span');
+  nValueSpan.id = 'NVal';
+  nValueSpan.textContent = values.N;
+  nHeader.appendChild(nLabel);
+  nHeader.appendChild(nValueSpan);
+
+  const nRange = document.createElement('input');
+  nRange.type = 'range';
+  nRange.id = 'N';
+  nRange.min = sampleCfg && sampleCfg.min !== undefined ? sampleCfg.min : 10;
+  nRange.max = sampleCfg && sampleCfg.max !== undefined ? sampleCfg.max : 100000;
+  nRange.step = sampleCfg && sampleCfg.step !== undefined ? sampleCfg.step : 10;
+  nRange.value = values.N;
+  nRange.style.flex = '1';
+
+  const nNumberInput = document.createElement('input');
+  nNumberInput.type = 'number';
+  nNumberInput.className = 'payoff-input-number';
+  nNumberInput.min = nRange.min;
+  nNumberInput.max = nRange.max;
+  nNumberInput.step = nRange.step;
+  nNumberInput.value = values.N;
+
+  const nSliderRow = document.createElement('div');
+  nSliderRow.className = 'slider-input-row';
+  nSliderRow.appendChild(nRange);
+  nSliderRow.appendChild(nNumberInput);
+
+  nWrapper.appendChild(nHeader);
+  nWrapper.appendChild(nSliderRow);
+  bindSliderWithNumber({slider: nRange, numberInput: nNumberInput, valueSpan: nValueSpan, key: 'N'});
+
   priorControls.appendChild(wrapper);
+  priorControls.appendChild(nWrapper);
 }
 
 function buildPayoffGrid(){
@@ -581,10 +637,7 @@ function createPayoffCell(key, payoffCfg, mode){
     range.max = cfg.max ?? 100;
     range.step = cfg.step ?? 1;
     range.value = values[key];
-    range.style.flex = '1';
-    const valueSpan = document.createElement('span');
-    valueSpan.className = 'payoff-slider-value';
-    valueSpan.textContent = values[key];
+    range.style.width = '100%';
     const numberInput = document.createElement('input');
     numberInput.type = 'number';
     numberInput.className = 'payoff-input-number';
@@ -593,14 +646,13 @@ function createPayoffCell(key, payoffCfg, mode){
     numberInput.step = range.step;
     numberInput.value = values[key];
 
-    const sliderRow = document.createElement('div');
-    sliderRow.className = 'slider-input-row';
-    sliderRow.appendChild(range);
-    sliderRow.appendChild(numberInput);
+    const sliderStack = document.createElement('div');
+    sliderStack.className = 'slider-input-column';
+    sliderStack.appendChild(range);
+    sliderStack.appendChild(numberInput);
 
-    wrapper.appendChild(sliderRow);
-    wrapper.appendChild(valueSpan);
-    bindSliderWithNumber({slider: range, numberInput, valueSpan, key});
+    wrapper.appendChild(sliderStack);
+    bindSliderWithNumber({slider: range, numberInput, valueSpan: null, key});
   }
 
   cell.appendChild(wrapper);
@@ -1500,7 +1552,7 @@ canvas.addEventListener('mousemove',e=>{
   const fpr=(x-x0)/plotW,tpr=1-(y-y0)/plotH;
   const payoffs=getPayoffParams();
   const pPos=payoffs.P_POS;
-  const N=POPULATION_SIZE;
+  const N=getPopulationSize();
   const ap=N*pPos,an=N*(1-pPos),tp=tpr*ap,fn=(1-tpr)*ap,fp=fpr*an,tn=an-fp;
   const u=utilityAtRates(fpr,tpr,payoffs);
   const tooltipWidth=140,tooltipHeight=48;
