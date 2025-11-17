@@ -50,6 +50,7 @@
   <div id="rocPlotContainer" style="position:relative;">
     <canvas id="canvas" width="600" height="600"></canvas>
     <div id="tooltip" class="tooltip" style="display:none;"></div>
+    <canvas id="gainCanvas" width="600" height="600" style="margin-top:16px; border:1px solid #999; border-radius:6px;"></canvas>
   </div>
 </div>
 <div id="thresholdSection" style="margin-top:20px;">
@@ -68,6 +69,11 @@ const defaultConfig = {
     rocPlotTitle: "Receiver Operating Characteristic Curve",
     rocXAxisLabel: "False Positive Rate",
     rocYAxisLabel: "True Positive Rate",
+    gainPlotTitle: "Gain Curve",
+    gainXAxisLabel: "Fraction of the Entire Test Set",
+    gainYAxisLabel: "True Positive Rate",
+    liftAxisLabel: "Lift (independent scale; not a linear transform of gain)",
+    liftCurveLabel: "Lift Curve",
     bestUtilityPrefix: "Best utility = ",
     bestUtilityUnavailable: "Best utility = —",
     noThresholdData: "No threshold data available for payoff plot.",
@@ -95,6 +101,13 @@ const defaultConfig = {
       noCurveSelectedDownload: "No ROC curve selected to download.",
       failStaticLoad: "Failed to load static ROC file \"{path}\": {message}",
       failConfigLoad: "Failed to load configuration: {message}"
+    },
+    plots: {
+      gain: {
+        randomModelLabel: "Random Model (Diagonal)",
+        prevalenceLabel: "Prevalence",
+        baselineLegendTitle: "Baselines"
+      }
     }
   },
   ui: {
@@ -104,7 +117,18 @@ const defaultConfig = {
     showImport: true,
     showDownloadButton: true,
     showBestUtility: true,
+    showGainPlot: true,
+    showGainDiagonalLine: true,
+    showGainPrevalenceLine: true,
+    showGainBaselineLegend: false,
+    showGainCurveInGainPlot: true,
+    showLiftCurveInGainPlot: false,
+    liftAxisMaxMultiplier: 1.2,
     payoffInputMode: "slider"
+  },
+  style: {
+    gainDiagonalLine: { color: "#666", width: 1, dash: [] },
+    gainPrevalenceLine: { color: "#1e88e5", width: 1, dash: [5,3] }
   },
   sliders: {
     P_POS: {label: "Proportion positive", min: 0.01, max: 0.99, step: 0.01, value: 0.5},
@@ -162,6 +186,9 @@ let rocCurves = {};
 let appConfig = cloneDeep(defaultConfig);
 let strings = appConfig.strings;
 let uiSettings = appConfig.ui;
+let lastRocBestUtility = null;
+let lastRocBestIdx = null;
+let gainPlotCache = {points:[], utilities:[], thresholds:[], geometry:null};
 
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
@@ -171,6 +198,8 @@ const tooltip = document.getElementById('tooltip');
 const rocSelect = document.getElementById('rocSelect');
 const priorControls = document.getElementById('priorControls');
 const payoffGridSection = document.getElementById('payoffGridSection');
+const gainCanvas = document.getElementById('gainCanvas');
+const gainCtx = gainCanvas ? gainCanvas.getContext('2d') : null;
 const rocFileInput = document.getElementById('rocFileInput');
 const downloadCurveBtn = document.getElementById('downloadCurveBtn');
 const bestUtilityDiv = document.getElementById('bestUtility');
@@ -250,7 +279,9 @@ function applyConfigToUI(){
   if(importControls) importControls.style.display = isImportVisible() ? 'flex' : 'none';
   if(downloadCurveBtn) downloadCurveBtn.style.display = isDownloadVisible() ? 'inline-block' : 'none';
   if(slidersSection) slidersSection.style.display = isSlidersVisible() ? 'block' : 'none';
-  if(rocPlotContainer) rocPlotContainer.style.display = isRocPlotVisible() ? 'block' : 'none';
+  if(rocPlotContainer) rocPlotContainer.style.display = (isRocPlotVisible() || isGainPlotVisible()) ? 'block' : 'none';
+  if(canvas) canvas.style.display = isRocPlotVisible() ? 'block' : 'none';
+  if(gainCanvas) gainCanvas.style.display = isGainPlotVisible() ? 'block' : 'none';
   if(thresholdSection) thresholdSection.style.display = isThresholdPlotVisible() ? 'block' : 'none';
   if(bestUtilityDiv){
     if(isBestUtilityVisible()){
@@ -285,6 +316,7 @@ async function loadAppConfig(){
 
 function isRocPlotVisible(){ return !(uiSettings && uiSettings.showRocPlot === false); }
 function isThresholdPlotVisible(){ return !(uiSettings && uiSettings.showThresholdPlot === false); }
+function isGainPlotVisible(){ return !(uiSettings && uiSettings.showGainPlot === false); }
 function isSlidersVisible(){ return !(uiSettings && uiSettings.showSliders === false); }
 function isImportVisible(){ return !(uiSettings && uiSettings.showImport === false); }
 function isDownloadVisible(){ return !(uiSettings && uiSettings.showDownloadButton === false); }
@@ -727,6 +759,11 @@ function drawAll(){
   }else{
     ctx.clearRect(0,0,canvas.width,canvas.height);
   }
+  if(isGainPlotVisible()){
+    drawGainPlot();
+  }else if(gainCtx){
+    gainCtx.clearRect(0,0,gainCanvas.width,gainCanvas.height);
+  }
   if(isThresholdPlotVisible()){
     drawThresholdPlot();
   }else if(thresholdCtx){
@@ -1164,6 +1201,52 @@ function toNumber(value){
 function hslToRgb(h,s,l){const a=s*Math.min(l,1-l);const f=n=>{const k=(n+h*12)%12;const color=l-a*Math.max(Math.min(k-3,9-k,1),-1);return Math.round(255*color);};return [f(0),f(8),f(4)];}
 function heatColor(s){const h=240-240*s;const [r,g,b]=hslToRgb(h/360,0.6,0.85);return [r,g,b];}
 
+function marchingSquares(grid,width,height,levels){
+  const segments=[];
+  const lerp=(a,b,t)=>a+(b-a)*t;
+  const sample=(i,j)=>grid[j*width+i];
+  const toCoord=(i,j)=>({x:i/(width-1), y:1 - j/(height-1)});
+  levels.forEach(level=>{
+    for(let j=0;j<height-1;j++){
+      for(let i=0;i<width-1;i++){
+        const tl=sample(i,j)>=level;
+        const tr=sample(i+1,j)>=level;
+        const br=sample(i+1,j+1)>=level;
+        const bl=sample(i,j+1)>=level;
+        const idx=(tl<<3)|(tr<<2)|(br<<1)|bl;
+        if(idx===0||idx===15) continue;
+        const vTL=sample(i,j), vTR=sample(i+1,j), vBR=sample(i+1,j+1), vBL=sample(i,j+1);
+        const leftT=lerp(j,j+1,(level-vTL)/((vBL-vTL)||1));
+        const rightT=lerp(j,j+1,(level-vTR)/((vBR-vTR)||1));
+        const topT=lerp(i,i+1,(level-vTL)/((vTR-vTL)||1));
+        const bottomT=lerp(i,i+1,(level-vBL)/((vBR-vBL)||1));
+        const pLeft=toCoord(i,leftT);
+        const pRight=toCoord(i+1,rightT);
+        const pTop=toCoord(topT,j);
+        const pBottom=toCoord(bottomT,j+1);
+        const addSeg=(a,b)=>segments.push([a,b]);
+        switch(idx){
+          case 1: addSeg(pLeft,pBottom); break;
+          case 2: addSeg(pBottom,pRight); break;
+          case 3: addSeg(pLeft,pRight); break;
+          case 4: addSeg(pTop,pRight); break;
+          case 5: addSeg(pTop,pBottom); addSeg(pLeft,pRight); break;
+          case 6: addSeg(pTop,pBottom); break;
+          case 7: addSeg(pTop,pLeft); break;
+          case 8: addSeg(pTop,pLeft); break;
+          case 9: addSeg(pTop,pBottom); break;
+          case 10: addSeg(pTop,pRight); addSeg(pLeft,pBottom); break;
+          case 11: addSeg(pTop,pRight); break;
+          case 12: addSeg(pLeft,pRight); break;
+          case 13: addSeg(pBottom,pRight); break;
+          case 14: addSeg(pLeft,pBottom); break;
+        }
+      }
+    }
+  });
+  return segments;
+}
+
 function getRocPlotGeometry(width,height){
   const marginLeft=0.08*width;
   const marginRight=0.05*width;
@@ -1293,7 +1376,7 @@ function drawRocPlot(){
     ctx.beginPath(); for(let i=0;i<fpr.length;i++){if(i===0)ctx.moveTo(xScale(fpr[i]),yScale(lower[i]));else ctx.lineTo(xScale(fpr[i]),yScale(lower[i]));} ctx.stroke();
   }
 
-  let bestU=-Infinity,bestPt=null;
+  let bestU=-Infinity,bestPt=null,bestIdx=-1;
   ctx.beginPath(); ctx.strokeStyle='blue'; ctx.lineWidth=2;
   let firstPoint=true;
   for(let i=0;i<fpr.length;i++){
@@ -1303,12 +1386,14 @@ function drawRocPlot(){
     const x=xScale(fVal),y=yScale(tVal);
     if(firstPoint){ctx.moveTo(x,y); firstPoint=false;} else ctx.lineTo(x,y);
     const u=utilityAtRates(fVal,tVal,payoffs);
-    if(Number.isFinite(u) && u>bestU){bestU=u;bestPt={x,y};}
+    if(Number.isFinite(u) && u>bestU){bestU=u;bestPt={x,y};bestIdx=i;}
   }
   if(!firstPoint) ctx.stroke();
   if(bestPt){
     ctx.beginPath();ctx.arc(bestPt.x,bestPt.y,6,0,2*Math.PI);
     ctx.fillStyle='yellow';ctx.strokeStyle='red';ctx.fill();ctx.stroke();
+    lastRocBestUtility = bestU;
+    lastRocBestIdx = bestIdx;
     if(bestUtilityDiv && isBestUtilityVisible()){
       const prefix = strings.bestUtilityPrefix || defaultConfig.strings.bestUtilityPrefix;
       bestUtilityDiv.textContent = `${prefix}${Math.round(bestU)}`;
@@ -1347,6 +1432,285 @@ function drawRocPlot(){
   const yAxisLabel=strings.rocYAxisLabel || defaultConfig.strings.rocYAxisLabel || '';
   ctx.textBaseline='top'; ctx.fillText(yAxisLabel, 0, 0);
   ctx.restore();
+}
+
+function drawGainPlot(){
+  if(!gainCanvas || !gainCtx) return;
+  const width=gainCanvas.width, height=gainCanvas.height;
+  gainCtx.clearRect(0,0,width,height);
+  if(!isGainPlotVisible()) return;
+  const rocName=rocSelect.value;
+  if(!rocName || !rocCurves[rocName]) return;
+  const roc=rocCurves[rocName];
+  const fprArr=roc.fpr, tprArr=roc.tpr;
+  if(!Array.isArray(fprArr) || !Array.isArray(tprArr) || fprArr.length!==tprArr.length) return;
+  const payoffs=getPayoffParams();
+  const pPos=payoffs.P_POS;
+  const {x0,y0,plotW,plotH,titleY,subtitleY}=getRocPlotGeometry(width,height);
+  const xScale=(xf)=>x0+xf*plotW; const yScale=(yt)=>y0+(1-yt)*plotH;
+
+  const iw=Math.max(2,Math.floor(plotW)); const ih=Math.max(2,Math.floor(plotH));
+  const img=gainCtx.createImageData(iw,ih); const data=img.data;
+  const utilityGrid=new Array(iw*ih);
+  let minU=Infinity,maxU=-Infinity;
+  for(let j=0;j<ih;j++){
+    const tprVal=1-j/(ih-1);
+    for(let i=0;i<iw;i++){
+      const popFrac=i/(iw-1);
+      const denom=Math.max(1e-9,1-pPos);
+      let fprVal=(popFrac - pPos*tprVal)/denom;
+      fprVal=Math.max(0,Math.min(1,fprVal));
+      const u=utilityAtRates(fprVal,tprVal,payoffs);
+      const idx=j*iw+i;
+      utilityGrid[idx]=u;
+      if(u<minU)minU=u;
+      if(u>maxU)maxU=u;
+    }
+  }
+  const scale=v=>(v-minU)/(maxU-minU||1);
+  let k=0;for(let j=0;j<ih;j++){for(let i=0;i<iw;i++){const s=scale(utilityGrid[j*iw+i]);const [r,g,b]=heatColor(s);data[k++]=r;data[k++]=g;data[k++]=b;data[k++]=255;}}
+  gainCtx.putImageData(img,Math.round(x0),Math.round(y0));
+
+  gainCtx.fillStyle = '#000';
+  gainCtx.textAlign = 'center';
+  gainCtx.font = '16px sans-serif';
+  const titleText = strings.gainPlotTitle || defaultConfig.strings.gainPlotTitle || '';
+  gainCtx.fillText(titleText, width/2, titleY);
+  gainCtx.font = '13px sans-serif';
+  const subtitleText = resolveVariantLabel(rocName, roc.metadata || {});
+  gainCtx.fillText(subtitleText, width/2, subtitleY);
+
+  gainCtx.save();
+  gainCtx.beginPath(); gainCtx.rect(x0,y0,plotW,plotH); gainCtx.clip();
+  const styleCfg = (appConfig && appConfig.style) ? appConfig.style : (defaultConfig.style || {});
+  const diagStyle = styleCfg.gainDiagonalLine || (defaultConfig.style && defaultConfig.style.gainDiagonalLine) || {color:'#666',width:1,dash:[]};
+  const prevStyle = styleCfg.gainPrevalenceLine || (defaultConfig.style && defaultConfig.style.gainPrevalenceLine) || {color:'#1e88e5',width:1,dash:[5,3]};
+
+  const gainPoints=[];
+  const gainUtilities=[];
+  const bestInfo={u:-Infinity, idx:-1, point:null};
+  let forcedBestPoint=null;
+  if(Number.isInteger(lastRocBestIdx) && lastRocBestIdx>=0 && lastRocBestIdx<fprArr.length){
+    const fprVal=Number(fprArr[lastRocBestIdx]);
+    const tprVal=Number(tprArr[lastRocBestIdx]);
+    const popFrac=pPos*tprVal + (1-pPos)*fprVal;
+    forcedBestPoint={x:popFrac,y:tprVal,fpr:fprVal,tpr:tprVal};
+  }
+  for(let i=0;i<fprArr.length;i++){
+    const fprVal=Number(fprArr[i]);
+    const tprVal=Number(tprArr[i]);
+    if(!Number.isFinite(fprVal) || !Number.isFinite(tprVal)) continue;
+    const popFrac=pPos*tprVal + (1-pPos)*fprVal;
+    const uVal=utilityAtRates(fprVal,tprVal,payoffs);
+    gainPoints.push({x:popFrac,y:tprVal,fpr:fprVal,tpr:tprVal});
+    gainUtilities.push(uVal);
+    if(Number.isFinite(uVal) && uVal>bestInfo.u){
+      bestInfo.u=uVal; bestInfo.idx=gainPoints.length-1; bestInfo.point={x:popFrac,y:tprVal};
+    }
+  }
+  const contourLevels=[];
+  const contourCount=8;
+  for(let i=1;i<=contourCount;i++){
+    contourLevels.push(minU + (i/(contourCount+1))*(maxU-minU));
+  }
+  const contourSegments=marchingSquares(utilityGrid, iw, ih, contourLevels);
+  gainCtx.strokeStyle='rgba(0,0,0,0.35)';
+  gainCtx.lineWidth=1;
+  contourSegments.forEach(seg=>{
+    const [a,b]=seg;
+    gainCtx.beginPath();
+    gainCtx.moveTo(xScale(a.x), yScale(a.y));
+    gainCtx.lineTo(xScale(b.x), yScale(b.y));
+    gainCtx.stroke();
+  });
+
+  const drawGainCurve = !(uiSettings && uiSettings.showGainCurveInGainPlot===false);
+  const drawLiftCurve = uiSettings && uiSettings.showLiftCurveInGainPlot;
+
+  if(!(uiSettings && uiSettings.showGainDiagonalLine===false)){
+    gainCtx.strokeStyle=diagStyle.color || '#666';
+    gainCtx.lineWidth=diagStyle.width || 1;
+    gainCtx.setLineDash(Array.isArray(diagStyle.dash)?diagStyle.dash:[]);
+    gainCtx.beginPath(); gainCtx.moveTo(xScale(0), yScale(0)); gainCtx.lineTo(xScale(1), yScale(1)); gainCtx.stroke();
+    gainCtx.setLineDash([]);
+  }
+
+  if(drawLiftCurve && !(uiSettings && uiSettings.showGainPrevalenceLine===false)){
+    gainCtx.strokeStyle=prevStyle.color || '#1e88e5';
+    gainCtx.lineWidth=prevStyle.width || 1;
+    gainCtx.setLineDash(Array.isArray(prevStyle.dash)?prevStyle.dash:[5,3]);
+    const yPrev=yScale(pPos);
+    gainCtx.beginPath(); gainCtx.moveTo(xScale(0), yPrev); gainCtx.lineTo(xScale(1), yPrev); gainCtx.stroke();
+    gainCtx.setLineDash([]);
+  }
+
+  const sortedPoints=[...gainPoints].sort((a,b)=>a.x-b.x);
+  let maxLift=0;
+  if(sortedPoints.length){
+    sortedPoints.forEach(pt=>{
+      const liftVal=pt.x>0 ? pt.y/pt.x : 0;
+      if(liftVal>maxLift) maxLift=liftVal;
+    });
+  }
+  const liftMultiplier = uiSettings && uiSettings.liftAxisMaxMultiplier ? uiSettings.liftAxisMaxMultiplier : defaultConfig.ui.liftAxisMaxMultiplier || 1.2;
+  const liftMax = maxLift * (liftMultiplier || 1);
+
+  if(drawGainCurve && sortedPoints.length){
+    gainCtx.beginPath();
+    sortedPoints.forEach((pt,idx)=>{
+      const px=xScale(pt.x);
+      const py=yScale(pt.y);
+      if(idx===0) gainCtx.moveTo(px,py);
+      else gainCtx.lineTo(px,py);
+    });
+    gainCtx.strokeStyle='blue';
+    gainCtx.lineWidth=2;
+    gainCtx.stroke();
+  }
+
+  if(drawLiftCurve && sortedPoints.length && liftMax>0){
+    gainCtx.beginPath();
+    sortedPoints.forEach((pt,idx)=>{
+      const liftVal=pt.x>0 ? pt.y/pt.x : 0;
+      const px=xScale(pt.x);
+      const py=yScale(Math.min(1, liftVal / liftMax));
+      if(idx===0) gainCtx.moveTo(px,py);
+      else gainCtx.lineTo(px,py);
+    });
+    gainCtx.strokeStyle='#a52a2a';
+    gainCtx.lineWidth=2;
+    gainCtx.stroke();
+  }
+
+  const bestPointToDraw = drawGainCurve ? (forcedBestPoint || bestInfo.point) : null;
+  if(bestPointToDraw){
+    gainCtx.beginPath();
+    gainCtx.arc(xScale(bestPointToDraw.x), yScale(bestPointToDraw.y), 6, 0, Math.PI*2);
+    gainCtx.fillStyle='yellow';
+    gainCtx.strokeStyle='red';
+    gainCtx.fill();
+    gainCtx.stroke();
+  }
+
+  gainCtx.restore();
+
+  gainCtx.strokeStyle='#666'; gainCtx.lineWidth=1; gainCtx.strokeRect(x0,y0,plotW,plotH);
+
+  if(drawLiftCurve && liftMax>0){
+    gainCtx.strokeStyle='#333'; gainCtx.fillStyle='#333'; gainCtx.lineWidth=1;
+    gainCtx.font='11px sans-serif'; gainCtx.textAlign='center'; gainCtx.textBaseline='middle';
+    const tickCount=6;
+    for(let i=0;i<tickCount;i++){
+      const frac=i/(tickCount-1||1);
+      const liftVal=frac*liftMax;
+      const yTick=yScale(Math.min(1, liftVal/liftMax));
+      gainCtx.beginPath(); gainCtx.moveTo(x0+plotW, yTick); gainCtx.lineTo(x0+plotW+6, yTick); gainCtx.stroke();
+      gainCtx.textAlign='left';
+      gainCtx.fillText(liftVal.toFixed(2), x0+plotW+8, yTick);
+      gainCtx.textAlign='center';
+    }
+    const liftAxisLabel = (strings.plots && strings.plots.gain && strings.plots.gain.liftAxisLabel) || defaultConfig.strings.liftAxisLabel || (defaultConfig.strings.plots && defaultConfig.strings.plots.gain && defaultConfig.strings.plots.gain.liftAxisLabel) || '';
+    gainCtx.save();
+    gainCtx.translate(x0+plotW+40, y0+plotH/2);
+    gainCtx.rotate(Math.PI/2);
+    gainCtx.textBaseline='top';
+    gainCtx.fillText(liftAxisLabel, 0, 0);
+    gainCtx.restore();
+  }
+
+  gainCtx.strokeStyle='#333'; gainCtx.fillStyle='#333'; gainCtx.lineWidth=1;
+  gainCtx.font='11px sans-serif'; gainCtx.textAlign='center'; gainCtx.textBaseline='top';
+  const tickCount=11;
+  for(let i=0;i<tickCount;i++){
+    const val=i/10;
+    const x=xScale(val);
+    const yBottom=yScale(0);
+    gainCtx.beginPath(); gainCtx.moveTo(x,yBottom); gainCtx.lineTo(x,yBottom+6); gainCtx.stroke();
+    gainCtx.fillText(val.toFixed(1), x, yBottom+8);
+  }
+  gainCtx.textAlign='right'; gainCtx.textBaseline='middle';
+  for(let i=0;i<tickCount;i++){
+    const val=i/10;
+    const y=yScale(val);
+    const xLeft=xScale(0);
+    gainCtx.beginPath(); gainCtx.moveTo(xLeft-6,y); gainCtx.lineTo(xLeft,y); gainCtx.stroke();
+    gainCtx.fillText(val.toFixed(1), xLeft-8, y);
+  }
+
+  gainCtx.font='13px sans-serif'; gainCtx.textAlign='center'; gainCtx.textBaseline='top';
+  const xAxisLabel=strings.gainXAxisLabel || defaultConfig.strings.gainXAxisLabel || '';
+  gainCtx.fillText(xAxisLabel, x0 + plotW/2, y0 + plotH + 28);
+  gainCtx.save();
+  gainCtx.translate(x0 - 36, y0 + plotH/2);
+  gainCtx.rotate(-Math.PI/2);
+  const yAxisLabel=strings.gainYAxisLabel || defaultConfig.strings.gainYAxisLabel || '';
+  gainCtx.textBaseline='top'; gainCtx.fillText(yAxisLabel, 0, 0);
+  gainCtx.restore();
+
+  if(gainUtilities.length){
+    const gainMax=Math.max(...gainUtilities, -Infinity);
+    if(lastRocBestUtility!==null && Math.abs(gainMax - lastRocBestUtility)>1e-6){
+      console.warn('Gain plot best utility differs from ROC best utility', {gainMax, rocBest:lastRocBestUtility});
+    }
+  }
+
+  gainPlotCache = {
+    points: gainPoints,
+    utilities: gainUtilities,
+    thresholds: Array.isArray(roc.threshold) ? roc.threshold.slice() : [],
+    geometry: {x0,y0,plotW,plotH,width,height},
+    liftMax: typeof liftMax==='number'?liftMax:0,
+    liftEnabled: !!drawLiftCurve
+  };
+
+  if(!(uiSettings && uiSettings.showGainBaselineLegend===false)){
+    const legendItems=[];
+    const gainStrings = (strings && strings.plots && strings.plots.gain) || (defaultConfig.strings && defaultConfig.strings.plots && defaultConfig.strings.plots.gain) || {};
+    if(!(uiSettings && uiSettings.showGainDiagonalLine===false)){
+      legendItems.push({label: gainStrings.randomModelLabel || 'Random Model (Diagonal)', color: (styleCfg && styleCfg.gainDiagonalLine && styleCfg.gainDiagonalLine.color) || '#666', dash: (styleCfg && styleCfg.gainDiagonalLine && styleCfg.gainDiagonalLine.dash) || []});
+    }
+    if(!(uiSettings && uiSettings.showGainPrevalenceLine===false)){
+      legendItems.push({label: gainStrings.prevalenceLabel || 'Prevalence', color: (styleCfg && styleCfg.gainPrevalenceLine && styleCfg.gainPrevalenceLine.color) || '#1e88e5', dash: (styleCfg && styleCfg.gainPrevalenceLine && styleCfg.gainPrevalenceLine.dash) || [5,3]});
+    }
+    if(legendItems.length){
+      const legendTitle = gainStrings.baselineLegendTitle || 'Baselines';
+      const padding=8;
+      const swatchSize=12;
+      const spacing=6;
+      gainCtx.font='11px sans-serif';
+      const lineHeight=16;
+      let maxTextWidth=gainCtx.measureText(legendTitle).width;
+      legendItems.forEach(item=>{
+        const w=gainCtx.measureText(item.label).width;
+        if(w>maxTextWidth) maxTextWidth=w;
+      });
+      const legendWidth=padding*2 + swatchSize + spacing + maxTextWidth;
+      const legendHeight=padding*2 + lineHeight*(legendItems.length+1);
+      const legendX=x0 + plotW - legendWidth - 10;
+      const legendY=y0 + 10;
+      gainCtx.fillStyle='rgba(255,255,255,0.9)';
+      gainCtx.strokeStyle='rgba(0,0,0,0.15)';
+      gainCtx.lineWidth=1;
+      gainCtx.fillRect(legendX, legendY, legendWidth, legendHeight);
+      gainCtx.strokeRect(legendX, legendY, legendWidth, legendHeight);
+      gainCtx.fillStyle='#000';
+      gainCtx.textBaseline='top';
+      gainCtx.fillText(legendTitle, legendX+padding, legendY+padding);
+      legendItems.forEach((item,idx)=>{
+        const y=legendY+padding+lineHeight*(idx+1);
+        gainCtx.strokeStyle=item.color;
+        gainCtx.lineWidth=2;
+        gainCtx.setLineDash(Array.isArray(item.dash)?item.dash:[]);
+        gainCtx.beginPath();
+        gainCtx.moveTo(legendX+padding, y+swatchSize/2);
+        gainCtx.lineTo(legendX+padding+swatchSize, y+swatchSize/2);
+        gainCtx.stroke();
+        gainCtx.setLineDash([]);
+        gainCtx.fillStyle='#000';
+        gainCtx.fillText(item.label, legendX+padding+swatchSize+spacing, y);
+      });
+    }
+  }
 }
 
 function drawThresholdPlot(){
@@ -1631,6 +1995,71 @@ canvas.addEventListener('mousemove',e=>{
   tooltip.style.display='block';
 });
 canvas.addEventListener('mouseleave',()=>tooltip.style.display='none');
+
+if(gainCanvas){
+  gainCanvas.addEventListener('mousemove',e=>{
+    if(!isGainPlotVisible()){
+      tooltip.style.display='none';
+      return;
+    }
+    const {points, utilities, thresholds, geometry, liftEnabled, liftMax}=gainPlotCache;
+    if(!geometry){
+      tooltip.style.display='none';
+      return;
+    }
+    const rect=gainCanvas.getBoundingClientRect();
+    const containerRect=rocPlotContainer.getBoundingClientRect();
+    const offsetX=e.clientX-rect.left;
+    const offsetY=e.clientY-rect.top;
+    const scaleX=gainCanvas.width/rect.width;
+    const scaleY=gainCanvas.height/rect.height;
+    const x=offsetX*scaleX;
+    const y=offsetY*scaleY;
+    const {x0,y0,plotW,plotH}=geometry;
+    if(x<x0||x>x0+plotW||y<y0||y>y0+plotH){tooltip.style.display='none';return;}
+    const payoffs=getPayoffParams();
+    const popFrac=Math.min(1,Math.max(0,(x - x0)/plotW));
+    const tprVal=Math.min(1,Math.max(0,1 - (y - y0)/plotH));
+    const denom=Math.max(1e-9,1 - payoffs.P_POS);
+    const fprVal=Math.min(1,Math.max(0,(popFrac - payoffs.P_POS * tprVal)/denom));
+    const util=utilityAtRates(fprVal,tprVal,payoffs);
+    const liftVal = (liftEnabled && popFrac>0) ? tprVal/popFrac : null;
+
+    let thresholdVal=null;
+    if(points && points.length && thresholds && thresholds.length){
+      let nearestIdx=-1;
+      let bestDist=Infinity;
+      const xScale=(xf)=>x0+xf*plotW;
+      const yScale=(yt)=>y0+(1-yt)*plotH;
+      points.forEach((pt,idx)=>{
+        if(idx>=thresholds.length) return;
+        const px=xScale(pt.x);
+        const py=yScale(pt.y);
+        const d=(px-x)*(px-x)+(py-y)*(py-y);
+        if(d<bestDist){
+          bestDist=d; nearestIdx=idx;
+        }
+      });
+      if(nearestIdx>=0 && Number.isFinite(Number(thresholds[nearestIdx]))){
+        thresholdVal=Number(thresholds[nearestIdx]);
+      }
+    }
+    const parts=[];
+    parts.push(`Pop frac: ${popFrac.toFixed(2)}`);
+    parts.push(`TPR: ${tprVal.toFixed(2)}`);
+    parts.push(`FPR: ${fprVal.toFixed(2)}`);
+    if(thresholdVal!==null) parts.push(`Threshold: ${thresholdVal.toFixed(3)}`);
+    parts.push(`Utility: ${Math.round(util)}`);
+    if(liftVal!==null && liftMax>0 && uiSettings && uiSettings.showLiftCurveInGainPlot){
+      parts.push(`Lift: ${liftVal.toFixed(2)}`);
+    }
+    tooltip.textContent=parts.join(', ');
+    tooltip.style.left=(rect.left - containerRect.left + offsetX - 140)+'px';
+    tooltip.style.top=(rect.top - containerRect.top + offsetY - 50)+'px';
+    tooltip.style.display='block';
+  });
+  gainCanvas.addEventListener('mouseleave',()=>tooltip.style.display='none');
+}
 
 window.addEventListener('DOMContentLoaded',async()=>{
   await loadAppConfig();
