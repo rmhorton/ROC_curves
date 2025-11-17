@@ -15,9 +15,11 @@
   .payoff-grid th, .payoff-grid td { border: 1px solid #ccc; padding: 6px; text-align: center; }
   .payoff-grid th { background: #f5f5f5; font-weight: 600; }
   .payoff-cell { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .slider-input-row { display: flex; align-items: center; gap: 10px; width: 100%; }
   .payoff-cell-label { font-size: 12px; font-weight: 600; }
   .payoff-slider-value { font-size: 12px; font-weight: 600; }
   .payoff-input-number { width: 80px; }
+  .control-container { max-width: 360px; width: 100%; margin: 0 auto; }
 </style>
 </head>
 <body>
@@ -27,15 +29,21 @@
     <label id="dropdownLabel"><span id="dropdownLabelText">Reference model</span>
       <select id="rocSelect"></select>
     </label>
-    <div id="importControls" style="margin-top:12px; display:flex; flex-direction:column; gap:6px;">
-      <label><span id="importLabelText">Import ROC Data</span>
-        <input type="file" id="rocFileInput" accept=".csv,.json,application/json,text/csv">
-      </label>
-      <button type="button" id="downloadCurveBtn">Download Selected Curve JSON</button>
+    <div class="control-container">
+      <div id="importControls" style="margin-top:12px; display:flex; flex-direction:column; gap:6px;">
+        <label><span id="importLabelText">Import ROC Data</span>
+          <input type="file" id="rocFileInput" accept=".csv,.json,application/json,text/csv">
+        </label>
+        <button type="button" id="downloadCurveBtn">Download Selected Curve JSON</button>
+      </div>
     </div>
     <div id="slidersSection">
-      <div id="priorControls"></div>
-      <div id="payoffGridSection" style="margin-top:12px;"></div>
+      <div class="control-container">
+        <div id="priorControls"></div>
+      </div>
+      <div class="control-container">
+        <div id="payoffGridSection" style="margin-top:12px;"></div>
+      </div>
     </div>
     <div id="bestUtility" style="margin-top:1em;font-weight:bold;"></div>
   </div>
@@ -375,6 +383,54 @@ function ensureValue(key, defaultVal){
   }
 }
 
+function clampValue(value, min, max){
+  if(!Number.isFinite(value)) return null;
+  const minNum = Number(min);
+  const maxNum = Number(max);
+  let result = value;
+  if(Number.isFinite(minNum)) result = Math.max(result, minNum);
+  if(Number.isFinite(maxNum)) result = Math.min(result, maxNum);
+  return result;
+}
+
+function bindSliderWithNumber({slider, numberInput, valueSpan, key}){
+  if(!slider || !numberInput) return;
+  const updateFromSlider = ()=>{
+    const val = Number(slider.value);
+    values[key] = val;
+    numberInput.value = slider.value;
+    if(valueSpan) valueSpan.textContent = slider.value;
+    drawAll();
+  };
+  const updateFromNumber = ()=>{
+    const parsed = Number(numberInput.value);
+    if(!Number.isFinite(parsed)) return;
+    const clamped = clampValue(parsed, slider.min, slider.max);
+    if(clamped === null) return;
+    slider.value = clamped;
+    numberInput.value = clamped;
+    values[key] = clamped;
+    if(valueSpan) valueSpan.textContent = slider.value;
+    drawAll();
+  };
+  slider.addEventListener('input', updateFromSlider);
+  numberInput.addEventListener('change', updateFromNumber);
+  numberInput.addEventListener('input', ()=>{
+    if(Number.isFinite(Number(numberInput.value))){
+      updateFromNumber();
+    }
+  });
+  numberInput.addEventListener('blur', ()=>{
+    if(!Number.isFinite(Number(numberInput.value))){
+      numberInput.value = slider.value;
+      return;
+    }
+    updateFromNumber();
+  });
+  numberInput.value = slider.value;
+  if(valueSpan) valueSpan.textContent = slider.value;
+}
+
 function buildControlPanels(){
   buildPriorSlider();
   buildPayoffGrid();
@@ -412,15 +468,24 @@ function buildPriorSlider(){
   range.max = priorCfg && priorCfg.max !== undefined ? priorCfg.max : 1;
   range.step = priorCfg && priorCfg.step !== undefined ? priorCfg.step : 0.01;
   range.value = values.P_POS;
-  range.style.width = '100%';
-  range.addEventListener('input', () => {
-    values.P_POS = +range.value;
-    valueSpan.textContent = range.value;
-    drawAll();
-  });
+  range.style.flex = '1';
+
+  const numberInput = document.createElement('input');
+  numberInput.type = 'number';
+  numberInput.className = 'payoff-input-number';
+  numberInput.min = range.min;
+  numberInput.max = range.max;
+  numberInput.step = range.step;
+  numberInput.value = values.P_POS;
+
+  const sliderRow = document.createElement('div');
+  sliderRow.className = 'slider-input-row';
+  sliderRow.appendChild(range);
+  sliderRow.appendChild(numberInput);
 
   wrapper.appendChild(headerRow);
-  wrapper.appendChild(range);
+  wrapper.appendChild(sliderRow);
+  bindSliderWithNumber({slider: range, numberInput, valueSpan, key: 'P_POS'});
   priorControls.appendChild(wrapper);
 }
 
@@ -516,17 +581,26 @@ function createPayoffCell(key, payoffCfg, mode){
     range.max = cfg.max ?? 100;
     range.step = cfg.step ?? 1;
     range.value = values[key];
-    range.style.width = '100%';
+    range.style.flex = '1';
     const valueSpan = document.createElement('span');
     valueSpan.className = 'payoff-slider-value';
     valueSpan.textContent = values[key];
-    range.addEventListener('input',()=>{
-      values[key] = +range.value;
-      valueSpan.textContent = range.value;
-      drawAll();
-    });
-    wrapper.appendChild(range);
+    const numberInput = document.createElement('input');
+    numberInput.type = 'number';
+    numberInput.className = 'payoff-input-number';
+    numberInput.min = range.min;
+    numberInput.max = range.max;
+    numberInput.step = range.step;
+    numberInput.value = values[key];
+
+    const sliderRow = document.createElement('div');
+    sliderRow.className = 'slider-input-row';
+    sliderRow.appendChild(range);
+    sliderRow.appendChild(numberInput);
+
+    wrapper.appendChild(sliderRow);
     wrapper.appendChild(valueSpan);
+    bindSliderWithNumber({slider: range, numberInput, valueSpan, key});
   }
 
   cell.appendChild(wrapper);
