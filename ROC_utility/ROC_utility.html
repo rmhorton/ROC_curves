@@ -129,6 +129,8 @@ const defaultConfig = {
     showGainCurveInGainPlot: true,
     showLiftCurveInGainPlot: false,
     liftAxisMaxMultiplier: 1.2,
+    thresholdXAxisMode: "quantile", // "threshold" or "quantile"
+    showAllCurvesInThresholdPlot: true,
     payoffInputMode: "slider"
   },
   style: {
@@ -220,6 +222,7 @@ const thresholdSection = document.getElementById('thresholdSection');
 const thresholdTitleEl = document.getElementById('thresholdTitle');
 
 const values = {};
+const isFileProtocol = typeof location !== 'undefined' && location.protocol === 'file:';
 
 function cloneDeep(obj){
   return JSON.parse(JSON.stringify(obj));
@@ -305,6 +308,13 @@ function applyConfigToUI(){
 }
 
 async function loadAppConfig(){
+  if(isFileProtocol){
+    appConfig = cloneDeep(defaultConfig);
+    updateConfigReferences();
+    applyConfigToUI();
+    buildControlPanels();
+    return;
+  }
   let fetchedConfig = null;
   try{
     const response = await fetch('roc_config.json');
@@ -861,6 +871,10 @@ function addCurvesToCollection(target, parsed, {sourceType, sourceFile} = {}){
 }
 
 async function loadStaticRocFiles(){
+  if(isFileProtocol){
+    console.warn('Skipping static ROC file loads in file:// context; using embedded/fallback curves only.');
+    return false;
+  }
   let preferredSelection=null;
   let loadedAny=false;
   const merged={...rocCurves};
@@ -1857,8 +1871,12 @@ function drawThresholdPlot(){
   }
 
   const payoffs=getPayoffParams();
+  const pPos = payoffs.P_POS;
   const curveIds=Object.keys(rocCurves).sort((a,b)=>a.localeCompare(b));
   const selectedId=rocSelect.value;
+  const showAll = !(uiSettings && uiSettings.showAllCurvesInThresholdPlot===false);
+  const xMode = (uiSettings && uiSettings.thresholdXAxisMode==='quantile') ? 'quantile' : 'threshold';
+  const curveIdsToPlot = showAll ? curveIds : (selectedId ? [selectedId] : []);
 
   const datasets=[];
   let minThreshold=Infinity,maxThreshold=-Infinity,minUtility=Infinity,maxUtility=-Infinity;
@@ -1907,30 +1925,65 @@ function drawThresholdPlot(){
     return {values, synthetic:true, source:'index'};
   };
 
-  curveIds.forEach((curveId,curveIndex)=>{
+  curveIdsToPlot.forEach((curveId)=>{
     const curve=rocCurves[curveId];
     if(!curve) return;
     if(!Array.isArray(curve.fpr) || !Array.isArray(curve.tpr)) return;
     const length=Math.min(curve.fpr.length, curve.tpr.length);
     if(!length) return;
     const thresholdSeries=buildThresholdSeries(curve,length);
+    let lower=curve.tpr_lower, upper=curve.tpr_upper;
+    if((!lower || !upper) && Array.isArray(curve.bands) && curve.bands.length){
+      const sortedBands=[...curve.bands].sort((a,b)=>{
+        const aVal=typeof a.level==='number'?a.level:parseFloat(a.level)||0;
+        const bVal=typeof b.level==='number'?b.level:parseFloat(b.level)||0;
+        return aVal-bVal;
+      });
+      const fallback=sortedBands[sortedBands.length-1];
+      if(fallback){
+        if(!lower) lower=fallback.lower;
+        if(!upper) upper=fallback.upper;
+      }
+    }
     const entries=[];
+    const bandEntries=[];
+    const colorIndex = Math.max(0, curveIds.indexOf(curveId));
     for(let i=0;i<length;i++){
-      const thresholdValue=Number(thresholdSeries.values[i]);
       const fpr=Number(curve.fpr[i]);
       const tpr=Number(curve.tpr[i]);
-      if(!Number.isFinite(thresholdValue) || !Number.isFinite(fpr) || !Number.isFinite(tpr)) continue;
+      if(!Number.isFinite(fpr) || !Number.isFinite(tpr)) continue;
+      const xVal = xMode==='quantile' ? (pPos*tpr + (1-pPos)*fpr) : Number(thresholdSeries.values[i]);
+      if(!Number.isFinite(xVal)) continue;
       const utility=utilityAtRates(fpr,tpr,payoffs);
       if(!Number.isFinite(utility)) continue;
-      entries.push({threshold:thresholdValue, utility});
+      let lowerUtility=null, upperUtility=null;
+      if(Array.isArray(lower) && lower.length>i && Number.isFinite(Number(lower[i]))){
+        lowerUtility=utilityAtRates(fpr, Number(lower[i]), payoffs);
+      }
+      if(Array.isArray(upper) && upper.length>i && Number.isFinite(Number(upper[i]))){
+        upperUtility=utilityAtRates(fpr, Number(upper[i]), payoffs);
+      }
+      entries.push({x:xVal, utility, idx:i});
+      bandEntries.push({x:xVal, lower:lowerUtility, upper:upperUtility});
     }
     if(!entries.length) return;
-    entries.sort((a,b)=>a.threshold-b.threshold || a.utility-b.utility);
+    entries.sort((a,b)=>a.x-b.x || a.utility-b.utility);
+    bandEntries.sort((a,b)=>a.x-b.x);
     entries.forEach(pt=>{
-      if(pt.threshold<minThreshold) minThreshold=pt.threshold;
-      if(pt.threshold>maxThreshold) maxThreshold=pt.threshold;
+      if(pt.x<minThreshold) minThreshold=pt.x;
+      if(pt.x>maxThreshold) maxThreshold=pt.x;
       if(pt.utility<minUtility) minUtility=pt.utility;
       if(pt.utility>maxUtility) maxUtility=pt.utility;
+    });
+    bandEntries.forEach(pt=>{
+      if(Number.isFinite(pt.lower)){
+        if(pt.lower<minUtility) minUtility=pt.lower;
+        if(pt.lower>maxUtility) maxUtility=pt.lower;
+      }
+      if(Number.isFinite(pt.upper)){
+        if(pt.upper<minUtility) minUtility=pt.upper;
+        if(pt.upper>maxUtility) maxUtility=pt.upper;
+      }
     });
     const meta=curve.metadata||{};
     const baseLabel = resolveVariantLabel(curveId, meta);
@@ -1938,7 +1991,8 @@ function drawThresholdPlot(){
       id:curveId,
       label:baseLabel,
       entries,
-      color:getCurveColor(curveIndex, curveIds.length),
+      bandEntries,
+      color:getCurveColor(colorIndex, curveIds.length),
       isSelected: curveId===selectedId,
       synthetic: thresholdSeries.synthetic
     });
@@ -1956,6 +2010,10 @@ function drawThresholdPlot(){
   if(minThreshold===Infinity || maxThreshold===-Infinity){
     minThreshold=0;
     maxThreshold=1;
+  }
+  if(xMode==='quantile'){
+    minThreshold=Math.max(0, minThreshold);
+    maxThreshold=Math.min(1, Math.max(maxThreshold, minThreshold+1e-6));
   }
   if(minThreshold===maxThreshold){
     minThreshold-=0.5;
@@ -2002,7 +2060,8 @@ function drawThresholdPlot(){
   thresholdCtx.fillStyle='#000';
   thresholdCtx.font='13px sans-serif';
   thresholdCtx.textAlign='center';
-  thresholdCtx.fillText(strings.axisThreshold || defaultConfig.strings.axisThreshold, marginLeft + plotW/2, marginTop+plotH+28);
+  const xAxisLabel = xMode==='quantile' ? (strings.gainXAxisLabel || defaultConfig.strings.gainXAxisLabel || 'Fraction of the Entire Test Set') : (strings.axisThreshold || defaultConfig.strings.axisThreshold);
+  thresholdCtx.fillText(xAxisLabel, marginLeft + plotW/2, marginTop+plotH+28);
   thresholdCtx.save();
   thresholdCtx.translate(18, marginTop + plotH/2);
   thresholdCtx.rotate(-Math.PI/2);
@@ -2050,25 +2109,65 @@ function drawThresholdPlot(){
   }
 
   datasets.forEach(dataset=>{
+    const lineWidth = dataset.isSelected ? 4 : 2;
+    const bandPts = (dataset.bandEntries || []).filter(pt=>Number.isFinite(pt.lower) || Number.isFinite(pt.upper));
+    if(bandPts.length){
+      const upperPath=[];
+      const lowerPath=[];
+      bandPts.forEach(pt=>{
+        if(Number.isFinite(pt.upper)) upperPath.push({x:xScale(pt.x), y:yScale(pt.upper)});
+      });
+      for(let i=bandPts.length-1;i>=0;i--){
+        const pt=bandPts[i];
+        if(Number.isFinite(pt.lower)) lowerPath.push({x:xScale(pt.x), y:yScale(pt.lower)});
+      }
+      if(upperPath.length && lowerPath.length){
+        thresholdCtx.save();
+        thresholdCtx.beginPath();
+        thresholdCtx.moveTo(upperPath[0].x, upperPath[0].y);
+        upperPath.slice(1).forEach(p=>thresholdCtx.lineTo(p.x,p.y));
+        lowerPath.forEach(p=>thresholdCtx.lineTo(p.x,p.y));
+        thresholdCtx.closePath();
+        thresholdCtx.fillStyle=dataset.color;
+        thresholdCtx.globalAlpha=0.18;
+        thresholdCtx.fill();
+        thresholdCtx.restore();
+      }
+    }
+
     thresholdCtx.beginPath();
     dataset.entries.forEach((pt,idx)=>{
-      const x=xScale(pt.threshold);
+      const x=xScale(pt.x);
       const y=yScale(pt.utility);
       if(idx===0) thresholdCtx.moveTo(x,y);
       else thresholdCtx.lineTo(x,y);
     });
     thresholdCtx.strokeStyle=dataset.color;
-    thresholdCtx.lineWidth=dataset.isSelected?3:2;
+    thresholdCtx.lineWidth=lineWidth;
     thresholdCtx.stroke();
     thresholdCtx.lineWidth=1;
     dataset.entries.forEach(pt=>{
-      const x=xScale(pt.threshold);
+      const x=xScale(pt.x);
       const y=yScale(pt.utility);
       thresholdCtx.beginPath();
       thresholdCtx.arc(x,y,dataset.isSelected?4:3,0,Math.PI*2);
       thresholdCtx.fillStyle=dataset.color;
       thresholdCtx.fill();
     });
+
+    if(dataset.isSelected && Number.isInteger(lastRocBestIdx)){
+      const match=dataset.entries.find(pt=>pt.idx===lastRocBestIdx);
+      if(match){
+        thresholdCtx.beginPath();
+        thresholdCtx.arc(xScale(match.x), yScale(match.utility), 7, 0, Math.PI*2);
+        thresholdCtx.fillStyle='yellow';
+        thresholdCtx.strokeStyle='red';
+        thresholdCtx.lineWidth=2;
+        thresholdCtx.fill();
+        thresholdCtx.stroke();
+        thresholdCtx.lineWidth=1;
+      }
+    }
   });
 
   if(legendHeight>0){
