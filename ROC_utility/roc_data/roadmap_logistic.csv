@@ -1,7 +1,0 @@
-curve_id,threshold,fpr,tpr,tpr_lower_95,tpr_upper_95
-logistic,1.00,0.00,0.00,0.00,0.00
-logistic,0.80,0.10,0.40,0.30,0.50
-logistic,0.60,0.20,0.65,0.55,0.75
-logistic,0.40,0.35,0.80,0.70,0.90
-logistic,0.20,0.60,0.90,0.80,0.95
-logistic,0.00,1.00,1.00,1.00,1.00
