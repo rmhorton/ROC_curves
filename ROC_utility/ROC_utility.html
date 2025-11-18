@@ -20,46 +20,62 @@
   .payoff-cell-label { font-size: 12px; font-weight: 600; }
   .payoff-input-number { width: 80px; }
   .control-container { max-width: 360px; width: 100%; margin: 0 auto; }
+  #plotGrid { display: grid; gap: 20px; }
+  .grid-area { position: relative; }
+  .plot-container { display: flex; flex-direction: column; gap: 10px; }
+  .plot-title { font-weight: bold; text-align: center; }
 </style>
 </head>
 <body>
 <h1 id="appTitle">Costs and Benefits</h1>
-<div class="container">
-  <div>
-    <label id="dropdownLabel"><span id="dropdownLabelText">Reference model</span>
-      <select id="rocSelect"></select>
-    </label>
-    <div class="control-container">
+<div id="plotGrid">
+  <div id="controlsContainer" class="plot-container">
+    <div class="plot-title" id="controlsTitle"></div>
+    <div id="controlsContent">
+      <label id="dropdownLabel"><span id="dropdownLabelText">Reference model</span>
+        <select id="rocSelect"></select>
+      </label>
       <div id="importControls" style="margin-top:12px; display:flex; flex-direction:column; gap:6px;">
         <label><span id="importLabelText">Import ROC Data</span>
           <input type="file" id="rocFileInput" accept=".csv,.json,application/json,text/csv">
         </label>
         <button type="button" id="downloadCurveBtn">Download Selected Curve JSON</button>
       </div>
-    </div>
-    <div id="slidersSection">
-      <div class="control-container">
+      <div id="slidersSection">
         <div id="priorControls"></div>
-      </div>
-      <div class="control-container">
         <div id="payoffGridSection" style="margin-top:12px;"></div>
       </div>
-      <div class="control-container">
-        <div id="confusionMatrixContainer" style="margin-top:12px;"></div>
-      </div>
+      <div id="bestUtility" style="margin-top:1em;font-weight:bold;"></div>
     </div>
-    <div id="bestUtility" style="margin-top:1em;font-weight:bold;"></div>
   </div>
-  <div id="rocPlotContainer" style="position:relative;">
-    <canvas id="canvas" width="600" height="600"></canvas>
-    <div id="tooltip" class="tooltip" style="display:none;"></div>
-    <canvas id="gainCanvas" width="600" height="600" style="margin-top:16px; border:1px solid #999; border-radius:6px;"></canvas>
-    <canvas id="prCanvas" width="600" height="600" style="margin-top:16px; border:1px solid #999; border-radius:6px;"></canvas>
+
+  <div id="confusionContainer" class="plot-container">
+    <div class="plot-title" id="confusionTitle"></div>
+    <div id="confusionMatrixContainer" style="margin-top:12px;"></div>
   </div>
-</div>
-<div id="thresholdSection" style="margin-top:20px;">
-  <h2 id="thresholdTitle">Payoff vs Threshold</h2>
-  <canvas id="thresholdCanvas" width="800" height="320" style="border:1px solid #999; border-radius:6px;"></canvas>
+
+  <div id="rocContainer" class="plot-container">
+    <div class="plot-title" id="rocPlotTitle"></div>
+    <div id="rocElements">
+      <canvas id="canvas" width="600" height="600" style="border:1px solid #999; border-radius:6px;"></canvas>
+      <div id="tooltip" class="tooltip" style="display:none;"></div>
+    </div>
+  </div>
+
+  <div id="gainContainer" class="plot-container">
+    <div class="plot-title" id="gainPlotTitle"></div>
+    <canvas id="gainCanvas" width="600" height="600" style="border:1px solid #999; border-radius:6px;"></canvas>
+  </div>
+
+  <div id="prContainer" class="plot-container">
+    <div class="plot-title" id="prPlotTitle"></div>
+    <canvas id="prCanvas" width="600" height="600" style="border:1px solid #999; border-radius:6px;"></canvas>
+  </div>
+
+  <div id="thresholdContainer" class="plot-container">
+    <div class="plot-title" id="thresholdPlotTitle"></div>
+    <canvas id="thresholdCanvas" width="800" height="320" style="border:1px solid #999; border-radius:6px;"></canvas>
+  </div>
 </div>
 <script>
 const defaultConfig = {
@@ -80,6 +96,9 @@ const defaultConfig = {
     variantLabelFormat: "{original} ({source})",
     variantSourceFallback: "variant",
     tooltipFormat: "FPR: {fpr}, TPR: {tpr}, U: {utility}",
+    controls: {
+      title: "Controls"
+    },
     payoffGrid: {
       actualPositive: "Actual Positive",
       actualNegative: "Actual Negative",
@@ -113,6 +132,9 @@ const defaultConfig = {
         title: "Precision–Recall Curve",
         xAxisLabel: "Recall",
         yAxisLabel: "Precision"
+      },
+      threshold: {
+        title: "Payoff vs Threshold"
       }
     },
     alerts: {
@@ -168,6 +190,14 @@ const defaultConfig = {
       'roc_data/random_forest_baseline.json',
       'roc_data/logistic_baseline.json',
       'roc_data/bayesian_model_baseline.json'
+    ]
+  },
+  layout: {
+    gridTemplateRows: ["auto", "auto"],
+    gridTemplateColumns: ["320px", "1fr", "1fr"],
+    areas: [
+      ["controls",  "roc",       "gain"],
+      ["confusion", "pr",        "threshold"]
     ]
   }
 };
@@ -230,9 +260,9 @@ const importControls = document.getElementById('importControls');
 const importLabelText = document.getElementById('importLabelText');
 const slidersSection = document.getElementById('slidersSection');
 const confusionMatrixContainer = document.getElementById('confusionMatrixContainer');
-const rocPlotContainer = document.getElementById('rocPlotContainer');
-const thresholdSection = document.getElementById('thresholdSection');
-const thresholdTitleEl = document.getElementById('thresholdTitle');
+let rocPlotContainer = null;
+let thresholdSection = null;
+let thresholdTitleEl = document.getElementById('thresholdTitle');
 
 const values = {};
 const isFileProtocol = typeof location !== 'undefined' && location.protocol === 'file:';
@@ -302,7 +332,15 @@ function applyConfigToUI(){
   if(importControls) importControls.style.display = isImportVisible() ? 'flex' : 'none';
   if(downloadCurveBtn) downloadCurveBtn.style.display = isDownloadVisible() ? 'inline-block' : 'none';
   if(slidersSection) slidersSection.style.display = isSlidersVisible() ? 'block' : 'none';
-  if(rocPlotContainer) rocPlotContainer.style.display = (isRocPlotVisible() || isGainPlotVisible() || isPRPlotVisible()) ? 'block' : 'none';
+  if(rocPlotContainer) rocPlotContainer.style.display = isRocPlotVisible() ? 'block' : 'none';
+  if(gainContainer) gainContainer.style.display = isGainPlotVisible() ? 'block' : 'none';
+  if(prContainer) prContainer.style.display = isPRPlotVisible() ? 'block' : 'none';
+  if(thresholdSection) thresholdSection.style.display = isThresholdPlotVisible() ? 'block' : 'none';
+  if(confusionMatrixContainer) confusionMatrixContainer.style.display = (uiSettings && uiSettings.showConfusionMatrix===false) ? 'none' : 'block';
+  const controlsContainer = document.getElementById('controlsContainer');
+  const confusionContainer = document.getElementById('confusionContainer');
+  if(confusionContainer) confusionContainer.style.display = (uiSettings && uiSettings.showConfusionMatrix===false) ? 'none' : 'block';
+  if(controlsContainer) controlsContainer.style.display = 'block';
   if(canvas) canvas.style.display = isRocPlotVisible() ? 'block' : 'none';
   if(gainCanvas) gainCanvas.style.display = isGainPlotVisible() ? 'block' : 'none';
   if(prCanvas) prCanvas.style.display = isPRPlotVisible() ? 'block' : 'none';
@@ -551,6 +589,66 @@ function getPlotStrings(key){
   const plotGroup = (strings && strings.plots && strings.plots[key]) || null;
   const defaultGroup = (defaultConfig.strings && defaultConfig.strings.plots && defaultConfig.strings.plots[key]) || {};
   return plotGroup || defaultGroup || {};
+}
+
+function buildPlotGrid(){
+  const plotGrid=document.getElementById('plotGrid');
+  if(!plotGrid) return;
+  const layoutCfg = (appConfig && appConfig.layout) ? appConfig.layout : (defaultConfig.layout || {});
+  const rows = Array.isArray(layoutCfg.gridTemplateRows) ? layoutCfg.gridTemplateRows : ['auto'];
+  const cols = Array.isArray(layoutCfg.gridTemplateColumns) ? layoutCfg.gridTemplateColumns : ['1fr'];
+  const areas = Array.isArray(layoutCfg.areas) ? layoutCfg.areas : [];
+  const controlsContainer = document.getElementById('controlsContainer');
+  const confusionContainer = document.getElementById('confusionContainer');
+  const rocContainer = document.getElementById('rocContainer');
+  const gainContainer = document.getElementById('gainContainer');
+  const prContainer = document.getElementById('prContainer');
+  const thresholdContainer = document.getElementById('thresholdContainer');
+  const knownContainers={controls:controlsContainer,confusion:confusionContainer,roc:rocContainer,gain:gainContainer,pr:prContainer,threshold:thresholdContainer};
+  plotGrid.style.display='grid';
+  plotGrid.style.gap='20px';
+  plotGrid.style.gridTemplateRows=rows.join(' ');
+  plotGrid.style.gridTemplateColumns=cols.join(' ');
+  if(areas.length){
+    const areaString=areas.map(row=>`"${row.join(' ')}"`).join(' ');
+    plotGrid.style.gridTemplateAreas=areaString;
+  }else{
+    plotGrid.style.gridTemplateAreas='';
+  }
+
+  const controlsStrings = (strings && strings.controls) || (defaultConfig.strings && defaultConfig.strings.controls) || {};
+  const confusionStrings = (strings && strings.confusionMatrix) || (defaultConfig.strings && defaultConfig.strings.confusionMatrix) || {};
+  const rocStrings = getPlotStrings('roc');
+  const gainStrings = getPlotStrings('gain');
+  const prStrings = getPlotStrings('pr');
+  const thresholdStrings = getPlotStrings('threshold');
+
+  if(controlsContainer){ const t=document.getElementById('controlsTitle'); if(t) t.textContent = controlsStrings.title || 'Controls'; }
+  if(confusionContainer){ const t=document.getElementById('confusionTitle'); if(t) t.textContent = confusionStrings.title || 'Confusion Matrix'; }
+  if(rocContainer){ const t=document.getElementById('rocPlotTitle'); if(t) t.textContent = rocStrings.title || ''; }
+  if(gainContainer){ const t=document.getElementById('gainPlotTitle'); if(t) t.textContent = gainStrings.title || ''; }
+  if(prContainer){ const t=document.getElementById('prPlotTitle'); if(t) t.textContent = prStrings.title || ''; }
+  if(thresholdContainer){ const t=document.getElementById('thresholdPlotTitle'); if(t) t.textContent = thresholdStrings.title || (strings.thresholdTitle || defaultConfig.strings.thresholdTitle); }
+
+  // Re-append containers to match grid order
+  plotGrid.innerHTML='';
+  const addArea=(name)=>{
+    const node=knownContainers[name];
+    if(node){
+      node.style.gridArea=name;
+      plotGrid.appendChild(node);
+    }
+  };
+  if(areas.length){
+    areas.forEach(row=>{
+      Array.isArray(row) && row.forEach(addArea);
+    });
+  }else{
+    Object.keys(knownContainers).forEach(addArea);
+  }
+
+  rocPlotContainer = rocContainer || rocPlotContainer;
+  thresholdSection = thresholdContainer || thresholdSection;
 }
 
 function clampValue(value, min, max){
@@ -879,6 +977,9 @@ function downloadSelectedCurveAsJson(){
 }
 
 function drawAll(){
+  if(!rocPlotContainer || !thresholdSection){
+    buildPlotGrid();
+  }
   if(isRocPlotVisible()){
     drawRocPlot();
   }else{
@@ -2347,6 +2448,10 @@ if(gainCanvas){
       tooltip.style.display='none';
       return;
     }
+    if(!rocPlotContainer){
+      tooltip.style.display='none';
+      return;
+    }
     const {points, utilities, thresholds, geometry, liftEnabled, liftMax}=gainPlotCache;
     if(!geometry){
       tooltip.style.display='none';
@@ -2416,6 +2521,9 @@ window.addEventListener('DOMContentLoaded',async()=>{
   if(isBestUtilityVisible() && bestUtilityDiv && !bestUtilityDiv.textContent){
     bestUtilityDiv.textContent = strings.bestUtilityUnavailable || defaultConfig.strings.bestUtilityUnavailable;
   }
+  buildPlotGrid();
+  applyConfigToUI();
+  drawAll();
 });
 </script>
 </body>
