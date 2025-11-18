@@ -70,18 +70,6 @@ const defaultConfig = {
     importLabel: "Import ROC Data",
     downloadButton: "Download Selected Curve JSON",
     thresholdTitle: "Payoff vs Threshold",
-    rocPlotTitle: "Receiver Operating Characteristic Curve",
-    rocXAxisLabel: "False Positive Rate",
-    rocYAxisLabel: "True Positive Rate",
-    gainPlotTitle: "Gain Curve",
-    gainXAxisLabel: "Fraction of the Entire Test Set",
-    gainYAxisLabel: "True Positive Rate",
-    prPlotTitle: "Precision–Recall Curve",
-    prXAxisLabel: "Recall",
-    prYAxisLabel: "Precision",
-    confusionMatrixTitle: "Confusion Matrix (best operating point)",
-    liftAxisLabel: "Lift (independent scale; not a linear transform of gain)",
-    liftCurveLabel: "Lift Curve",
     bestUtilityPrefix: "Best utility = ",
     bestUtilityUnavailable: "Best utility = —",
     noThresholdData: "No threshold data available for payoff plot.",
@@ -102,6 +90,31 @@ const defaultConfig = {
       FP: "False Positive",
       TN: "True Negative"
     },
+    confusionMatrix: {
+      title: "Confusion Matrix (best operating point)"
+    },
+    plots: {
+      roc: {
+        title: "Receiver Operating Characteristic Curve",
+        xAxisLabel: "False Positive Rate",
+        yAxisLabel: "True Positive Rate"
+      },
+      gain: {
+        title: "Gain Curve",
+        xAxisLabel: "Fraction of the Entire Test Set",
+        yAxisLabel: "True Positive Rate",
+        randomModelLabel: "Random Model (Diagonal)",
+        prevalenceLabel: "Prevalence",
+        baselineLegendTitle: "Baselines",
+        liftAxisLabel: "Lift (independent scale; not a linear transform of gain)",
+        liftCurveLabel: "Lift Curve"
+      },
+      pr: {
+        title: "Precision–Recall Curve",
+        xAxisLabel: "Recall",
+        yAxisLabel: "Precision"
+      }
+    },
     alerts: {
       noCurvesFound: "No ROC curves found in the selected file.",
       failImport: "Failed to import ROC data: {message}",
@@ -109,13 +122,6 @@ const defaultConfig = {
       noCurveSelectedDownload: "No ROC curve selected to download.",
       failStaticLoad: "Failed to load static ROC file \"{path}\": {message}",
       failConfigLoad: "Failed to load configuration: {message}"
-    },
-    plots: {
-      gain: {
-        randomModelLabel: "Random Model (Diagonal)",
-        prevalenceLabel: "Prevalence",
-        baselineLegendTitle: "Baselines"
-      }
     }
   },
   ui: {
@@ -134,7 +140,7 @@ const defaultConfig = {
     showGainCurveInGainPlot: true,
     showLiftCurveInGainPlot: false,
     liftAxisMaxMultiplier: 1.2,
-    thresholdXAxisMode: "quantile", // "threshold" or "quantile"
+    thresholdXAxisMode: "threshold", // "threshold" or "quantile"
     showAllCurvesInThresholdPlot: true,
     payoffInputMode: "slider"
   },
@@ -401,7 +407,8 @@ function renderConfusionMatrixCounts(opts){
   }
   const {tp, fp, tn, fn} = opts || {};
   const gridStrings = strings.payoffGrid || defaultConfig.strings.payoffGrid || {};
-  const title = strings.confusionMatrixTitle || defaultConfig.strings.confusionMatrixTitle || 'Confusion Matrix';
+  const confusionStrings = (strings && strings.confusionMatrix) || (defaultConfig.strings && defaultConfig.strings.confusionMatrix) || {};
+  const title = confusionStrings.title || (defaultConfig.strings && defaultConfig.strings.confusionMatrix && defaultConfig.strings.confusionMatrix.title) || 'Confusion Matrix';
   confusionMatrixContainer.innerHTML = '';
   const titleEl = document.createElement('h3');
   titleEl.textContent = title;
@@ -538,6 +545,12 @@ function ensureValue(key, defaultVal){
   if(!Number.isFinite(values[key])){
     values[key] = Number.isFinite(defaultVal) ? defaultVal : 0;
   }
+}
+
+function getPlotStrings(key){
+  const plotGroup = (strings && strings.plots && strings.plots[key]) || null;
+  const defaultGroup = (defaultConfig.strings && defaultConfig.strings.plots && defaultConfig.strings.plots[key]) || {};
+  return plotGroup || defaultGroup || {};
 }
 
 function clampValue(value, min, max){
@@ -1424,7 +1437,8 @@ function drawRocPlot(){
 
   ctx.clearRect(0,0,width,height);
 
-  const titleText = strings.rocPlotTitle || defaultConfig.strings.rocPlotTitle || '';
+  const rocStrings = getPlotStrings('roc');
+  const titleText = rocStrings.title || '';
   const subtitleText = resolveVariantLabel(rocName, roc.metadata || {});
   ctx.fillStyle = '#000';
   ctx.textAlign = 'center';
@@ -1547,12 +1561,12 @@ function drawRocPlot(){
   }
 
   ctx.font='13px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='top';
-  const xAxisLabel=strings.rocXAxisLabel || defaultConfig.strings.rocXAxisLabel || '';
+  const xAxisLabel=rocStrings.xAxisLabel || '';
   ctx.fillText(xAxisLabel, x0 + plotW/2, y0 + plotH + 28);
   ctx.save();
   ctx.translate(x0 - 36, y0 + plotH/2);
   ctx.rotate(-Math.PI/2);
-  const yAxisLabel=strings.rocYAxisLabel || defaultConfig.strings.rocYAxisLabel || '';
+  const yAxisLabel=rocStrings.yAxisLabel || '';
   ctx.textBaseline='top'; ctx.fillText(yAxisLabel, 0, 0);
   ctx.restore();
 }
@@ -1569,6 +1583,7 @@ function drawGainPlot(){
   if(!Array.isArray(fprArr) || !Array.isArray(tprArr) || fprArr.length!==tprArr.length) return;
   const payoffs=getPayoffParams();
   const pPos=payoffs.P_POS;
+  const gainStrings = getPlotStrings('gain');
   const {x0,y0,plotW,plotH,titleY,subtitleY}=getRocPlotGeometry(width,height);
   const xScale=(xf)=>x0+xf*plotW; const yScale=(yt)=>y0+(1-yt)*plotH;
 
@@ -1597,7 +1612,7 @@ function drawGainPlot(){
   gainCtx.fillStyle = '#000';
   gainCtx.textAlign = 'center';
   gainCtx.font = '16px sans-serif';
-  const titleText = strings.gainPlotTitle || defaultConfig.strings.gainPlotTitle || '';
+  const titleText = gainStrings.title || '';
   gainCtx.fillText(titleText, width/2, titleY);
   gainCtx.font = '13px sans-serif';
   const subtitleText = resolveVariantLabel(rocName, roc.metadata || {});
@@ -1732,7 +1747,7 @@ function drawGainPlot(){
       gainCtx.fillText(liftVal.toFixed(2), x0+plotW+8, yTick);
       gainCtx.textAlign='center';
     }
-    const liftAxisLabel = (strings.plots && strings.plots.gain && strings.plots.gain.liftAxisLabel) || defaultConfig.strings.liftAxisLabel || (defaultConfig.strings.plots && defaultConfig.strings.plots.gain && defaultConfig.strings.plots.gain.liftAxisLabel) || '';
+    const liftAxisLabel = gainStrings.liftAxisLabel || '';
     gainCtx.save();
     gainCtx.translate(x0+plotW+40, y0+plotH/2);
     gainCtx.rotate(Math.PI/2);
@@ -1761,12 +1776,12 @@ function drawGainPlot(){
   }
 
   gainCtx.font='13px sans-serif'; gainCtx.textAlign='center'; gainCtx.textBaseline='top';
-  const xAxisLabel=strings.gainXAxisLabel || defaultConfig.strings.gainXAxisLabel || '';
+  const xAxisLabel=gainStrings.xAxisLabel || '';
   gainCtx.fillText(xAxisLabel, x0 + plotW/2, y0 + plotH + 28);
   gainCtx.save();
   gainCtx.translate(x0 - 36, y0 + plotH/2);
   gainCtx.rotate(-Math.PI/2);
-  const yAxisLabel=strings.gainYAxisLabel || defaultConfig.strings.gainYAxisLabel || '';
+  const yAxisLabel=gainStrings.yAxisLabel || '';
   gainCtx.textBaseline='top'; gainCtx.fillText(yAxisLabel, 0, 0);
   gainCtx.restore();
 
@@ -1788,15 +1803,15 @@ function drawGainPlot(){
 
   if(!(uiSettings && uiSettings.showGainBaselineLegend===false)){
     const legendItems=[];
-    const gainStrings = (strings && strings.plots && strings.plots.gain) || (defaultConfig.strings && defaultConfig.strings.plots && defaultConfig.strings.plots.gain) || {};
-    if(!(uiSettings && uiSettings.showGainDiagonalLine===false)){
-      legendItems.push({label: gainStrings.randomModelLabel || 'Random Model (Diagonal)', color: (styleCfg && styleCfg.gainDiagonalLine && styleCfg.gainDiagonalLine.color) || '#666', dash: (styleCfg && styleCfg.gainDiagonalLine && styleCfg.gainDiagonalLine.dash) || []});
-    }
-    if(!(uiSettings && uiSettings.showGainPrevalenceLine===false)){
-      legendItems.push({label: gainStrings.prevalenceLabel || 'Prevalence', color: (styleCfg && styleCfg.gainPrevalenceLine && styleCfg.gainPrevalenceLine.color) || '#1e88e5', dash: (styleCfg && styleCfg.gainPrevalenceLine && styleCfg.gainPrevalenceLine.dash) || [5,3]});
-    }
+    const gainStringsLocal = gainStrings || {};
+      if(!(uiSettings && uiSettings.showGainDiagonalLine===false)){
+        legendItems.push({label: gainStringsLocal.randomModelLabel || 'Random Model (Diagonal)', color: (styleCfg && styleCfg.gainDiagonalLine && styleCfg.gainDiagonalLine.color) || '#666', dash: (styleCfg && styleCfg.gainDiagonalLine && styleCfg.gainDiagonalLine.dash) || []});
+      }
+      if(!(uiSettings && uiSettings.showGainPrevalenceLine===false)){
+        legendItems.push({label: gainStringsLocal.prevalenceLabel || 'Prevalence', color: (styleCfg && styleCfg.gainPrevalenceLine && styleCfg.gainPrevalenceLine.color) || '#1e88e5', dash: (styleCfg && styleCfg.gainPrevalenceLine && styleCfg.gainPrevalenceLine.dash) || [5,3]});
+      }
     if(legendItems.length){
-      const legendTitle = gainStrings.baselineLegendTitle || 'Baselines';
+      const legendTitle = gainStringsLocal.baselineLegendTitle || 'Baselines';
       const padding=8;
       const swatchSize=12;
       const spacing=6;
@@ -1890,7 +1905,8 @@ function drawPRPlot(){
   prCtx.fillStyle = '#000';
   prCtx.textAlign = 'center';
   prCtx.font = '16px sans-serif';
-  const titleText = strings.prPlotTitle || defaultConfig.strings.prPlotTitle || '';
+  const prStrings = getPlotStrings('pr');
+  const titleText = prStrings.title || '';
   prCtx.fillText(titleText, width/2, titleY);
   prCtx.font = '13px sans-serif';
   const subtitleText = resolveVariantLabel(rocName, roc.metadata || {});
@@ -1946,12 +1962,12 @@ function drawPRPlot(){
   }
 
   prCtx.font='13px sans-serif'; prCtx.textAlign='center'; prCtx.textBaseline='top';
-  const xAxisLabel=strings.prXAxisLabel || defaultConfig.strings.prXAxisLabel || '';
+  const xAxisLabel=prStrings.xAxisLabel || '';
   prCtx.fillText(xAxisLabel, x0 + plotW/2, y0 + plotH + 28);
   prCtx.save();
   prCtx.translate(x0 - 36, y0 + plotH/2);
   prCtx.rotate(-Math.PI/2);
-  const yAxisLabel=strings.prYAxisLabel || defaultConfig.strings.prYAxisLabel || '';
+  const yAxisLabel=prStrings.yAxisLabel || '';
   prCtx.textBaseline='top'; prCtx.fillText(yAxisLabel, 0, 0);
   prCtx.restore();
 }
@@ -2157,7 +2173,8 @@ function drawThresholdPlot(){
   thresholdCtx.fillStyle='#000';
   thresholdCtx.font='13px sans-serif';
   thresholdCtx.textAlign='center';
-  const xAxisLabel = xMode==='quantile' ? (strings.gainXAxisLabel || defaultConfig.strings.gainXAxisLabel || 'Fraction of the Entire Test Set') : (strings.axisThreshold || defaultConfig.strings.axisThreshold);
+  const gainStrings = getPlotStrings('gain');
+  const xAxisLabel = xMode==='quantile' ? (gainStrings.xAxisLabel || 'Fraction of the Entire Test Set') : (strings.axisThreshold || defaultConfig.strings.axisThreshold);
   thresholdCtx.fillText(xAxisLabel, marginLeft + plotW/2, marginTop+plotH+28);
   thresholdCtx.save();
   thresholdCtx.translate(18, marginTop + plotH/2);
