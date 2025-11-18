@@ -51,6 +51,7 @@
     <canvas id="canvas" width="600" height="600"></canvas>
     <div id="tooltip" class="tooltip" style="display:none;"></div>
     <canvas id="gainCanvas" width="600" height="600" style="margin-top:16px; border:1px solid #999; border-radius:6px;"></canvas>
+    <canvas id="prCanvas" width="600" height="600" style="margin-top:16px; border:1px solid #999; border-radius:6px;"></canvas>
   </div>
 </div>
 <div id="thresholdSection" style="margin-top:20px;">
@@ -72,6 +73,9 @@ const defaultConfig = {
     gainPlotTitle: "Gain Curve",
     gainXAxisLabel: "Fraction of the Entire Test Set",
     gainYAxisLabel: "True Positive Rate",
+    prPlotTitle: "Precision–Recall Curve",
+    prXAxisLabel: "Recall",
+    prYAxisLabel: "Precision",
     liftAxisLabel: "Lift (independent scale; not a linear transform of gain)",
     liftCurveLabel: "Lift Curve",
     bestUtilityPrefix: "Best utility = ",
@@ -118,6 +122,7 @@ const defaultConfig = {
     showDownloadButton: true,
     showBestUtility: true,
     showGainPlot: true,
+    showPRPlot: true,
     showGainDiagonalLine: true,
     showGainPrevalenceLine: true,
     showGainBaselineLegend: false,
@@ -200,6 +205,8 @@ const priorControls = document.getElementById('priorControls');
 const payoffGridSection = document.getElementById('payoffGridSection');
 const gainCanvas = document.getElementById('gainCanvas');
 const gainCtx = gainCanvas ? gainCanvas.getContext('2d') : null;
+const prCanvas = document.getElementById('prCanvas');
+const prCtx = prCanvas ? prCanvas.getContext('2d') : null;
 const rocFileInput = document.getElementById('rocFileInput');
 const downloadCurveBtn = document.getElementById('downloadCurveBtn');
 const bestUtilityDiv = document.getElementById('bestUtility');
@@ -279,9 +286,10 @@ function applyConfigToUI(){
   if(importControls) importControls.style.display = isImportVisible() ? 'flex' : 'none';
   if(downloadCurveBtn) downloadCurveBtn.style.display = isDownloadVisible() ? 'inline-block' : 'none';
   if(slidersSection) slidersSection.style.display = isSlidersVisible() ? 'block' : 'none';
-  if(rocPlotContainer) rocPlotContainer.style.display = (isRocPlotVisible() || isGainPlotVisible()) ? 'block' : 'none';
+  if(rocPlotContainer) rocPlotContainer.style.display = (isRocPlotVisible() || isGainPlotVisible() || isPRPlotVisible()) ? 'block' : 'none';
   if(canvas) canvas.style.display = isRocPlotVisible() ? 'block' : 'none';
   if(gainCanvas) gainCanvas.style.display = isGainPlotVisible() ? 'block' : 'none';
+  if(prCanvas) prCanvas.style.display = isPRPlotVisible() ? 'block' : 'none';
   if(thresholdSection) thresholdSection.style.display = isThresholdPlotVisible() ? 'block' : 'none';
   if(bestUtilityDiv){
     if(isBestUtilityVisible()){
@@ -317,6 +325,7 @@ async function loadAppConfig(){
 function isRocPlotVisible(){ return !(uiSettings && uiSettings.showRocPlot === false); }
 function isThresholdPlotVisible(){ return !(uiSettings && uiSettings.showThresholdPlot === false); }
 function isGainPlotVisible(){ return !(uiSettings && uiSettings.showGainPlot === false); }
+function isPRPlotVisible(){ return !(uiSettings && uiSettings.showPRPlot === false); }
 function isSlidersVisible(){ return !(uiSettings && uiSettings.showSliders === false); }
 function isImportVisible(){ return !(uiSettings && uiSettings.showImport === false); }
 function isDownloadVisible(){ return !(uiSettings && uiSettings.showDownloadButton === false); }
@@ -763,6 +772,11 @@ function drawAll(){
     drawGainPlot();
   }else if(gainCtx){
     gainCtx.clearRect(0,0,gainCanvas.width,gainCanvas.height);
+  }
+  if(isPRPlotVisible()){
+    drawPRPlot();
+  }else if(prCtx){
+    prCtx.clearRect(0,0,prCanvas.width,prCanvas.height);
   }
   if(isThresholdPlotVisible()){
     drawThresholdPlot();
@@ -1711,6 +1725,124 @@ function drawGainPlot(){
       });
     }
   }
+}
+
+function drawPRPlot(){
+  if(!prCanvas || !prCtx) return;
+  const width=prCanvas.width, height=prCanvas.height;
+  prCtx.clearRect(0,0,width,height);
+  if(!isPRPlotVisible()) return;
+  const rocName=rocSelect.value;
+  if(!rocName || !rocCurves[rocName]) return;
+  const roc=rocCurves[rocName];
+  const fprArr=roc.fpr, tprArr=roc.tpr;
+  if(!Array.isArray(fprArr) || !Array.isArray(tprArr) || fprArr.length!==tprArr.length) return;
+  const payoffs=getPayoffParams();
+  const pPos=payoffs.P_POS;
+  const {x0,y0,plotW,plotH,titleY,subtitleY}=getRocPlotGeometry(width,height);
+  const xScale=(xf)=>x0+xf*plotW; const yScale=(yt)=>y0+(1-yt)*plotH;
+
+  const iw=Math.max(2,Math.floor(plotW)); const ih=Math.max(2,Math.floor(plotH));
+  const img=prCtx.createImageData(iw,ih); const data=img.data;
+  let minU=Infinity,maxU=-Infinity;
+  for(let j=0;j<ih;j++){
+    const recall=1-j/(ih-1);
+    for(let i=0;i<iw;i++){
+      const precision=i/(iw-1);
+      const denom=Math.max(1e-9,1-pPos);
+      let fprVal=precision>0 ? (recall*(1/precision -1)*pPos)/denom : 1;
+      fprVal=Math.max(0,Math.min(1,fprVal));
+      const u=utilityAtRates(fprVal,recall,payoffs);
+      const idx=j*iw+i;
+      data[idx*4+3]=255;
+      if(u<minU) minU=u;
+      if(u>maxU) maxU=u;
+    }
+  }
+  const scale=v=>(v-minU)/(maxU-minU||1);
+  for(let j=0;j<ih;j++){
+    for(let i=0;i<iw;i++){
+      const recall=1-j/(ih-1);
+      const precision=i/(iw-1);
+      const denom=Math.max(1e-9,1-pPos);
+      let fprVal=precision>0 ? (recall*(1/precision -1)*pPos)/denom : 1;
+      fprVal=Math.max(0,Math.min(1,fprVal));
+      const u=utilityAtRates(fprVal,recall,payoffs);
+      const s=scale(u);
+      const [r,g,b]=heatColor(s);
+      const idx=j*iw+i;
+      data[idx*4]=r; data[idx*4+1]=g; data[idx*4+2]=b; data[idx*4+3]=255;
+    }
+  }
+  prCtx.putImageData(img,Math.round(x0),Math.round(y0));
+
+  prCtx.fillStyle = '#000';
+  prCtx.textAlign = 'center';
+  prCtx.font = '16px sans-serif';
+  const titleText = strings.prPlotTitle || defaultConfig.strings.prPlotTitle || '';
+  prCtx.fillText(titleText, width/2, titleY);
+  prCtx.font = '13px sans-serif';
+  const subtitleText = resolveVariantLabel(rocName, roc.metadata || {});
+  prCtx.fillText(subtitleText, width/2, subtitleY);
+
+  prCtx.save();
+  prCtx.beginPath(); prCtx.rect(x0,y0,plotW,plotH); prCtx.clip();
+
+  const prPoints=[];
+  for(let i=0;i<fprArr.length;i++){
+    const fprVal=Number(fprArr[i]);
+    const tprVal=Number(tprArr[i]);
+    if(!Number.isFinite(fprVal) || !Number.isFinite(tprVal)) continue;
+    if(fprVal===0 && tprVal===0) continue;
+    const precision = (tprVal*pPos)/Math.max(1e-9, tprVal*pPos + fprVal*(1-pPos));
+    prPoints.push({recall:tprVal, precision});
+  }
+  prPoints.sort((a,b)=>a.recall-b.recall);
+  if(prPoints.length){
+    prCtx.beginPath();
+    prPoints.forEach((pt,idx)=>{
+      const px=xScale(pt.recall);
+      const py=yScale(pt.precision);
+      if(idx===0) prCtx.moveTo(px,py);
+      else prCtx.lineTo(px,py);
+    });
+    prCtx.strokeStyle='blue';
+    prCtx.lineWidth=2;
+    prCtx.stroke();
+  }
+
+  prCtx.restore();
+
+  prCtx.strokeStyle='#666'; prCtx.lineWidth=1; prCtx.strokeRect(x0,y0,plotW,plotH);
+
+  prCtx.strokeStyle='#333'; prCtx.fillStyle='#333'; prCtx.lineWidth=1;
+  prCtx.font='11px sans-serif'; prCtx.textAlign='center'; prCtx.textBaseline='top';
+  const tickCount=11;
+  for(let i=0;i<tickCount;i++){
+    const val=i/10;
+    const x=xScale(val);
+    const yBottom=yScale(0);
+    prCtx.beginPath(); prCtx.moveTo(x,yBottom); prCtx.lineTo(x,yBottom+6); prCtx.stroke();
+    prCtx.fillText(val.toFixed(1), x, yBottom+8);
+  }
+  prCtx.textAlign='right'; prCtx.textBaseline='middle';
+  for(let i=0;i<tickCount;i++){
+    const val=i/10;
+    const y=yScale(val);
+    const xLeft=xScale(0);
+    prCtx.beginPath(); prCtx.moveTo(xLeft-6,y); prCtx.lineTo(xLeft,y); prCtx.stroke();
+    prCtx.fillText(val.toFixed(1), xLeft-8, y);
+  }
+
+  prCtx.font='13px sans-serif'; prCtx.textAlign='center'; prCtx.textBaseline='top';
+  const xAxisLabel=strings.prXAxisLabel || defaultConfig.strings.prXAxisLabel || '';
+  prCtx.fillText(xAxisLabel, x0 + plotW/2, y0 + plotH + 28);
+  prCtx.save();
+  prCtx.translate(x0 - 36, y0 + plotH/2);
+  prCtx.rotate(-Math.PI/2);
+  const yAxisLabel=strings.prYAxisLabel || defaultConfig.strings.prYAxisLabel || '';
+  prCtx.textBaseline='top'; prCtx.fillText(yAxisLabel, 0, 0);
+  prCtx.restore();
 }
 
 function drawThresholdPlot(){
