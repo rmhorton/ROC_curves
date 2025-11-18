@@ -44,6 +44,9 @@
       <div class="control-container">
         <div id="payoffGridSection" style="margin-top:12px;"></div>
       </div>
+      <div class="control-container">
+        <div id="confusionMatrixContainer" style="margin-top:12px;"></div>
+      </div>
     </div>
     <div id="bestUtility" style="margin-top:1em;font-weight:bold;"></div>
   </div>
@@ -76,6 +79,7 @@ const defaultConfig = {
     prPlotTitle: "Precision–Recall Curve",
     prXAxisLabel: "Recall",
     prYAxisLabel: "Precision",
+    confusionMatrixTitle: "Confusion Matrix (best operating point)",
     liftAxisLabel: "Lift (independent scale; not a linear transform of gain)",
     liftCurveLabel: "Lift Curve",
     bestUtilityPrefix: "Best utility = ",
@@ -123,6 +127,7 @@ const defaultConfig = {
     showBestUtility: true,
     showGainPlot: true,
     showPRPlot: true,
+    showConfusionMatrix: true,
     showGainDiagonalLine: true,
     showGainPrevalenceLine: true,
     showGainBaselineLegend: false,
@@ -196,6 +201,7 @@ let uiSettings = appConfig.ui;
 let lastRocBestUtility = null;
 let lastRocBestIdx = null;
 let gainPlotCache = {points:[], utilities:[], thresholds:[], geometry:null};
+let lastBestPoint = {fpr:null,tpr:null};
 
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
@@ -217,6 +223,7 @@ const dropdownLabelText = document.getElementById('dropdownLabelText');
 const importControls = document.getElementById('importControls');
 const importLabelText = document.getElementById('importLabelText');
 const slidersSection = document.getElementById('slidersSection');
+const confusionMatrixContainer = document.getElementById('confusionMatrixContainer');
 const rocPlotContainer = document.getElementById('rocPlotContainer');
 const thresholdSection = document.getElementById('thresholdSection');
 const thresholdTitleEl = document.getElementById('thresholdTitle');
@@ -294,6 +301,7 @@ function applyConfigToUI(){
   if(gainCanvas) gainCanvas.style.display = isGainPlotVisible() ? 'block' : 'none';
   if(prCanvas) prCanvas.style.display = isPRPlotVisible() ? 'block' : 'none';
   if(thresholdSection) thresholdSection.style.display = isThresholdPlotVisible() ? 'block' : 'none';
+  if(confusionMatrixContainer) confusionMatrixContainer.style.display = (uiSettings && uiSettings.showConfusionMatrix===false) ? 'none' : 'block';
   if(bestUtilityDiv){
     if(isBestUtilityVisible()){
       bestUtilityDiv.style.display = '';
@@ -377,6 +385,90 @@ function getPayoffParams(){
     TN: values.TN,
     FN: values.FN
   };
+}
+
+function formatCount(val){
+  if(!Number.isFinite(val)) return '—';
+  const fixed = val.toFixed(3);
+  return fixed.replace(/\.?0+$/,'');
+}
+
+function renderConfusionMatrixCounts(opts){
+  if(!confusionMatrixContainer) return;
+  if(uiSettings && uiSettings.showConfusionMatrix===false){
+    confusionMatrixContainer.innerHTML='';
+    return;
+  }
+  const {tp, fp, tn, fn} = opts || {};
+  const gridStrings = strings.payoffGrid || defaultConfig.strings.payoffGrid || {};
+  const title = strings.confusionMatrixTitle || defaultConfig.strings.confusionMatrixTitle || 'Confusion Matrix';
+  confusionMatrixContainer.innerHTML = '';
+  const titleEl = document.createElement('h3');
+  titleEl.textContent = title;
+  confusionMatrixContainer.appendChild(titleEl);
+
+  const table = document.createElement('table');
+  table.className = 'payoff-grid';
+  const thead = document.createElement('thead');
+  const headerRow = document.createElement('tr');
+  headerRow.appendChild(document.createElement('th'));
+  const colPos = document.createElement('th');
+  colPos.textContent = gridStrings.predictedPositive || 'Predicted Positive';
+  const colNeg = document.createElement('th');
+  colNeg.textContent = gridStrings.predictedNegative || 'Predicted Negative';
+  headerRow.appendChild(colPos);
+  headerRow.appendChild(colNeg);
+  thead.appendChild(headerRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement('tbody');
+  const rowPos = document.createElement('tr');
+  const rowPosHeader = document.createElement('th');
+  rowPosHeader.textContent = gridStrings.actualPositive || 'Actual Positive';
+  rowPos.appendChild(rowPosHeader);
+  const tpCell = document.createElement('td');
+  tpCell.textContent = formatCount(tp);
+  const fnCell = document.createElement('td');
+  fnCell.textContent = formatCount(fn);
+  rowPos.appendChild(tpCell);
+  rowPos.appendChild(fnCell);
+  tbody.appendChild(rowPos);
+
+  const rowNeg = document.createElement('tr');
+  const rowNegHeader = document.createElement('th');
+  rowNegHeader.textContent = gridStrings.actualNegative || 'Actual Negative';
+  rowNeg.appendChild(rowNegHeader);
+  const fpCell = document.createElement('td');
+  fpCell.textContent = formatCount(fp);
+  const tnCell = document.createElement('td');
+  tnCell.textContent = formatCount(tn);
+  rowNeg.appendChild(fpCell);
+  rowNeg.appendChild(tnCell);
+  tbody.appendChild(rowNeg);
+
+  table.appendChild(tbody);
+  confusionMatrixContainer.appendChild(table);
+}
+
+function updateConfusionMatrix(){
+  if(!confusionMatrixContainer || (uiSettings && uiSettings.showConfusionMatrix===false)){
+    return;
+  }
+  const rocName=rocSelect.value;
+  if(!rocName || !rocCurves[rocName] || lastBestPoint.tpr===null || lastBestPoint.fpr===null){
+    renderConfusionMatrixCounts({tp:null,fp:null,tn:null,fn:null});
+    return;
+  }
+  const payoffs=getPayoffParams();
+  const pPos=payoffs.P_POS;
+  const N=getPopulationSize();
+  const tpr=lastBestPoint.tpr;
+  const fpr=lastBestPoint.fpr;
+  const tp = tpr * pPos * N;
+  const fn = (1 - tpr) * pPos * N;
+  const fp = fpr * (1 - pPos) * N;
+  const tn = (1 - fpr) * (1 - pPos) * N;
+  renderConfusionMatrixCounts({tp,fp,tn,fn});
 }
 
 function getPopulationSize(){
@@ -499,6 +591,7 @@ function bindSliderWithNumber({slider, numberInput, valueSpan, key}){
 function buildControlPanels(){
   buildPriorSlider();
   buildPayoffGrid();
+  updateConfusionMatrix();
 }
 
 function buildPriorSlider(){
@@ -788,6 +881,7 @@ function drawAll(){
   }else if(prCtx){
     prCtx.clearRect(0,0,prCanvas.width,prCanvas.height);
   }
+  updateConfusionMatrix();
   if(isThresholdPlotVisible()){
     drawThresholdPlot();
   }else if(thresholdCtx){
@@ -1422,6 +1516,7 @@ function drawRocPlot(){
     ctx.fillStyle='yellow';ctx.strokeStyle='red';ctx.fill();ctx.stroke();
     lastRocBestUtility = bestU;
     lastRocBestIdx = bestIdx;
+    lastBestPoint = {fpr: Number(fpr[bestIdx]), tpr: Number(tpr[bestIdx])};
     if(bestUtilityDiv && isBestUtilityVisible()){
       const prefix = strings.bestUtilityPrefix || defaultConfig.strings.bestUtilityPrefix;
       bestUtilityDiv.textContent = `${prefix}${Math.round(bestU)}`;
@@ -1739,6 +1834,8 @@ function drawGainPlot(){
       });
     }
   }
+
+  updateConfusionMatrix();
 }
 
 function drawPRPlot(){
