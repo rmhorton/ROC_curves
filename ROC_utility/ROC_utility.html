@@ -989,32 +989,23 @@ function drawAll(){
 
 function parseRocDataFromText(text, extHint){
   const normalizedExt = (extHint || '').toLowerCase();
-  const parserOrder = normalizedExt==='json'
-    ? ['json','csv']
-    : normalizedExt==='csv'
-      ? ['csv','json']
-      : ['json','csv'];
-  let lastError=null;
-  for(const parser of parserOrder){
-    try{
-      if(parser==='json'){
-        const raw=JSON.parse(text);
-        const parsed=normalizeRocJson(raw);
-        if(parsed && Object.keys(parsed).length){
-          return {data:parsed, sourceType:'json'};
-        }
-      }else if(parser==='csv'){
-        const parsed=parseRocCsv(text);
-        if(parsed && Object.keys(parsed).length){
-          return {data:parsed, sourceType:'csv'};
-        }
-      }
-    }catch(err){
-      lastError=err;
-    }
+  if(normalizedExt === 'csv'){
+    const parsed = parseRocCsv(text);
+    return {data: parsed, sourceType: 'csv'};
   }
-  if(lastError) throw lastError;
-  throw new Error(getAlertTemplate('noCurvesFound'));
+  if(normalizedExt === 'json'){
+    const raw = JSON.parse(text);
+    const parsed = normalizeRocJson(raw);
+    return {data: parsed, sourceType: 'json'};
+  }
+  try{
+    const raw = JSON.parse(text);
+    const parsed = normalizeRocJson(raw);
+    return {data: parsed, sourceType: 'json'};
+  }catch(err){
+    const parsed = parseRocCsv(text);
+    return {data: parsed, sourceType: 'csv'};
+  }
 }
 
 function slugifyLabel(value){
