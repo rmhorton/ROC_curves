@@ -1,0 +1,7 @@
+[
+    'roc_data/both_edges.csv',
+    'roc_data/left_edge.csv',
+    'roc_data/neither_edge.csv',
+    'roc_data/neither_edge_Cauchy.csv',
+    'roc_data/top_edge.csv'
+]
