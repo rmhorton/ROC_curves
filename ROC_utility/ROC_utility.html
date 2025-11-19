@@ -166,13 +166,7 @@ const defaultConfig = {
     FN: {label: "FN", value: 0, min: -100, max: 100, step: 1}
   },
   data: {
-    staticFiles: [
-      'roc_data/both_edges.csv',
-      'roc_data/left_edge.csv',
-      'roc_data/neither_edge.csv',
-      'roc_data/neither_edge_Cauchy.csv',
-      'roc_data/top_edge.csv'
-    ]
+    manifestPath: 'roc_data/roc_manifest.json'
   },
   layout: {
     gridTemplateRows: ["auto", "auto"],
@@ -183,8 +177,6 @@ const defaultConfig = {
     ]
   }
 };
-
-const STATIC_DATA_FILES = [...defaultConfig.data.staticFiles];
 
 const HARDCODED_FALLBACK_CURVES = {
   random_forest_baseline: {
@@ -555,6 +547,15 @@ function getPayoffConfig(){
     merged[key] = Object.assign({}, base[key] || {}, override[key] || {});
   });
   return merged;
+}
+
+function getDataConfig(){
+  return (appConfig && appConfig.data) || (defaultConfig.data || {});
+}
+
+function getManifestPath(){
+  const dataCfg = getDataConfig();
+  return dataCfg.manifestPath || 'roc_data/roc_manifest.json';
 }
 
 function getPayoffInputMode(){
@@ -1066,24 +1067,42 @@ async function loadStaticRocFiles(){
     console.warn('Skipping static ROC file loads in file:// context; using embedded/fallback curves only.');
     return false;
   }
-  let preferredSelection=null;
-  let loadedAny=false;
-  const merged={...rocCurves};
-  const fileList = (appConfig && appConfig.data && Array.isArray(appConfig.data.staticFiles) && appConfig.data.staticFiles.length)
-    ? appConfig.data.staticFiles
-    : STATIC_DATA_FILES;
+  const manifestPath = getManifestPath();
+  let manifestEntries = [];
+  try{
+    const response = await fetch(manifestPath);
+    if(!response.ok) throw new Error(`HTTP ${response.status}`);
+    const manifestJson = await response.json();
+    if(Array.isArray(manifestJson)){
+      manifestEntries = manifestJson;
+    }else if(manifestJson && Array.isArray(manifestJson.files)){
+      manifestEntries = manifestJson.files;
+    }else{
+      manifestEntries = [];
+    }
+  }catch(err){
+    console.error(err);
+    warnFromConfig('failStaticLoad', {path: manifestPath, message: err.message || err});
+    return false;
+  }
+  const fileList = manifestEntries.filter(entry=>typeof entry === 'string').map(entry=>entry.trim()).filter(Boolean);
+  if(!fileList.length){
+    return false;
+  }
+  let preferredSelection = null;
+  let loadedAny = false;
+  const merged = {...rocCurves};
   for(const filePath of fileList){
-    if(typeof filePath!=='string' || !filePath.trim()) continue;
-    const trimmedPath=filePath.trim();
+    const trimmedPath = filePath;
     try{
-      const response=await fetch(trimmedPath);
+      const response = await fetch(trimmedPath);
       if(!response.ok) throw new Error(`HTTP ${response.status}`);
-      const text=await response.text();
-      const {data:parsed, sourceType}=parseRocDataFromText(text, trimmedPath.split('.').pop());
-      const addedIds=addCurvesToCollection(merged, parsed, {sourceType, sourceFile: trimmedPath});
+      const text = await response.text();
+      const {data: parsed, sourceType} = parseRocDataFromText(text, trimmedPath.split('.').pop());
+      const addedIds = addCurvesToCollection(merged, parsed, {sourceType, sourceFile: trimmedPath});
       if(addedIds.length){
-        loadedAny=true;
-        if(!preferredSelection) preferredSelection=addedIds[0];
+        loadedAny = true;
+        if(!preferredSelection) preferredSelection = addedIds[0];
       }
     }catch(err){
       console.error(err);
@@ -1091,9 +1110,10 @@ async function loadStaticRocFiles(){
     }
   }
   if(loadedAny){
-    loadROCData(merged,preferredSelection);
+    loadROCData(merged, preferredSelection);
+    return true;
   }
-  return loadedAny;
+  return false;
 }
 
 function parseRocCsv(text){
