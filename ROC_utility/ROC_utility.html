@@ -1319,9 +1319,7 @@ function normalizeRocJson(raw, options = {}){
   if(raw===null || raw===undefined) throw new Error('JSON content is empty.');
   const result={};
   const {defaultCurveName=null}=options||{};
-  let defaultNameUsed=false;
   let autoCurveCounter=1;
-  const nextAutoCurveId=()=>`curve${autoCurveCounter++}`;
 
   const coerceNumericArray=(arr,{allowNull=false,label})=>{
     if(!Array.isArray(arr)) throw new Error(`${label} must be an array.`);
@@ -1338,25 +1336,41 @@ function normalizeRocJson(raw, options = {}){
     });
   };
 
-  const resolveCurveId=(preferred)=>{
-    let curveId = preferred && String(preferred).trim();
-    if(!curveId && defaultCurveName && !defaultNameUsed){
-      curveId=defaultCurveName;
-      defaultNameUsed=true;
-    }else if(!curveId){
-      curveId=nextAutoCurveId();
+  const ensureUniqueId=(base)=>{
+    const normalized=String(base).trim();
+    if(!normalized) return null;
+    if(!Object.prototype.hasOwnProperty.call(result, normalized)){
+      return normalized;
     }
-    if(result[curveId]){
-      const base=curveId||'curve';
-      let suffix=2;
-      let candidate=`${base}_${suffix}`;
-      while(result[candidate]){
-        suffix++;
-        candidate=`${base}_${suffix}`;
+    let suffix=2;
+    let candidate=`${normalized}_${suffix}`;
+    while(Object.prototype.hasOwnProperty.call(result,candidate)){
+      suffix++;
+      candidate=`${normalized}_${suffix}`;
+    }
+    return candidate;
+  };
+
+  const nextAutoCurveId=()=>{
+    while(true){
+      const candidate=`curve${autoCurveCounter++}`;
+      if(!Object.prototype.hasOwnProperty.call(result,candidate)){
+        return candidate;
       }
-      curveId=candidate;
     }
-    return curveId;
+  };
+
+  const resolveCurveId=(curveObj,keyHint)=>{
+    const candidates=[];
+    if(typeof curveObj.name==='string') candidates.push(curveObj.name);
+    if(typeof defaultCurveName==='string' && defaultCurveName.trim()) candidates.push(defaultCurveName);
+    if(typeof curveObj.curve_id==='string') candidates.push(curveObj.curve_id);
+    if(typeof keyHint==='string') candidates.push(keyHint);
+    for(const candidate of candidates){
+      const unique=ensureUniqueId(candidate);
+      if(unique) return unique;
+    }
+    return nextAutoCurveId();
   };
 
   const addCurve=(curveObj,keyHint)=>{
