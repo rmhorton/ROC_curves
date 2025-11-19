@@ -914,7 +914,7 @@ function handleDataFileSelection(evt){
     try{
       const text=reader.result;
       const ext=(file.name.split('.').pop()||'').toLowerCase();
-      const {data:parsed, sourceType}=parseRocDataFromText(text, ext);
+      const {data:parsed, sourceType}=parseRocDataFromText(text, ext, file.name);
       if(!parsed || !Object.keys(parsed).length){
         alertFromConfig('noCurvesFound');
         return;
@@ -987,20 +987,29 @@ function drawAll(){
   }
 }
 
-function parseRocDataFromText(text, extHint){
+function deriveCurveNameFromSource(sourceName){
+  if(!sourceName) return null;
+  const trimmed=String(sourceName).split(/[\\/]/).pop();
+  if(!trimmed) return null;
+  const withoutExt=trimmed.replace(/\.[^.]+$/,'');
+  return withoutExt || trimmed;
+}
+
+function parseRocDataFromText(text, extHint, sourceName){
   const normalizedExt = (extHint || '').toLowerCase();
+  const defaultCurveName = deriveCurveNameFromSource(sourceName);
   if(normalizedExt === 'csv'){
     const parsed = parseRocCsv(text);
     return {data: parsed, sourceType: 'csv'};
   }
   if(normalizedExt === 'json'){
     const raw = JSON.parse(text);
-    const parsed = normalizeRocJson(raw);
+    const parsed = normalizeRocJson(raw, {defaultCurveName});
     return {data: parsed, sourceType: 'json'};
   }
   try{
     const raw = JSON.parse(text);
-    const parsed = normalizeRocJson(raw);
+    const parsed = normalizeRocJson(raw, {defaultCurveName});
     return {data: parsed, sourceType: 'json'};
   }catch(err){
     const parsed = parseRocCsv(text);
@@ -1089,7 +1098,7 @@ async function loadStaticRocFiles(){
       const response = await fetch(trimmedPath);
       if(!response.ok) throw new Error(`HTTP ${response.status}`);
       const text = await response.text();
-      const {data: parsed, sourceType} = parseRocDataFromText(text, trimmedPath.split('.').pop());
+      const {data: parsed, sourceType} = parseRocDataFromText(text, trimmedPath.split('.').pop(), trimmedPath);
       const addedIds = addCurvesToCollection(merged, parsed, {sourceType, sourceFile: trimmedPath});
       if(addedIds.length){
         loadedAny = true;
@@ -1306,11 +1315,13 @@ function parseRocCsv(text){
   return result;
 }
 
-function normalizeRocJson(raw){
+function normalizeRocJson(raw, options = {}){
   if(raw===null || raw===undefined) throw new Error('JSON content is empty.');
   const result={};
+  const {defaultCurveName=null}=options||{};
+  let defaultNameUsed=false;
   let autoCurveCounter=1;
-  const getAutoCurveId=()=>`curve${autoCurveCounter++}`;
+  const nextAutoCurveId=()=>`curve${autoCurveCounter++}`;
 
   const coerceNumericArray=(arr,{allowNull=false,label})=>{
     if(!Array.isArray(arr)) throw new Error(`${label} must be an array.`);
@@ -1327,14 +1338,33 @@ function normalizeRocJson(raw){
     });
   };
 
+  const resolveCurveId=(preferred)=>{
+    let curveId = preferred && String(preferred).trim();
+    if(!curveId && defaultCurveName && !defaultNameUsed){
+      curveId=defaultCurveName;
+      defaultNameUsed=true;
+    }else if(!curveId){
+      curveId=nextAutoCurveId();
+    }
+    if(result[curveId]){
+      const base=curveId||'curve';
+      let suffix=2;
+      let candidate=`${base}_${suffix}`;
+      while(result[candidate]){
+        suffix++;
+        candidate=`${base}_${suffix}`;
+      }
+      curveId=candidate;
+    }
+    return curveId;
+  };
+
   const addCurve=(curveObj,keyHint)=>{
     if(!curveObj || typeof curveObj!=='object' || Array.isArray(curveObj)){
       throw new Error(`Curve entry "${keyHint}" must be an object.`);
     }
     let curveId=curveObj.name || curveObj.curve_id || keyHint;
-    if(!curveId){
-      curveId=getAutoCurveId();
-    }
+    curveId=resolveCurveId(curveId);
     if(!Array.isArray(curveObj.fpr)) throw new Error(`${curveId}.fpr must be an array.`);
     if(!Array.isArray(curveObj.tpr)) throw new Error(`${curveId}.tpr must be an array.`);
     const fpr=coerceNumericArray(curveObj.fpr,{allowNull:false,label:`${curveId}.fpr`});
@@ -1397,6 +1427,9 @@ function normalizeRocJson(raw){
       }
     });
   }else if(typeof raw==='object'){
+    if(Array.isArray(raw.fpr) && Array.isArray(raw.tpr)){
+      addCurve(raw, raw.name || raw.curve_id || defaultCurveName || 'curve');
+    }
     if(Array.isArray(raw.curves)){
       raw.curves.forEach((curve,idx)=>{
         if(curve && typeof curve==='object' && Array.isArray(curve.fpr) && Array.isArray(curve.tpr)){
