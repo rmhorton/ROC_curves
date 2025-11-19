@@ -1124,11 +1124,12 @@ function parseRocCsv(text){
   const indexMap={};
   headers.forEach((header,idx)=>{ if(header) indexMap[header]=idx; });
 
-  const required=['curve_id','fpr','tpr'];
+  const required=['fpr','tpr'];
   const missing=required.filter(name=>!(name in indexMap));
   if(missing.length) throw new Error(`Missing required column(s): ${missing.join(', ')}`);
 
-  const curveIdx=indexMap.curve_id;
+  const hasCurveColumn=Object.prototype.hasOwnProperty.call(indexMap,'curve_id');
+  const curveIdx=hasCurveColumn?indexMap.curve_id:-1;
   const fprIdx=indexMap.fpr;
   const tprIdx=indexMap.tpr;
   const thresholdIdx=Object.prototype.hasOwnProperty.call(indexMap,'threshold')?indexMap.threshold:-1;
@@ -1146,7 +1147,8 @@ function parseRocCsv(text){
     }
   });
 
-  const usedIndexes=new Set([curveIdx,fprIdx,tprIdx]);
+  const usedIndexes=new Set([fprIdx,tprIdx]);
+  if(curveIdx!==-1) usedIndexes.add(curveIdx);
   if(thresholdIdx!==-1) usedIndexes.add(thresholdIdx);
   if(simpleLowerIdx!==-1) usedIndexes.add(simpleLowerIdx);
   if(simpleUpperIdx!==-1) usedIndexes.add(simpleUpperIdx);
@@ -1160,11 +1162,27 @@ function parseRocCsv(text){
     .filter(item=>!usedIndexes.has(item.idx));
 
   const groups={};
+  let autoCurveCounter=1;
+  let fallbackCurveId=null;
+  const getAutoCurveId=()=>{
+    const id=`curve${autoCurveCounter++}`;
+    return id;
+  };
   for(let i=1;i<lines.length;i++){
     const row=splitCsvLine(lines[i]);
     if(!row.length || row.every(cell=>cell.trim()==='')) continue;
-    const curveIdRaw=row[curveIdx]!==undefined?row[curveIdx].trim():'';
-    if(!curveIdRaw) continue;
+    let curveIdRaw='';
+    if(hasCurveColumn && curveIdx!==-1){
+      curveIdRaw=row[curveIdx]!==undefined?row[curveIdx].trim():'';
+    }
+    if(!curveIdRaw){
+      if(hasCurveColumn){
+        curveIdRaw=getAutoCurveId();
+      }else{
+        if(!fallbackCurveId) fallbackCurveId=getAutoCurveId();
+        curveIdRaw=fallbackCurveId;
+      }
+    }
     const fpr=toNumber(row[fprIdx]);
     const tpr=toNumber(row[tprIdx]);
     if(!Number.isFinite(fpr)||!Number.isFinite(tpr)) continue;
@@ -1291,6 +1309,8 @@ function parseRocCsv(text){
 function normalizeRocJson(raw){
   if(raw===null || raw===undefined) throw new Error('JSON content is empty.');
   const result={};
+  let autoCurveCounter=1;
+  const getAutoCurveId=()=>`curve${autoCurveCounter++}`;
 
   const coerceNumericArray=(arr,{allowNull=false,label})=>{
     if(!Array.isArray(arr)) throw new Error(`${label} must be an array.`);
@@ -1311,8 +1331,10 @@ function normalizeRocJson(raw){
     if(!curveObj || typeof curveObj!=='object' || Array.isArray(curveObj)){
       throw new Error(`Curve entry "${keyHint}" must be an object.`);
     }
-    const curveId=curveObj.name || curveObj.curve_id || keyHint;
-    if(!curveId) throw new Error('Curve entry is missing a name or curve_id.');
+    let curveId=curveObj.name || curveObj.curve_id || keyHint;
+    if(!curveId){
+      curveId=getAutoCurveId();
+    }
     if(!Array.isArray(curveObj.fpr)) throw new Error(`${curveId}.fpr must be an array.`);
     if(!Array.isArray(curveObj.tpr)) throw new Error(`${curveId}.tpr must be an array.`);
     const fpr=coerceNumericArray(curveObj.fpr,{allowNull:false,label:`${curveId}.fpr`});
