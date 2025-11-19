@@ -157,7 +157,7 @@ const defaultConfig = {
   },
   sliders: {
     P_POS: {label: "Proportion positive", min: 0.01, max: 0.99, step: 0.01, value: 0.5},
-    N: {label: "Sample size (N)", min: 10, max: 100000, step: 10, value: 1000}
+    N: {label: "Number of units (N)", min: 10, max: 100000, step: 10, value: 1000}
   },
   payoffs: {
     TP: {label: "TP", value: 50, min: -100, max: 100, step: 1},
@@ -167,14 +167,11 @@ const defaultConfig = {
   },
   data: {
     staticFiles: [
-      'roc_data/roadmap_logistic.csv',
-      'roc_data/random_forest_baseline.csv',
-      'roc_data/logistic_baseline.csv',
-      'roc_data/bayesian_model_baseline.csv',
-      'roc_data/roadmap_logistic.json',
-      'roc_data/random_forest_baseline.json',
-      'roc_data/logistic_baseline.json',
-      'roc_data/bayesian_model_baseline.json'
+      'roc_data/both_edges.csv',
+      'roc_data/left_edge.csv',
+      'roc_data/neither_edge.csv',
+      'roc_data/neither_edge_Cauchy.csv',
+      'roc_data/top_edge.csv'
     ]
   },
   layout: {
