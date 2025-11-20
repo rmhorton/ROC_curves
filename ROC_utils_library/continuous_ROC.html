@@ -173,9 +173,14 @@ body {
         <label for="sampleSizeInput">Sample size:</label>
         <input type="number" id="sampleSizeInput" value="200" min="10" step="10">
       </div>
+      <div class="component-row">
+        <label for="rocExportName">Curve name:</label>
+        <input type="text" id="rocExportName" value="exported_curve">
+      </div>
       <button id="dataExportButton">Export CSV</button>
       <div id="exportStatus" style="font-size:12px;color:#666;margin-top:6px;"></div>
-      <button id="rocExportButton" style="margin-top:10px;">Export ROC CSV</button>
+      <button id="rocExportJsonButton" style="margin-top:10px;">Export ROC (JSON)</button>
+      <button id="rocExportCsvButton" style="margin-top:10px;">Export ROC (CSV)</button>
       <button id="resampleButton" style="margin-top:10px;">Resample</button>
       <div class="sim-options">
         <label><input type="checkbox" id="showSampledData">Show sampled data on plot</label>
@@ -1275,7 +1280,14 @@ body {
       });
 
       document.getElementById('dataExportButton').addEventListener('click', exportDataset);
-      document.getElementById('rocExportButton').addEventListener('click', exportROC);
+      const rocExportJsonButton=document.getElementById('rocExportJsonButton');
+      const rocExportCsvButton=document.getElementById('rocExportCsvButton');
+      if(rocExportJsonButton){
+        rocExportJsonButton.addEventListener('click', exportRocAsJson);
+      }
+      if(rocExportCsvButton){
+        rocExportCsvButton.addEventListener('click', exportRocAsCsv);
+      }
 
       function sampleDistribution(prefix, components, nSamples) {
         const samples = [];
@@ -1361,52 +1373,116 @@ body {
           `Exported ${N} samples (${nPos} positive, ${nNeg} negative).`;
       }
 
-      function exportROC() {
-        const statusEl = document.getElementById('exportStatus');
-        const rocPoints = (state.rocPairsSorted && state.rocPairsSorted.length ? state.rocPairsSorted : state.rocPairs) || [];
-        if(!rocPoints.length){
-          statusEl.textContent = 'No ROC data available to export.';
-          return;
+      function getExportCurveName(){
+        const input=document.getElementById('rocExportName');
+        if(!input){
+          return 'exported_curve';
         }
-        const fpr = [];
-        const tpr = [];
-        const thresholdValues = [];
-        let thresholdsAreFinite = true;
-        rocPoints.forEach(point=>{
-          fpr.push(Number(point.fpr));
-          tpr.push(Number(point.tpr));
-          const thrValue = Number(point.thr);
-          thresholdValues.push(thrValue);
-          if(!Number.isFinite(thrValue)){
-            thresholdsAreFinite = false;
+        const trimmed=(input.value||'').trim();
+        if(!trimmed){
+          input.value='exported_curve';
+          return 'exported_curve';
+        }
+        return trimmed;
+      }
+
+      function getPreferredRocPoints(){
+        const processedEmpirical=getProcessedEmpiricalPoints();
+        const empiricalRoc=computeEmpiricalRoc(processedEmpirical);
+        if(empiricalRoc.length>=2){
+          return {points:empiricalRoc,source:'empirical'};
+        }
+        const rocPoints=(state.rocPairsSorted&&state.rocPairsSorted.length?state.rocPairsSorted:state.rocPairs)||[];
+        if(rocPoints.length>=2){
+          return {points:rocPoints,source:'continuous'};
+        }
+        return null;
+      }
+
+      function buildCanonicalExportCurve(curveName){
+        const selection=getPreferredRocPoints();
+        if(!selection){
+          throw new Error('No ROC curve available to export.');
+        }
+        const fpr=[];
+        const tpr=[];
+        const thresholdValues=[];
+        let thresholdsAreFinite=true;
+        selection.points.forEach(point=>{
+          const fVal=Number(point.fpr);
+          const tVal=Number(point.tpr);
+          if(!Number.isFinite(fVal) || !Number.isFinite(tVal)){
+            throw new Error('ROC curve contains invalid values.');
+          }
+          fpr.push(fVal);
+          tpr.push(tVal);
+          if(thresholdsAreFinite){
+            const thrValue=Number(point.thr);
+            if(!Number.isFinite(thrValue)){
+              thresholdsAreFinite=false;
+            }else{
+              thresholdValues.push(thrValue);
+            }
           }
         });
-        const baseCurve = {
-          name: 'exported_curve',
-          type: 'ROC',
-          fpr,
-          tpr
-        };
-        if(thresholdsAreFinite && thresholdValues.length === fpr.length){
-          baseCurve.threshold = thresholdValues;
+        if(!fpr.length){
+          throw new Error('ROC curve is empty.');
         }
-        let canonicalCurve;
+        const baseCurve={name:curveName,type:'ROC',fpr,tpr};
+        if(thresholdsAreFinite && thresholdValues.length===fpr.length){
+          baseCurve.threshold=thresholdValues;
+        }
+        const canonicalCurve=ROCUtils.toCanonicalRocObject(baseCurve,{idHint:curveName});
+        canonicalCurve.name=curveName;
+        return {canonicalCurve,source:selection.source};
+      }
+
+      function downloadBlob(blob,filename){
+        const url=URL.createObjectURL(blob);
+        const link=document.createElement('a');
+        link.href=url;
+        link.download=filename;
+        link.click();
+        URL.revokeObjectURL(url);
+      }
+
+      function exportRocAsJson(){
+        const statusEl=document.getElementById('exportStatus');
+        const curveName=getExportCurveName();
         try{
-          canonicalCurve = ROCUtils.toCanonicalRocObject(baseCurve, {idHint: 'exported_curve'});
+          const {canonicalCurve}=buildCanonicalExportCurve(curveName);
+          const canonicalMap={[curveName]:canonicalCurve};
+          const blob=ROCUtils.toRocJsonBlob(canonicalMap,`${curveName}.json`);
+          downloadBlob(blob,`${curveName}.json`);
+          if(statusEl){
+            statusEl.textContent=`Exported ${curveName} as JSON.`;
+          }
         }catch(err){
           console.error(err);
-          statusEl.textContent = `Failed to export ROC: ${err.message || err}`;
-          return;
+          if(statusEl){
+            statusEl.textContent=err.message||'Failed to export ROC JSON.';
+          }
         }
-        const csvText = ROCUtils.rocToCsv({ exported_curve: canonicalCurve });
-        const blob = new Blob([csvText], { type: 'text/csv' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'roc_curve.csv';
-        a.click();
-        URL.revokeObjectURL(url);
-        statusEl.textContent = `Exported ROC with ${rocPoints.length} points.`;
+      }
+
+      function exportRocAsCsv(){
+        const statusEl=document.getElementById('exportStatus');
+        const curveName=getExportCurveName();
+        try{
+          const {canonicalCurve}=buildCanonicalExportCurve(curveName);
+          const canonicalMap={[curveName]:canonicalCurve};
+          const csvText=ROCUtils.rocToCsv(canonicalMap);
+          const blob=new Blob([csvText],{type:'text/csv'});
+          downloadBlob(blob,`${curveName}.csv`);
+          if(statusEl){
+            statusEl.textContent=`Exported ${curveName} as CSV.`;
+          }
+        }catch(err){
+          console.error(err);
+          if(statusEl){
+            statusEl.textContent=err.message||'Failed to export ROC CSV.';
+          }
+        }
       }
 
       renderComponents('neg');
