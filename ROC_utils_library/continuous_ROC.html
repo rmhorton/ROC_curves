@@ -30,14 +30,15 @@
     .empirical-group rect{stroke:none}
     .hist-pos-bar{fill:rgba(255,0,0,0.4)}
     .hist-neg-bar{fill:rgba(0,0,255,0.4)}
-    #dataImportControl{display:flex;flex-direction:column;gap:10px;font-size:13px;color:#30304a}
+    #empiricalPanel{display:flex;flex-direction:column;gap:10px;font-size:13px;color:#30304a}
     #dataImportDropZone{border:1px dashed #8a8ac5;border-radius:10px;padding:10px;text-align:center;background:#f5f5fd;cursor:pointer;transition:background 0.2s,border-color 0.2s}
     #dataImportDropZone.dragover{background:#e7e7fb;border-color:#5c5cb8}
     #dataImportStatus{font-size:12px;color:#4e4e70}
     .data-import-options{display:flex;flex-direction:column;gap:6px}
     .data-import-options label{display:flex;align-items:center;gap:6px;font-size:12px;color:#3a3a5a}
-    #empiricalLegend{display:flex;align-items:center;gap:12px;font-size:12px;color:#3a3a5a}
-    #empiricalLegend span{display:flex;align-items:center;gap:6px}
+    .plot-with-legend{position:relative}
+    .plot-legend{position:absolute;top:12px;right:12px;background:rgba(255,255,255,0.92);border:1px solid #dcdcee;border-radius:6px;padding:6px 10px;font-size:11px;color:#3a3a5a;display:flex;gap:10px}
+    #empiricalLegend span{display:flex;align-items:center;gap:4px;white-space:nowrap}
     .legend-swatch{width:12px;height:12px;border-radius:2px;display:inline-block}
     .legend-pos{background:rgba(255,0,0,0.4)}
     .legend-neg{background:rgba(0,0,255,0.4)}
@@ -147,7 +148,16 @@ body {
   </div>
 
   <div class="plots">
-    <div class="plot-block"><div id="distPlot"></div></div>
+    <div class="plot-block">
+      <div class="plot-with-legend">
+        <div id="distPlot"></div>
+        <div id="empiricalLegend" class="plot-legend">
+          <span><span class="legend-swatch legend-pos"></span>Positive histogram</span>
+          <span><span class="legend-swatch legend-neg"></span>Negative histogram</span>
+          <span><span class="legend-swatch legend-empirical-roc"></span>Empirical ROC</span>
+        </div>
+      </div>
+    </div>
     <div class="plot-block"><div id="rocPlot"></div></div>
   </div>
 
@@ -167,35 +177,32 @@ body {
       <span id="prevalenceVal">0.50</span>
       <div id="metricsPrev"></div>
     </div>
+    <div id="empiricalPanel" class="ctrl">
+      <h3>Empirical Data (Imported)</h3>
+      <div id="dataImportDropZone">
+        <label for="dataImportInput">Load empirical data (scores + labels):</label>
+        <input type="file" id="dataImportInput" accept=".csv" style="margin-top:6px;">
+        <div style="font-size:11px;color:#666;margin-top:6px;">Drop a CSV here or use the file picker. Required columns: <code>score</code>, <code>label</code>.</div>
+      </div>
+      <div class="data-import-options">
+        <label><input type="checkbox" id="toggleEmpiricalHistogram" checked>Show empirical histograms</label>
+        <label><input type="checkbox" id="toggleEmpiricalRoc">Show empirical ROC</label>
+      </div>
+      <div id="dataImportStatus">No empirical data loaded.</div>
+    </div>
     <div id="datasetPanel" class="ctrl">
       <h3>Simulated Dataset</h3>
       <div class="component-row">
         <label for="sampleSizeInput">Sample size:</label>
         <input type="number" id="sampleSizeInput" value="200" min="10" step="10">
       </div>
+      <button id="resampleButton" style="margin-top:10px;">New sample</button>
       <button id="dataExportButton">Export Dataset CSV</button>
       <div id="exportStatus" style="font-size:12px;color:#666;margin-top:6px;"></div>
-      <button id="resampleButton" style="margin-top:10px;">Resample</button>
       <div class="sim-options">
         <label><input type="checkbox" id="showSampledData">Show sampled data on plot</label>
         <label><input type="checkbox" id="autoResampleToggle">Auto-resample on parameter change</label>
       </div>
-      <div id="dataImportDropZone" style="margin-top:14px;">
-        <label for="dataImportInput">Load empirical data (scores + labels):</label>
-        <input type="file" id="dataImportInput" accept=".csv" style="margin-top:6px;">
-        <div style="font-size:11px;color:#666;margin-top:6px;">Drop a CSV here or use the file picker. Columns required: <code>score</code>, <code>label</code>.</div>
-      </div>
-      <div id="empiricalLegend">
-        <span><span class="legend-swatch legend-pos"></span>Positive histogram</span>
-        <span><span class="legend-swatch legend-neg"></span>Negative histogram</span>
-        <span><span class="legend-swatch legend-empirical-roc"></span>Empirical ROC</span>
-      </div>
-      <div class="data-import-options">
-        <label><input type="checkbox" id="toggleEmpiricalHistogram" checked>Show empirical histograms</label>
-        <label><input type="checkbox" id="toggleNormalizeScores">Normalize scores to [0, 1]</label>
-        <label><input type="checkbox" id="toggleEmpiricalRoc">Show empirical ROC</label>
-      </div>
-      <div id="dataImportStatus">No empirical data loaded.</div>
     </div>
     <div id="rocPanel" class="ctrl">
       <h3>ROC Curves</h3>
@@ -281,7 +288,6 @@ body {
         importedRawPos:[],
         importedRawNeg:[],
         showEmpiricalHistogram:DEFAULT_OPTIONS.showEmpiricalHistogram??true,
-        normalizeImportedScores:DEFAULT_OPTIONS.normalizeImportedScores??false,
         showEmpiricalRoc:DEFAULT_OPTIONS.showEmpiricalRoc??false,
         empiricalPoints:[],
         showSampledData:DEFAULT_OPTIONS.showSampledData??false,
@@ -295,7 +301,6 @@ body {
       prevalenceValEl.textContent=STRINGS.controls.prevalenceValue(state.prevalence);
 
       const toggleHistogram=document.getElementById('toggleEmpiricalHistogram');
-      const toggleNormalize=document.getElementById('toggleNormalizeScores');
       const toggleEmpiricalRoc=document.getElementById('toggleEmpiricalRoc');
       const showSampledDataCheckbox=document.getElementById('showSampledData');
       const autoResampleToggle=document.getElementById('autoResampleToggle');
@@ -303,14 +308,9 @@ body {
       showSampledDataCheckbox.checked=state.showSampledData;
       autoResampleToggle.checked=state.autoResample;
       toggleHistogram.checked=state.showEmpiricalHistogram;
-      toggleNormalize.checked=state.normalizeImportedScores;
       toggleEmpiricalRoc.checked=state.showEmpiricalRoc;
       toggleHistogram.addEventListener('change',event=>{
         state.showEmpiricalHistogram=event.target.checked;
-        update();
-      });
-      toggleNormalize.addEventListener('change',event=>{
-        state.normalizeImportedScores=event.target.checked;
         update();
       });
       toggleEmpiricalRoc.addEventListener('change',event=>{
@@ -622,48 +622,19 @@ body {
 
       function getProcessedEmpiricalSamples(){
         if(!hasEmpiricalData()){
-          return {positives:[],negatives:[]};
-        }
-        const positives=[...state.importedRawPos];
-        const negatives=[...state.importedRawNeg];
-        if(!state.normalizeImportedScores){
-          return {positives,negatives};
-        }
-        const all=[...positives,...negatives];
-        const min=Math.min(...all);
-        const max=Math.max(...all);
-        if(!Number.isFinite(min)||!Number.isFinite(max)){
-          return {positives,negatives};
-        }
-        const span=max-min;
-        if(span<=0){
-          return {
-            positives:positives.map(()=>0.5),
-            negatives:negatives.map(()=>0.5)
-          };
-        }
-        return {
-          positives:positives.map(v=>(v-min)/span),
-          negatives:negatives.map(v=>(v-min)/span)
-        };
-      }
+      return {positives:[],negatives:[]};
+    }
+    const positives=[...state.importedRawPos];
+    const negatives=[...state.importedRawNeg];
+    return {positives,negatives};
+  }
 
-      function getProcessedEmpiricalPoints(){
-        if(!hasEmpiricalData()){
-          return [];
-        }
-        if(!state.normalizeImportedScores){
-          return state.empiricalPoints;
-        }
-        const scores=state.empiricalPoints.map(d=>d.score);
-        const min=Math.min(...scores);
-        const max=Math.max(...scores);
-        const span=max-min;
-        if(!Number.isFinite(min)||!Number.isFinite(max)||span<=0){
-          return state.empiricalPoints.map(d=>({score:0.5,label:d.label}));
-        }
-        return state.empiricalPoints.map(d=>({score:(d.score-min)/span,label:d.label}));
-      }
+  function getProcessedEmpiricalPoints(){
+    if(!hasEmpiricalData()){
+      return [];
+    }
+    return state.empiricalPoints;
+  }
 
       function refreshDataImportStatus(){
         const statusEl=document.getElementById('dataImportStatus');
