@@ -37,7 +37,7 @@
       </label>
       <div id="importControls" style="margin-top:12px; display:flex; flex-direction:column; gap:6px;">
         <label><span id="importLabelText">Import ROC Data</span>
-          <input type="file" id="rocFileInput" accept=".csv,.json,application/json,text/csv">
+          <input type="file" id="rocFileInput" accept=".json,application/json">
         </label>
       </div>
       <div id="slidersSection">
@@ -136,7 +136,8 @@ const defaultConfig = {
       failImport: "Failed to import ROC data: {message}",
       failRead: "Unable to read the selected file.",
       failStaticLoad: "Failed to load static ROC file \"{path}\": {message}",
-      failConfigLoad: "Failed to load configuration: {message}"
+      failConfigLoad: "Failed to load configuration: {message}",
+      invalidCanonicalJson: "The selected file is not a valid canonical ROC JSON file."
     }
   },
   ui: {
@@ -929,8 +930,14 @@ function handleDataFileSelection(evt){
   reader.onload=()=>{
     try{
       const text=reader.result;
-      const ext=(file.name.split('.').pop()||'').toLowerCase();
-      const {data:parsed, sourceType}=parseRocDataFromText(text, ext, file.name);
+      let parsed, sourceType;
+      try{
+        ({data:parsed, sourceType}=parseRocDataFromText(text, file.name));
+      }catch(parseErr){
+        console.error(parseErr);
+        alertFromConfig('invalidCanonicalJson');
+        return;
+      }
       if(!parsed || !Object.keys(parsed).length){
         alertFromConfig('noCurvesFound');
         return;
@@ -993,23 +1000,11 @@ function deriveCurveNameFromSource(sourceName){
   return withoutExt || trimmed;
 }
 
-function parseRocDataFromText(text, extHint, sourceName){
+function parseRocDataFromText(text, sourceName){
   const defaultCurveName = deriveCurveNameFromSource(sourceName);
   const rocJsonOptions = defaultCurveName ? {defaultCurveName} : undefined;
-  try{
-    const parsed = ROCUtils.parseRocJsonText(text, rocJsonOptions);
-    return {data: parsed, sourceType: 'json'};
-  }catch(jsonErr){
-    try{
-      const parsed = ROCUtils.parseRocCsvText(text);
-      return {data: parsed, sourceType: 'csv'};
-    }catch(csvErr){
-      const error = new Error(csvErr && csvErr.message ? csvErr.message : 'Failed to parse ROC data as JSON or CSV.');
-      error.jsonError = jsonErr;
-      error.csvError = csvErr;
-      throw error;
-    }
-  }
+  const parsed = ROCUtils.parseRocJsonText(text, rocJsonOptions);
+  return {data: parsed, sourceType: 'json'};
 }
 
 function slugifyLabel(value){
@@ -1093,7 +1088,12 @@ async function loadStaticRocFiles(){
       const response = await fetch(trimmedPath);
       if(!response.ok) throw new Error(`HTTP ${response.status}`);
       const text = await response.text();
-      const {data: parsed, sourceType} = parseRocDataFromText(text, trimmedPath.split('.').pop(), trimmedPath);
+      let parsed, sourceType;
+      try{
+        ({data: parsed, sourceType} = parseRocDataFromText(text, trimmedPath));
+      }catch(parseErr){
+        throw new Error((strings.alerts && strings.alerts.invalidCanonicalJson) || (defaultConfig.strings && defaultConfig.strings.alerts && defaultConfig.strings.alerts.invalidCanonicalJson) || 'The selected file is not a valid canonical ROC JSON file.');
+      }
       const addedIds = addCurvesToCollection(merged, parsed, {sourceType, sourceFile: trimmedPath});
       if(addedIds.length){
         loadedAny = true;
