@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>ROC File Manager</title>
+  <script src="ROC_utils.js"></script>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:24px;background:#f9f9ff;color:#1f1f30}
+    h1{margin-bottom:6px}
+    p.subtitle{margin-top:0;color:#4a4a66}
+    .layout{display:grid;grid-template-columns:2fr 2fr 2fr 1.5fr;gap:20px;align-items:start}
+    .panel{background:#fff;border:1px solid #dfe2f5;border-radius:12px;padding:16px;box-shadow:0 1px 3px rgba(15,15,35,0.08)}
+    .panel h2{margin:0 0 10px 0;font-size:18px;color:#222249}
+    .panel section{margin-bottom:14px}
+    .file-list, .curve-table{width:100%;border-collapse:collapse;font-size:13px}
+    .file-list th,.file-list td,.curve-table th,.curve-table td{border:1px solid #e0e3f4;padding:6px;text-align:left;vertical-align:top}
+    input[type=text]{width:100%;padding:5px 6px;border:1px solid #ccd0ea;border-radius:6px;font-size:13px}
+    input[type=number]{width:100%;padding:5px 6px;border:1px solid #ccd0ea;border-radius:6px;font-size:13px}
+    button{background:#4a63ff;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-size:13px;cursor:pointer}
+    button:hover{background:#334bd8}
+    .error{color:#b00020;font-size:13px;margin-top:8px;min-height:20px}
+    .status{font-size:12px;color:#4a4a66;margin-top:8px}
+    .explain h3{margin-top:0}
+    .explain ul{padding-left:18px;font-size:13px;color:#3d3d5c}
+    .table-scroll{max-height:300px;overflow:auto;border:1px solid #e0e3f4;border-radius:8px}
+  </style>
+</head>
+<body>
+  <h1>ROC File Manager</h1>
+  <p class="subtitle">Load canonical ROC JSON files, curate curve IDs, and export combined ROC datasets.</p>
+  <div class="layout">
+    <div class="panel">
+      <h2>Load ROC Files</h2>
+      <section>
+        <label for="rocFileInput">Select canonical ROC JSON files:</label>
+        <input type="file" id="rocFileInput" accept=".json,application/json" multiple>
+      </section>
+      <section>
+        <strong>Loaded files</strong>
+        <div class="table-scroll">
+          <table class="file-list">
+            <thead><tr><th>File</th><th>Curves</th></tr></thead>
+            <tbody id="fileListBody"><tr><td colspan="2" style="text-align:center;color:#666;">No files loaded.</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+      <div class="error" id="loadError"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Manage Curves</h2>
+      <section>
+        <label for="prefixInput">Optional ID prefix:</label>
+        <input type="text" id="prefixInput" placeholder="e.g., experimentA_">
+      </section>
+      <div class="table-scroll" style="max-height:340px;">
+        <table class="curve-table">
+          <thead>
+            <tr>
+              <th>Include</th>
+              <th>Original ID</th>
+              <th>Rename To</th>
+            </tr>
+          </thead>
+          <tbody id="curveTableBody"><tr><td colspan="3" style="text-align:center;color:#666;">No curves available.</td></tr></tbody>
+        </table>
+      </div>
+      <div class="status" id="curveStatus">0 curves selected.</div>
+    </div>
+
+    <div class="panel">
+      <h2>Export Combined ROC File</h2>
+      <section>
+        <label for="exportName">Output filename (JSON):</label>
+        <input type="text" id="exportName" value="combined_roc">
+      </section>
+      <section>
+        <label><input type="checkbox" id="exportCsvToggle"> Also export CSV summary</label>
+      </section>
+      <button id="exportJsonBtn">Export Combined ROC JSON</button>
+      <div class="status" id="exportStatus"></div>
+      <div class="error" id="exportError"></div>
+    </div>
+
+    <div class="panel explain">
+      <h2>Format Guide</h2>
+      <section>
+        <h3>Canonical ROC JSON</h3>
+        <ul>
+          <li>JSON object: <code>{ curve_id: { type, fpr[], tpr[] ... } }</code></li>
+          <li>Supports multiple curves per file</li>
+          <li>Preserves metadata, bands, thresholds</li>
+        </ul>
+      </section>
+      <section>
+        <h3>ROC CSV (human-readable)</h3>
+        <ul>
+          <li>Long format with columns: <code>curve_id,fpr,tpr</code> (+ optional fields)</li>
+          <li>Ideal for spreadsheet review or quick sharing</li>
+        </ul>
+      </section>
+      <section>
+        <h3>Workflow Tips</h3>
+        <ul>
+          <li>Load canonical JSON exported from ROC Utility or other apps</li>
+          <li>Rename curve IDs to avoid collisions before export</li>
+          <li>Use JSON when sharing across apps; CSV for analysts</li>
+        </ul>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    const rocFileInput=document.getElementById('rocFileInput');
+    const fileListBody=document.getElementById('fileListBody');
+    const curveTableBody=document.getElementById('curveTableBody');
+    const loadError=document.getElementById('loadError');
+    const curveStatus=document.getElementById('curveStatus');
+    const exportNameInput=document.getElementById('exportName');
+    const exportJsonBtn=document.getElementById('exportJsonBtn');
+    const exportStatus=document.getElementById('exportStatus');
+    const exportError=document.getElementById('exportError');
+    const prefixInput=document.getElementById('prefixInput');
+    const exportCsvToggle=document.getElementById('exportCsvToggle');
+    const toggleHistogram=document.getElementById('toggleEmpiricalHistogram');
+
+    const loadedFiles=[]; // { name, curves: {id:curve} }
+    let canonicalCurves={}; // map of id -> curve
+    const curveMeta=new Map(); // id -> {checked:boolean, rename:string}
+
+    function resetStatus(){
+      loadError.textContent='';
+      exportError.textContent='';
+      exportStatus.textContent='';
+    }
+
+    function renderFileList(){
+      if(!loadedFiles.length){
+        fileListBody.innerHTML='<tr><td colspan="2" style="text-align:center;color:#666;">No files loaded.</td></tr>';
+        return;
+      }
+      fileListBody.innerHTML=loadedFiles.map(file=>{
+        const curves=Object.keys(file.curves);
+        return `<tr><td>${file.name}</td><td>${curves.length ? curves.join('<br>') : '—'}</td></tr>`;
+      }).join('');
+    }
+
+    function sanitizeId(id){
+      return String(id||'curve').trim().replace(/[^A-Za-z0-9_\-]/g,'_');
+    }
+
+    function ensureUniqueId(base){
+      let candidate=base;
+      let counter=2;
+      while(canonicalCurves.hasOwnProperty(candidate)){
+        candidate=`${base}_${counter++}`;
+      }
+      return candidate;
+    }
+
+    function syncCanonicalCurves(){
+      canonicalCurves={};
+      curveMeta.clear();
+      loadedFiles.forEach(file=>{
+        Object.entries(file.curves).forEach(([curveId,curve])=>{
+          let cleanId=sanitizeId(curveId);
+          if(!cleanId){
+            cleanId='curve';
+          }
+          cleanId=ensureUniqueId(cleanId);
+          canonicalCurves[cleanId]=curve;
+          curveMeta.set(cleanId,{checked:true, rename:cleanId, original:curveId});
+        });
+      });
+    }
+
+    function renderCurveTable(){
+      if(!Object.keys(canonicalCurves).length){
+        curveTableBody.innerHTML='<tr><td colspan="3" style="text-align:center;color:#666;">No curves available.</td></tr>';
+        curveStatus.textContent='0 curves selected.';
+        return;
+      }
+      const rows=Object.keys(canonicalCurves).map(id=>{
+        const meta=curveMeta.get(id);
+        return `<tr>
+          <td style="width:60px;text-align:center;"><input type="checkbox" data-curve="${id}" ${meta.checked?'checked':''}></td>
+          <td>${meta.original}</td>
+          <td><input type="text" data-rename="${id}" value="${meta.rename}"></td>
+        </tr>`;
+      }).join('');
+      curveTableBody.innerHTML=rows;
+      updateSelectedCount();
+    }
+
+    function updateSelectedCount(){
+      const selected=Array.from(curveMeta.values()).filter(meta=>meta.checked).length;
+      curveStatus.textContent=`${selected} curve${selected===1?'':'s'} selected.`;
+    }
+
+    function handleCurveInteractions(event){
+      const target=event.target;
+      if(target.matches('input[type="checkbox"][data-curve]')){
+        const id=target.getAttribute('data-curve');
+        const meta=curveMeta.get(id);
+        meta.checked=target.checked;
+        updateSelectedCount();
+      }
+      if(target.matches('input[type="text"][data-rename]')){
+        const id=target.getAttribute('data-rename');
+        const meta=curveMeta.get(id);
+        meta.rename=target.value.trim();
+      }
+    }
+
+    curveTableBody.addEventListener('input',handleCurveInteractions);
+    curveTableBody.addEventListener('change',handleCurveInteractions);
+
+    async function handleFileSelection(event){
+      resetStatus();
+      const files=Array.from(event.target.files||[]);
+      if(!files.length) return;
+      for(const file of files){
+        try{
+          const text=await file.text();
+          const parsed=ROCUtils.parseRocJsonText(text, {defaultCurveName:file.name.replace(/\.[^.]+$/, '')});
+          loadedFiles.push({name:file.name, curves:parsed});
+        }catch(err){
+          loadError.textContent=`Failed to parse ${file.name}: ${err.message||err}`;
+        }
+      }
+      syncCanonicalCurves();
+      renderFileList();
+      renderCurveTable();
+      rocFileInput.value='';
+    }
+
+    rocFileInput.addEventListener('change',handleFileSelection);
+
+    function buildExportMap(){
+      const result={};
+      const prefix=prefixInput.value.trim();
+      const seen=new Set();
+      Object.entries(canonicalCurves).forEach(([id,curve])=>{
+        const meta=curveMeta.get(id);
+        if(!meta || !meta.checked) return;
+        let newId=meta.rename.trim();
+        if(!newId){
+          newId=id;
+        }
+        newId=sanitizeId(prefix ? `${prefix}${newId}` : newId);
+        if(!newId){
+          newId=ensureUniqueId('curve');
+        }
+        while(seen.has(newId)){
+          newId=ensureUniqueId(newId);
+        }
+        seen.add(newId);
+        const canonicalCurve=ROCUtils.toCanonicalRocObject(curve,{idHint:newId});
+        canonicalCurve.name=newId;
+        result[newId]=canonicalCurve;
+      });
+      return result;
+    }
+
+    function triggerDownload(blob, filename){
+      const url=URL.createObjectURL(blob);
+      const anchor=document.createElement('a');
+      anchor.href=url;
+      anchor.download=filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      setTimeout(()=>{
+        document.body.removeChild(anchor);
+        URL.revokeObjectURL(url);
+      },0);
+    }
+
+    exportJsonBtn.addEventListener('click',()=>{
+      resetStatus();
+      if(!Object.keys(canonicalCurves).length){
+        exportError.textContent='Load at least one ROC JSON file before exporting.';
+        return;
+      }
+      const exportMap=buildExportMap();
+      const selectedCount=Object.keys(exportMap).length;
+      if(!selectedCount){
+        exportError.textContent='Select at least one curve to export.';
+        return;
+      }
+      let filename=(exportNameInput.value.trim()||'combined_roc').replace(/\.[^.]+$/, '');
+      if(!filename){
+        filename='combined_roc';
+      }
+      try{
+        const blob=ROCUtils.toRocJsonBlob(exportMap,`${filename}.json`);
+        triggerDownload(blob,`${filename}.json`);
+        exportStatus.textContent=`Exported ${selectedCount} curve${selectedCount===1?'':'s'} to ${filename}.json`;
+        if(exportCsvToggle.checked){
+          const csvText=ROCUtils.rocToCsv(exportMap);
+          const csvBlob=new Blob([csvText],{type:'text/csv'});
+          triggerDownload(csvBlob,`${filename}.csv`);
+        }
+      }catch(err){
+        exportError.textContent=`Export failed: ${err.message||err}`;
+      }
+    });
+  </script>
+</body>
+</html>

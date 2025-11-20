@@ -1755,7 +1755,7 @@ of ROC_Utils_implementation_plan.md.
 
 Implement this app as follows:
 
-1. Include roc_utils.js with:
+1. Include ROC_utils.js with:
    <script src="ROC_utils.js"></script>
 
 2. Create a minimal, clean HTML page with three panels:
