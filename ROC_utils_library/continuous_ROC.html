@@ -684,33 +684,6 @@ body {
         }
       }
 
-      function computeEmpiricalRoc(points){
-        if(!points?.length){return [];}
-        const positives=points.filter(d=>d.label===1).length;
-        const negatives=points.filter(d=>d.label===0).length;
-        if(positives===0 || negatives===0){return [];}
-        const sorted=[...points].sort((a,b)=>b.score-a.score);
-        let tp=0;
-        let fp=0;
-        const roc=[];
-        let idx=0;
-        roc.push({thr:Number.POSITIVE_INFINITY,tpr:0,fpr:0});
-        while(idx<sorted.length){
-          const current=sorted[idx].score;
-          while(idx<sorted.length && sorted[idx].score===current){
-            if(sorted[idx].label===1){tp++;} else {fp++;}
-            idx++;
-          }
-          roc.push({
-            thr:current,
-            tpr:tp/positives,
-            fpr:fp/negatives
-          });
-        }
-        roc.push({thr:Number.NEGATIVE_INFINITY,tpr:1,fpr:1});
-        return roc.sort((a,b)=>a.fpr-b.fpr);
-      }
-
       function applyImportedData({positives,negatives,points,filename,simulated=false}){
         state.importedRawPos=positives;
         state.importedRawNeg=negatives;
@@ -1185,14 +1158,10 @@ body {
           .raise();
 
         const rocPairs=dataPoints.map(d=>({thr:d.x,fpr:1-d.negCDF,tpr:1-d.posCDF}));
-        const rocSorted=[...rocPairs].sort((a,b)=>a.fpr-b.fpr);
+        const rocSorted=ROCUtils.ensureMonotoneRoc(rocPairs);
         state.rocPairs=rocPairs;
         state.rocPairsSorted=rocSorted;
-        const auc=rocSorted.length>=2?rocSorted.reduce((acc,val,i)=>{
-          if(i===0){return acc;}
-          const dx=rocSorted[i].fpr-rocSorted[i-1].fpr;
-          return acc+dx*(rocSorted[i].tpr+rocSorted[i-1].tpr)/2;
-        },0):0;
+        const auc=ROCUtils.computeAuc(rocSorted);
         rocTitle.text(STRINGS.plots.rocTitle(auc));
 
         if(rocSorted.length>=2){rocLinePath.datum(rocSorted).attr('d',rocLineGenerator);} else {rocLinePath.attr('d',null);}    
@@ -1201,7 +1170,7 @@ body {
 
         if(state.showEmpiricalRoc && hasEmpiricalSamples){
           const empiricalPoints=getProcessedEmpiricalPoints();
-          const empiricalRoc=computeEmpiricalRoc(empiricalPoints);
+          const empiricalRoc=ROCUtils.computeEmpiricalRoc(empiricalPoints);
           if(empiricalRoc.length>=2){
             empiricalRocPath.datum(empiricalRoc).attr('d',rocLineGenerator).style('opacity',1).raise();
           } else {
@@ -1388,7 +1357,7 @@ body {
 
       function getPreferredRocPoints(){
         const processedEmpirical=getProcessedEmpiricalPoints();
-        const empiricalRoc=computeEmpiricalRoc(processedEmpirical);
+        const empiricalRoc=ROCUtils.computeEmpiricalRoc(processedEmpirical);
         if(empiricalRoc.length>=2){
           return {points:empiricalRoc,source:'empirical'};
         }
