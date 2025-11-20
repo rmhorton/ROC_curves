@@ -1020,23 +1020,21 @@ function deriveCurveNameFromSource(sourceName){
 }
 
 function parseRocDataFromText(text, extHint, sourceName){
-  const normalizedExt = (extHint || '').toLowerCase();
   const defaultCurveName = deriveCurveNameFromSource(sourceName);
   const rocJsonOptions = defaultCurveName ? {defaultCurveName} : undefined;
-  if(normalizedExt === 'csv'){
-    const parsed = parseRocCsv(text);
-    return {data: parsed, sourceType: 'csv'};
-  }
-  if(normalizedExt === 'json'){
-    const parsed = ROCUtils.parseRocJsonText(text, rocJsonOptions);
-    return {data: parsed, sourceType: 'json'};
-  }
   try{
     const parsed = ROCUtils.parseRocJsonText(text, rocJsonOptions);
     return {data: parsed, sourceType: 'json'};
-  }catch(err){
-    const parsed = parseRocCsv(text);
-    return {data: parsed, sourceType: 'csv'};
+  }catch(jsonErr){
+    try{
+      const parsed = ROCUtils.parseRocCsvText(text);
+      return {data: parsed, sourceType: 'csv'};
+    }catch(csvErr){
+      const error = new Error(csvErr && csvErr.message ? csvErr.message : 'Failed to parse ROC data as JSON or CSV.');
+      error.jsonError = jsonErr;
+      error.csvError = csvErr;
+      throw error;
+    }
   }
 }
 
@@ -1137,240 +1135,6 @@ async function loadStaticRocFiles(){
     return true;
   }
   return false;
-}
-
-function parseRocCsv(text){
-  if(!text || !text.trim()) throw new Error('CSV file is empty.');
-  const rawLines=text.split(/\r?\n/);
-  const lines=[];
-  for(const line of rawLines){
-    if(!line) continue;
-    const trimmed=line.trim();
-    if(!trimmed || trimmed.startsWith('#')) continue;
-    lines.push(line);
-  }
-  if(lines.length<2) throw new Error('CSV must include a header row and at least one data row.');
-
-  const headers=splitCsvLine(lines[0]).map(h=>h.trim());
-  if(!headers.length) throw new Error('CSV header row is empty.');
-  const indexMap={};
-  headers.forEach((header,idx)=>{ if(header) indexMap[header]=idx; });
-
-  const required=['fpr','tpr'];
-  const missing=required.filter(name=>!(name in indexMap));
-  if(missing.length) throw new Error(`Missing required column(s): ${missing.join(', ')}`);
-
-  const hasCurveColumn=Object.prototype.hasOwnProperty.call(indexMap,'curve_id');
-  const curveIdx=hasCurveColumn?indexMap.curve_id:-1;
-  const fprIdx=indexMap.fpr;
-  const tprIdx=indexMap.tpr;
-  const thresholdIdx=Object.prototype.hasOwnProperty.call(indexMap,'threshold')?indexMap.threshold:-1;
-  const simpleLowerIdx=Object.prototype.hasOwnProperty.call(indexMap,'tpr_lower')?indexMap.tpr_lower:-1;
-  const simpleUpperIdx=Object.prototype.hasOwnProperty.call(indexMap,'tpr_upper')?indexMap.tpr_upper:-1;
-
-  const bandIndexMap={};
-  headers.forEach((header,idx)=>{
-    const match=header.match(/^tpr_(lower|upper)_(\d+(?:\.\d+)*)$/);
-    if(match){
-      const type=match[1];
-      const levelKey=match[2];
-      if(!bandIndexMap[levelKey]) bandIndexMap[levelKey]={};
-      bandIndexMap[levelKey][type]=idx;
-    }
-  });
-
-  const usedIndexes=new Set([fprIdx,tprIdx]);
-  if(curveIdx!==-1) usedIndexes.add(curveIdx);
-  if(thresholdIdx!==-1) usedIndexes.add(thresholdIdx);
-  if(simpleLowerIdx!==-1) usedIndexes.add(simpleLowerIdx);
-  if(simpleUpperIdx!==-1) usedIndexes.add(simpleUpperIdx);
-  Object.values(bandIndexMap).forEach(cols=>{
-    if(typeof cols.lower==='number') usedIndexes.add(cols.lower);
-    if(typeof cols.upper==='number') usedIndexes.add(cols.upper);
-  });
-
-  const extraColumns=headers
-    .map((header,idx)=>({header,idx}))
-    .filter(item=>!usedIndexes.has(item.idx));
-
-  const groups={};
-  let autoCurveCounter=1;
-  let fallbackCurveId=null;
-  const getAutoCurveId=()=>{
-    const id=`curve${autoCurveCounter++}`;
-    return id;
-  };
-  for(let i=1;i<lines.length;i++){
-    const row=splitCsvLine(lines[i]);
-    if(!row.length || row.every(cell=>cell.trim()==='')) continue;
-    let curveIdRaw='';
-    if(hasCurveColumn && curveIdx!==-1){
-      curveIdRaw=row[curveIdx]!==undefined?row[curveIdx].trim():'';
-    }
-    if(!curveIdRaw){
-      if(hasCurveColumn){
-        curveIdRaw=getAutoCurveId();
-      }else{
-        if(!fallbackCurveId) fallbackCurveId=getAutoCurveId();
-        curveIdRaw=fallbackCurveId;
-      }
-    }
-    const fpr=toNumber(row[fprIdx]);
-    const tpr=toNumber(row[tprIdx]);
-    if(!Number.isFinite(fpr)||!Number.isFinite(tpr)) continue;
-
-    let group=groups[curveIdRaw];
-    if(!group){
-      group={
-        fpr:[],
-        tpr:[],
-        threshold:thresholdIdx!==-1?[]:null,
-        simpleLower:simpleLowerIdx!==-1?[]:null,
-        simpleUpper:simpleUpperIdx!==-1?[]:null,
-        bands:{},
-        metadataValues:{}
-      };
-      Object.keys(bandIndexMap).forEach(levelKey=>{
-        group.bands[levelKey]={lower:[],upper:[]};
-      });
-      groups[curveIdRaw]=group;
-    }
-
-    group.fpr.push(fpr);
-    group.tpr.push(tpr);
-
-    if(group.threshold){
-      const value=toNumber(row[thresholdIdx]);
-      group.threshold.push(Number.isFinite(value)?value:null);
-    }
-    if(group.simpleLower){
-      const value=toNumber(row[simpleLowerIdx]);
-      group.simpleLower.push(Number.isFinite(value)?value:null);
-    }
-    if(group.simpleUpper){
-      const value=toNumber(row[simpleUpperIdx]);
-      group.simpleUpper.push(Number.isFinite(value)?value:null);
-    }
-
-    Object.keys(bandIndexMap).forEach(levelKey=>{
-      const band=group.bands[levelKey];
-      const lowerIdx=bandIndexMap[levelKey].lower;
-      const upperIdx=bandIndexMap[levelKey].upper;
-      if(typeof lowerIdx==='number'){
-        const value=toNumber(row[lowerIdx]);
-        band.lower.push(Number.isFinite(value)?value:null);
-      }else{
-        band.lower.push(null);
-      }
-      if(typeof upperIdx==='number'){
-        const value=toNumber(row[upperIdx]);
-        band.upper.push(Number.isFinite(value)?value:null);
-      }else{
-        band.upper.push(null);
-      }
-    });
-
-    extraColumns.forEach(({header,idx})=>{
-      const value=row[idx];
-      if(value===undefined) return;
-      const trimmed=value.trim();
-      if(!trimmed) return;
-      if(!group.metadataValues[header]) group.metadataValues[header]=new Set();
-      group.metadataValues[header].add(trimmed);
-    });
-  }
-
-  const result={};
-  Object.keys(groups).forEach(curveId=>{
-    const group=groups[curveId];
-    if(!group.fpr.length || !group.tpr.length) return;
-    const curve={name:curveId,type:'ROC',fpr:group.fpr,tpr:group.tpr};
-
-    if(group.threshold && group.threshold.length===group.fpr.length && group.threshold.every(Number.isFinite)){
-      curve.threshold=group.threshold.slice();
-    }
-
-    const bandEntries=[];
-    if(group.simpleLower && group.simpleUpper){
-      const legacyLowerValid=group.simpleLower.length===group.fpr.length && group.simpleLower.every(Number.isFinite);
-      const legacyUpperValid=group.simpleUpper.length===group.fpr.length && group.simpleUpper.every(Number.isFinite);
-      if(legacyLowerValid && legacyUpperValid){
-        bandEntries.push({
-          level:0.95,
-          lower:group.simpleLower.slice(),
-          upper:group.simpleUpper.slice()
-        });
-      }
-    }
-
-    Object.keys(group.bands).forEach(levelKey=>{
-      const lowerArr=group.bands[levelKey].lower;
-      const upperArr=group.bands[levelKey].upper;
-      const lowerValid=lowerArr.length===group.fpr.length && lowerArr.every(Number.isFinite);
-      const upperValid=upperArr.length===group.fpr.length && upperArr.every(Number.isFinite);
-      if(!lowerValid || !upperValid) return;
-      const level=parseFloat(levelKey);
-      bandEntries.push({
-        level:Number.isFinite(level)?level:parseFloat(levelKey)||0,
-        lower:lowerArr.slice(),
-        upper:upperArr.slice()
-      });
-    });
-
-    if(bandEntries.length){
-      bandEntries.sort((a,b)=>{
-        const aVal=typeof a.level==='number'?a.level:parseFloat(a.level)||0;
-        const bVal=typeof b.level==='number'?b.level:parseFloat(b.level)||0;
-        return aVal-bVal;
-      });
-      curve.bands=bandEntries;
-    }
-
-    const metadata={source:'csv'};
-    Object.keys(group.metadataValues).forEach(key=>{
-      const values=Array.from(group.metadataValues[key]);
-      if(values.length===1){
-        metadata[key]=values[0];
-      }
-    });
-    curve.metadata=metadata;
-
-    result[curveId]=curve;
-  });
-
-  return result;
-}
-
-function splitCsvLine(line){
-  const result=[];
-  let current='';
-  let inQuotes=false;
-  for(let i=0;i<line.length;i++){
-    const char=line[i];
-    if(char==='\"'){
-      if(inQuotes && line[i+1]==='\"'){
-        current+='\"';
-        i++;
-      }else{
-        inQuotes=!inQuotes;
-      }
-    }else if(char===',' && !inQuotes){
-      result.push(current);
-      current='';
-    }else{
-      current+=char;
-    }
-  }
-  result.push(current);
-  return result;
-}
-
-function toNumber(value){
-  if(value===undefined || value===null) return NaN;
-  const trimmed=typeof value==='string'?value.trim():value;
-  if(trimmed==='') return NaN;
-  const num=Number(trimmed);
-  return Number.isFinite(num)?num:NaN;
 }
 
 function hslToRgb(h,s,l){const a=s*Math.min(l,1-l);const f=n=>{const k=(n+h*12)%12;const color=l-a*Math.max(Math.min(k-3,9-k,1),-1);return Math.round(255*color);};return [f(0),f(8),f(4)];}

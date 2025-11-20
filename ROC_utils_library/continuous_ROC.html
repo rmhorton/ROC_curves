@@ -6,6 +6,7 @@
   <script src="https://cdn.jsdelivr.net/npm/jstat@latest/dist/jstat.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
   <script src="continuous_ROC_config.js"></script>
+  <script src="ROC_utils.js"></script>
   <style>
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:18px;background:#fcfcff;color:#21213a}
     h2{margin:0 0 6px 0;font-size:24px;font-weight:650;color:#1e1e31}
@@ -1361,20 +1362,51 @@ body {
       }
 
       function exportROC() {
-        const rows = [['threshold', 'fpr', 'tpr']];
-        for (const p of state.rocPairsSorted) {
-          rows.push([p.thr.toFixed(6), p.fpr.toFixed(6), p.tpr.toFixed(6)]);
+        const statusEl = document.getElementById('exportStatus');
+        const rocPoints = (state.rocPairsSorted && state.rocPairsSorted.length ? state.rocPairsSorted : state.rocPairs) || [];
+        if(!rocPoints.length){
+          statusEl.textContent = 'No ROC data available to export.';
+          return;
         }
-        const csv = rows.map(r => r.join(',')).join('\n');
-        const blob = new Blob([csv], { type: 'text/csv' });
+        const fpr = [];
+        const tpr = [];
+        const thresholdValues = [];
+        let thresholdsAreFinite = true;
+        rocPoints.forEach(point=>{
+          fpr.push(Number(point.fpr));
+          tpr.push(Number(point.tpr));
+          const thrValue = Number(point.thr);
+          thresholdValues.push(thrValue);
+          if(!Number.isFinite(thrValue)){
+            thresholdsAreFinite = false;
+          }
+        });
+        const baseCurve = {
+          name: 'exported_curve',
+          type: 'ROC',
+          fpr,
+          tpr
+        };
+        if(thresholdsAreFinite && thresholdValues.length === fpr.length){
+          baseCurve.threshold = thresholdValues;
+        }
+        let canonicalCurve;
+        try{
+          canonicalCurve = ROCUtils.toCanonicalRocObject(baseCurve, {idHint: 'exported_curve'});
+        }catch(err){
+          console.error(err);
+          statusEl.textContent = `Failed to export ROC: ${err.message || err}`;
+          return;
+        }
+        const csvText = ROCUtils.rocToCsv({ exported_curve: canonicalCurve });
+        const blob = new Blob([csvText], { type: 'text/csv' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
         a.download = 'roc_curve.csv';
         a.click();
         URL.revokeObjectURL(url);
-        document.getElementById('exportStatus').textContent =
-          `Exported ROC with ${state.rocPairsSorted.length} points.`;
+        statusEl.textContent = `Exported ROC with ${rocPoints.length} points.`;
       }
 
       renderComponents('neg');
