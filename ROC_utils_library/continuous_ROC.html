@@ -38,7 +38,9 @@
     .data-import-options label{display:flex;align-items:center;gap:6px;font-size:12px;color:#3a3a5a}
     .plot-with-legend{position:relative}
     .plot-legend{position:absolute;top:12px;right:12px;background:rgba(255,255,255,0.92);border:1px solid #dcdcee;border-radius:6px;padding:6px 10px;font-size:11px;color:#3a3a5a;display:flex;gap:10px}
-    #empiricalLegend span{display:flex;align-items:center;gap:4px;white-space:nowrap}
+    .plot-legend span{display:flex;align-items:center;gap:4px;white-space:nowrap}
+    .rug-pos line{stroke:#d62728;stroke-width:1.2;opacity:0.75}
+    .rug-neg line{stroke:#1f77b4;stroke-width:1.2;opacity:0.75}
     .legend-swatch{width:12px;height:12px;border-radius:2px;display:inline-block}
     .legend-pos{background:rgba(255,0,0,0.4)}
     .legend-neg{background:rgba(0,0,255,0.4)}
@@ -178,8 +180,17 @@ body {
       <div id="metricsPrev"></div>
     </div>
     <div id="empiricalPanel" class="ctrl">
-      <h3>Empirical Data (Imported)</h3>
-      <div id="dataImportDropZone">
+      <h3>Empirical Dataset</h3>
+      <div class="component-row">
+        <label for="datasetNameInput">Dataset name:</label>
+        <input type="text" id="datasetNameInput" value="simulated_dataset">
+      </div>
+      <div class="component-row">
+        <label for="sampleSizeInput">Sample size:</label>
+        <input type="number" id="sampleSizeInput" value="200" min="10" step="10">
+      </div>
+      <button id="resampleButton" style="margin-top:10px;">New sample</button>
+      <div id="dataImportDropZone" style="margin-top:14px;">
         <label for="dataImportInput">Load empirical data (scores + labels):</label>
         <input type="file" id="dataImportInput" accept=".csv" style="margin-top:6px;">
         <div style="font-size:11px;color:#666;margin-top:6px;">Drop a CSV here or use the file picker. Required columns: <code>score</code>, <code>label</code>.</div>
@@ -187,20 +198,12 @@ body {
       <div class="data-import-options">
         <label><input type="checkbox" id="toggleEmpiricalHistogram" checked>Show empirical histograms</label>
         <label><input type="checkbox" id="toggleEmpiricalRoc">Show empirical ROC</label>
+        <label><input type="checkbox" id="toggleEmpiricalPoints">Show empirical data points</label>
       </div>
       <div id="dataImportStatus">No empirical data loaded.</div>
-    </div>
-    <div id="datasetPanel" class="ctrl">
-      <h3>Simulated Dataset</h3>
-      <div class="component-row">
-        <label for="sampleSizeInput">Sample size:</label>
-        <input type="number" id="sampleSizeInput" value="200" min="10" step="10">
-      </div>
-      <button id="resampleButton" style="margin-top:10px;">New sample</button>
-      <button id="dataExportButton">Export Dataset CSV</button>
+      <button id="dataExportButton" style="margin-top:10px;">Export Dataset CSV</button>
       <div id="exportStatus" style="font-size:12px;color:#666;margin-top:6px;"></div>
       <div class="sim-options">
-        <label><input type="checkbox" id="showSampledData">Show sampled data on plot</label>
         <label><input type="checkbox" id="autoResampleToggle">Auto-resample on parameter change</label>
       </div>
     </div>
@@ -220,6 +223,8 @@ body {
       const CONFIG=window.MULTIDISTRIBUTION_CONFIG||{};
       const {STRINGS,FEATURES,DISTRIBUTIONS,DISTRIBUTION_ORDER,DEFAULT_OPTIONS}=CONFIG;
       const ROC_CONFIG=window.ROC_EXPLORER_CONFIG||{};
+      let currentEmpiricalDataset={name:'simulated_dataset', source:'simulated'};
+      window.currentEmpiricalDataset=currentEmpiricalDataset;
       if(!STRINGS||!FEATURES||!DISTRIBUTIONS||!DISTRIBUTION_ORDER||!DEFAULT_OPTIONS){
         document.body.innerHTML='<p style="color:#a20000">Configuration not found. Ensure multidistribution_config.js is loaded.</p>';
         return;
@@ -289,8 +294,8 @@ body {
         importedRawNeg:[],
         showEmpiricalHistogram:DEFAULT_OPTIONS.showEmpiricalHistogram??true,
         showEmpiricalRoc:DEFAULT_OPTIONS.showEmpiricalRoc??false,
+        showEmpiricalPoints:DEFAULT_OPTIONS.showEmpiricalPoints??false,
         empiricalPoints:[],
-        showSampledData:DEFAULT_OPTIONS.showSampledData??false,
         autoResample:DEFAULT_OPTIONS.autoResample??false,
         simulatedDataActive:false
       };
@@ -302,13 +307,15 @@ body {
 
       const toggleHistogram=document.getElementById('toggleEmpiricalHistogram');
       const toggleEmpiricalRoc=document.getElementById('toggleEmpiricalRoc');
-      const showSampledDataCheckbox=document.getElementById('showSampledData');
+      const toggleEmpiricalPoints=document.getElementById('toggleEmpiricalPoints');
       const autoResampleToggle=document.getElementById('autoResampleToggle');
       const resampleButton=document.getElementById('resampleButton');
-      showSampledDataCheckbox.checked=state.showSampledData;
       autoResampleToggle.checked=state.autoResample;
       toggleHistogram.checked=state.showEmpiricalHistogram;
       toggleEmpiricalRoc.checked=state.showEmpiricalRoc;
+      if(toggleEmpiricalPoints){
+        toggleEmpiricalPoints.checked=state.showEmpiricalPoints;
+      }
       toggleHistogram.addEventListener('change',event=>{
         state.showEmpiricalHistogram=event.target.checked;
         update();
@@ -317,23 +324,19 @@ body {
         state.showEmpiricalRoc=event.target.checked;
         update();
       });
-      showSampledDataCheckbox.addEventListener('change',event=>{
-        state.showSampledData=event.target.checked;
-        if(!state.showSampledData && state.simulatedDataActive){
-          // Users can hide overlays via histogram/ROC toggles; no automatic clearing needed.
-        }
-      });
+      if(toggleEmpiricalPoints){
+        toggleEmpiricalPoints.addEventListener('change',event=>{
+          state.showEmpiricalPoints=event.target.checked;
+          update();
+        });
+      }
       autoResampleToggle.addEventListener('change',event=>{
         state.autoResample=event.target.checked;
-        if(state.autoResample && state.showSampledData){
+        if(state.autoResample && currentEmpiricalDataset.source==='simulated'){
           resampleFromState();
         }
       });
       resampleButton.addEventListener('click',()=>{
-        if(!state.showSampledData){
-          state.showSampledData=true;
-          showSampledDataCheckbox.checked=true;
-        }
         resampleFromState(true);
       });
 
@@ -365,8 +368,6 @@ body {
           }
         });
       });
-
-      refreshDataImportStatus();
 
       const distDims={width:540,height:420,margin:{top:40,right:24,bottom:60,left:64}};
       const rocDims={width:540,height:420,margin:{top:40,right:24,bottom:60,left:64}};
@@ -406,6 +407,8 @@ body {
         .text(STRINGS.plots.scoreYAxis);
 
       const empiricalGroup=distContent.append('g').attr('class','empirical-group');
+      const rugNegGroup=empiricalGroup.append('g').attr('class','rug-neg');
+      const rugPosGroup=empiricalGroup.append('g').attr('class','rug-pos');
       const histNegGroup=empiricalGroup.append('g').attr('class','hist-neg');
       const histPosGroup=empiricalGroup.append('g').attr('class','hist-pos');
 
@@ -636,24 +639,44 @@ body {
     return state.empiricalPoints;
   }
 
+
       function refreshDataImportStatus(){
         const statusEl=document.getElementById('dataImportStatus');
         if(!hasEmpiricalData()){
-          if(state.dataImported && state.importedDataFilename){
-            statusEl.textContent=`Configuration references "${state.importedDataFilename}" (${state.importedSampleCount||0} samples), but the CSV must be reloaded locally.`;
-          } else {
-            statusEl.textContent='No empirical data loaded.';
-          }
+          statusEl.textContent='No empirical data loaded.';
+          updateEmpiricalToggleAvailability();
           return;
         }
         const positives=state.importedRawPos.length;
         const negatives=state.importedRawNeg.length;
-        const filename=state.importedDataFilename||'dataset.csv';
+        const name=currentEmpiricalDataset.name || state.importedDataFilename || 'dataset';
         if(state.simulatedDataActive){
-          statusEl.textContent=`Generated ${positives+negatives} simulated samples (${positives} positive, ${negatives} negative).`;
+          statusEl.textContent=`${name}: ${positives+negatives} simulated samples (${positives} positive, ${negatives} negative).`;
         } else {
-          statusEl.textContent=`Loaded ${positives+negatives} samples from ${filename} (${positives} positive, ${negatives} negative).`;
+          statusEl.textContent=`${name}: ${positives+negatives} samples imported (${positives} positive, ${negatives} negative).`;
         }
+        updateEmpiricalToggleAvailability();
+      }
+
+      function refreshDatasetExportState(){
+        const exportBtn=document.getElementById('dataExportButton');
+        if(!exportBtn) return;
+        exportBtn.style.display=currentEmpiricalDataset.source==='simulated'?'':'none';
+      }
+
+      function updateEmpiricalToggleAvailability(){
+        const enabled=hasEmpiricalData();
+        [toggleHistogram, toggleEmpiricalRoc, toggleEmpiricalPoints].forEach(el=>{
+          if(el){
+            el.disabled=!enabled;
+          }
+        });
+      }
+
+      function setDatasetName(name){
+        const input=document.getElementById('datasetNameInput');
+        if(input){input.value=name;}
+        currentEmpiricalDataset.name=name;
       }
 
       function applyImportedData({positives,negatives,points,filename,simulated=false}){
@@ -666,6 +689,21 @@ body {
         state.simulatedDataActive=Boolean(simulated);
         const fileInput=document.getElementById('dataImportInput');
         if(fileInput){fileInput.value='';}
+        const previousSource=currentEmpiricalDataset.source;
+        currentEmpiricalDataset.source=simulated?'simulated':'imported';
+        if(simulated){
+          const input=document.getElementById('datasetNameInput');
+          const existing=(input?.value||'').trim();
+          if(!existing || previousSource!=='simulated'){
+            setDatasetName('simulated_dataset');
+          }else{
+            currentEmpiricalDataset.name=existing;
+          }
+        }else{
+          const defaultName=(filename||'dataset.csv').replace(/\.[^.]+$/, '')||'imported_dataset';
+          setDatasetName(defaultName);
+        }
+        refreshDatasetExportState();
         refreshDataImportStatus();
         update();
       }
@@ -693,7 +731,7 @@ body {
       }
 
       function resampleFromState(force=false){
-        if(!force && !state.showSampledData){
+        if(!force && !state.simulatedDataActive){
           return;
         }
         const {nPos,nNeg}=getSampleCounts();
@@ -703,7 +741,7 @@ body {
       }
 
       function maybeAutoResample(){
-        if(state.autoResample && state.showSampledData){
+        if(state.autoResample && currentEmpiricalDataset.source==='simulated'){
           resampleFromState();
         }
       }
@@ -1006,6 +1044,7 @@ body {
 
         const empiricalSamples=getProcessedEmpiricalSamples();
         const hasEmpiricalSamples=empiricalSamples.positives.length>0||empiricalSamples.negatives.length>0;
+        const empiricalPointList=hasEmpiricalSamples?getProcessedEmpiricalPoints():[];
 
         let minX=Math.min(pos.domain[0],neg.domain[0]);
         let maxX=Math.max(pos.domain[1],neg.domain[1]);
@@ -1107,6 +1146,45 @@ body {
           histNegGroup.style('display','none');
         }
 
+        const pointsActive=state.showEmpiricalPoints && hasEmpiricalSamples;
+        const rugHeight=8;
+        const baseY=distYScale.range()[0];
+        const renderRugLines=(group,data)=>{
+          group.style('display',null);
+          group.selectAll('line')
+            .data(data,(_,i)=>i)
+            .join(
+              enter=>enter.append('line'),
+              update=>update,
+              exit=>exit.remove()
+            )
+            .attr('x1',d=>distXScale(d.score))
+            .attr('x2',d=>distXScale(d.score))
+            .attr('y1',baseY)
+            .attr('y2',baseY-rugHeight);
+        };
+        if(pointsActive){
+          const positivePoints=[];
+          const negativePoints=[];
+          empiricalPointList.forEach(pt=>{
+            const score=Number(pt.score);
+            if(!Number.isFinite(score)) return;
+            const clampedScore=clamp(score,minX,maxX);
+            if(Number(pt.label)===1){
+              positivePoints.push({score:clampedScore});
+            }else{
+              negativePoints.push({score:clampedScore});
+            }
+          });
+          renderRugLines(rugPosGroup,positivePoints);
+          renderRugLines(rugNegGroup,negativePoints);
+        }else{
+          rugPosGroup.selectAll('line').remove();
+          rugNegGroup.selectAll('line').remove();
+          rugPosGroup.style('display','none');
+          rugNegGroup.style('display','none');
+        }
+
         const posLeft=dataPoints.filter(d=>d.x<=threshold).map(d=>({x:d.x,y:d.posPDF}));
         const posRight=dataPoints.filter(d=>d.x>=threshold).map(d=>({x:d.x,y:d.posPDF}));
         const negLeft=dataPoints.filter(d=>d.x<=threshold).map(d=>({x:d.x,y:d.negPDF}));
@@ -1141,8 +1219,7 @@ body {
         rocYAxisGroup.call(d3.axisLeft(rocYScale).ticks(6));
 
         if(state.showEmpiricalRoc && hasEmpiricalSamples){
-          const empiricalPoints=getProcessedEmpiricalPoints();
-          const empiricalRoc=ROCUtils.computeEmpiricalRoc(empiricalPoints);
+          const empiricalRoc=ROCUtils.computeEmpiricalRoc(empiricalPointList);
           if(empiricalRoc.length>=2){
             empiricalRocPath.datum(empiricalRoc).attr('d',rocLineGenerator).style('opacity',1).raise();
           } else {
@@ -1215,10 +1292,21 @@ body {
         state.prevalence=clamp(numeric,0,1);
         prevalenceValEl.textContent=STRINGS.controls.prevalenceValue(state.prevalence);
         update();
-        if(state.autoResample && state.showSampledData){
-          resampleFromState();
-        }
+        maybeAutoResample();
       });
+
+      const datasetNameInput=document.getElementById('datasetNameInput');
+      if(datasetNameInput){
+        datasetNameInput.addEventListener('input',event=>{
+          currentEmpiricalDataset.name=event.target.value.trim();
+          refreshDataImportStatus();
+        });
+        setDatasetName(datasetNameInput.value || 'simulated_dataset');
+      }else{
+        setDatasetName('simulated_dataset');
+      }
+      refreshDatasetExportState();
+      refreshDataImportStatus();
 
       document.getElementById('dataExportButton').addEventListener('click', exportDataset);
       const rocExportJsonButton=document.getElementById('rocExportJsonButton');
@@ -1291,12 +1379,10 @@ body {
         const nPos = Math.round(N * prevalence);
         const nNeg = N - nPos;
 
-        const posSamples = sampleDistribution('pos', state.posComponents, nPos);
-        const negSamples = sampleDistribution('neg', state.negComponents, nNeg);
+      const posSamples = sampleDistribution('pos', state.posComponents, nPos);
+      const negSamples = sampleDistribution('neg', state.negComponents, nNeg);
 
-        if(state.showSampledData){
-          applySimulatedData(posSamples, negSamples);
-        }
+        applySimulatedData(posSamples, negSamples);
 
         const rows = [
           ['score', 'label'],
@@ -1308,14 +1394,15 @@ body {
         const blob = new Blob([csv], { type: 'text/csv' });
         const url = URL.createObjectURL(blob);
 
+        const datasetName = (currentEmpiricalDataset.name || 'simulated_dataset').trim() || 'simulated_dataset';
         const a = document.createElement('a');
         a.href = url;
-        a.download = 'simulated_dataset.csv';
+        a.download = `${datasetName}.csv`;
         a.click();
         URL.revokeObjectURL(url);
 
         document.getElementById('exportStatus').textContent =
-          `Exported ${N} samples (${nPos} positive, ${nNeg} negative).`;
+          `Exported ${datasetName} with ${N} samples (${nPos} positive, ${nNeg} negative).`;
       }
 
       function getExportCurveName(){
