@@ -167,29 +167,20 @@ body {
       <span id="prevalenceVal">0.50</span>
       <div id="metricsPrev"></div>
     </div>
-    <div id="exportControl" class="ctrl">
+    <div id="datasetPanel" class="ctrl">
       <h3>Simulated Dataset</h3>
       <div class="component-row">
         <label for="sampleSizeInput">Sample size:</label>
         <input type="number" id="sampleSizeInput" value="200" min="10" step="10">
       </div>
-      <div class="component-row">
-        <label for="rocExportName">Curve name:</label>
-        <input type="text" id="rocExportName" value="exported_curve">
-      </div>
-      <button id="dataExportButton">Export CSV</button>
+      <button id="dataExportButton">Export Dataset CSV</button>
       <div id="exportStatus" style="font-size:12px;color:#666;margin-top:6px;"></div>
-      <button id="rocExportJsonButton" style="margin-top:10px;">Export ROC (JSON)</button>
-      <button id="rocExportCsvButton" style="margin-top:10px;">Export ROC (CSV)</button>
       <button id="resampleButton" style="margin-top:10px;">Resample</button>
       <div class="sim-options">
         <label><input type="checkbox" id="showSampledData">Show sampled data on plot</label>
         <label><input type="checkbox" id="autoResampleToggle">Auto-resample on parameter change</label>
       </div>
-    </div>
-    <div class="ctrl" id="dataImportControl">
-      <h3>Data Import</h3>
-      <div id="dataImportDropZone">
+      <div id="dataImportDropZone" style="margin-top:14px;">
         <label for="dataImportInput">Load empirical data (scores + labels):</label>
         <input type="file" id="dataImportInput" accept=".csv" style="margin-top:6px;">
         <div style="font-size:11px;color:#666;margin-top:6px;">Drop a CSV here or use the file picker. Columns required: <code>score</code>, <code>label</code>.</div>
@@ -206,12 +197,22 @@ body {
       </div>
       <div id="dataImportStatus">No empirical data loaded.</div>
     </div>
+    <div id="rocPanel" class="ctrl">
+      <h3>ROC Curves</h3>
+      <div class="component-row">
+        <label for="rocExportName">Curve name:</label>
+        <input type="text" id="rocExportName" value="exported_curve">
+      </div>
+      <button id="rocExportJsonButton" style="margin-top:10px;">Export ROC (JSON)</button>
+      <button id="rocExportCsvButton" style="margin-top:10px;">Export ROC (CSV – human readable)</button>
+    </div>
   </div>
 
   <script>
     window.addEventListener('DOMContentLoaded',()=>{
       const CONFIG=window.MULTIDISTRIBUTION_CONFIG||{};
       const {STRINGS,FEATURES,DISTRIBUTIONS,DISTRIBUTION_ORDER,DEFAULT_OPTIONS}=CONFIG;
+      const ROC_CONFIG=window.ROC_EXPLORER_CONFIG||{};
       if(!STRINGS||!FEATURES||!DISTRIBUTIONS||!DISTRIBUTION_ORDER||!DEFAULT_OPTIONS){
         document.body.innerHTML='<p style="color:#a20000">Configuration not found. Ensure multidistribution_config.js is loaded.</p>';
         return;
@@ -1255,7 +1256,11 @@ body {
         rocExportJsonButton.addEventListener('click', exportRocAsJson);
       }
       if(rocExportCsvButton){
-        rocExportCsvButton.addEventListener('click', exportRocAsCsv);
+        const showCsvButton=ROC_CONFIG.showAdvancedRocCsvExport !== false;
+        rocExportCsvButton.style.display=showCsvButton?'block':'none';
+        if(showCsvButton){
+          rocExportCsvButton.addEventListener('click', exportRocAsCsv);
+        }
       }
 
       function sampleDistribution(prefix, components, nSamples) {
