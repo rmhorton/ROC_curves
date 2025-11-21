@@ -1801,56 +1801,57 @@ When finished, summarize the changes you made and stop.
 
 ### End of Section 8.0 ROC File Manager App
 
-## 8.1 ROC File Validation (New Feature)
+## 8.1 ROC File Validation (Updated)
 
 ### Purpose
-This section extends the ROC File Manager (Section 8.0) with **file validation** capabilities. The ROC File Manager becomes the central tool for verifying the correctness and integrity of ROC JSON files across the entire ROC app ecosystem. Validation ensures that all curves adhere to the canonical ROC Curve JSON Specification.
+This updated version of Section 8.1 provides a **complete, stand-alone Codex prompt**, without referencing earlier sections. The ROC File Manager now includes a full file validation workflow powered by library functions in `ROC_utils.js`.
 
-Validation logic is implemented in the shared library `ROC_utils.js`, while the ROC File Manager displays errors and warnings to the user.
+The goals are:
+- Validate ROC curves on import
+- Report warnings and errors clearly to the user
+- Prevent invalid curves from being combined or exported
+- Keep all validation logic inside `ROC_utils.js`
+- Keep all UI work inside `roc_file_manager.html`
 
-The two components work together as follows:
-- **ROC_utils.js** performs structured validation and returns detailed results.
-- **ROC File Manager** presents these results and prevents the use or export of invalid curves.
-
-This prevents silent fixing, ensures user awareness of potential issues, and maintains ecosystem-wide data integrity.
+This section is now fully self-contained and ready to paste into the implementation plan.
 
 ---
 
-### 8.1.1 Validation Responsibilities in `ROC_utils.js`
-`ROC_utils.js` must implement robust, testable validation functions. These functions must not modify any curves silently.
+## 8.1.1 Validation Responsibilities in `ROC_utils.js`
+`ROC_utils.js` must include robust, structured validation logic.
 
-#### A. Function: `ROCUtils.validateRocCurve(curve, curveId)`
-Returns a structured report object of the form:
+### A. New Function: `ROCUtils.validateRocCurve(curve, curveId)`
+Returns a report object:
 ```
 {
-  ok: boolean,            // true if curve is valid
-  fatal: boolean,         // true if errors require aborting import
-  fixed: boolean,         // true if non-fatal auto-fixes were applied
-  warnings: [ ... ],      // array of warning messages
-  errors: [ ... ],        // array of fatal error messages
-  curveId: string         // identifying curve
+  ok: boolean,
+  fatal: boolean,
+  fixed: boolean,
+  warnings: [],
+  errors: [],
+  curveId: string
 }
 ```
 
-#### B. Validation Rules (Fatal if violated)
-1. `fpr` must be non-decreasing.
-2. `tpr` must be non-decreasing.
-3. Arrays must be of equal length.
-4. Values must be numeric.
-5. Curve must contain the required fields defined in the JSON schema.
+### B. Fatal Errors (import must fail)
+- FPR not non-decreasing
+- TPR not non-decreasing
+- Arrays differ in length
+- Non-numeric values
+- Missing required fields from the ROC JSON schema
 
-#### C. Non-Fatal Issues (Auto-fix allowed, but warning required)
-1. Missing (0,0) point — may be inserted.
-2. Missing (1,1) point — may be appended.
-3. Duplicate adjacent points — may be removed.
-4. Very small floating point reversals — may be corrected.
+### C. Non-Fatal Issues (may auto-fix, but warn)
+- Missing (0,0) point → insert with warning
+- Missing (1,1) point → append with warning
+- Duplicate adjacent points → remove with warning
+- Very small floating-point reversals → correct with warning
 
-All auto-fixes must:
-- Leave an audit trail via `warnings`.
-- Never occur silently.
+All fixes must:
+- Be recorded in `warnings[]`
+- Never occur silently
 
-#### D. Function: `ROCUtils.validateRocMap(map)`
-Validates all curves in a canonical ROC map.
+### D. New Function: `ROCUtils.validateRocMap(map)`
+Validates all curves in the canonical ROC map.
 Returns:
 ```
 {
@@ -1862,76 +1863,145 @@ Returns:
 
 ---
 
-### 8.1.2 UI Behavior in the ROC File Manager
-After users load files in Panel A, the File Manager must:
-1. Invoke `ROCUtils.validateRocMap` on the combined set of curves.
-2. Display all warnings and errors in a **Validation Results** panel.
-3. Prevent invalid curves from proceeding to Panel B.
-4. Allow curves with warnings (but no fatal errors) to proceed.
+## 8.1.2 UI Behavior in `roc_file_manager.html`
+After files are loaded in Panel A:
 
-#### A. New Panel: "Validation Results"
+1. JSON is parsed into canonical form.
+2. Call:
+```
+ROCUtils.validateRocMap(canonicalMap)
+```
+3. Add a visible panel titled **"Validation Results"**.
+4. Display warnings and errors for each file + curve.
+5. Curves with **fatal errors** must NOT appear in the curve-management table.
+6. Curves with warnings (but no fatal errors) may appear but must be highlighted visually.
+7. The UI must prevent users from proceeding with invalid data.
+
+### Example Validation Display
 ```
 Validation Results:
+  file1.json:
+    modelA: ✓ Valid
+    modelB: ! Warning — missing (0,0) point inserted
 
-File: file1.json
-  modelA:
-    ✓ Valid (no issues)
-  modelB:
-    ! Warning: missing (0,0) point inserted
-
-File: file2.json
-  roc1:
-    ✗ Error: tpr decreases at index 14 (0.82 → 0.79)
-    ✗ Import aborted for this curve
-```
-
-#### B. User Experience Rules
-- Fatal errors prevent the curve from being loaded.
-- Warnings allow the user to continue.
-- Export buttons in Panel C must remain **disabled** unless all surviving curves are valid.
-
----
-
-### 8.1.3 Requirements for Integration
-1. ROC File Manager must call validation immediately after parsing JSON.
-2. Validation results must be stored and accessible for UI display.
-3. Curves with fatal errors must be rejected before they reach the curve list.
-4. Export workflows must enforce validity.
-5. Validation logic must not be duplicated in the HTML file.
-
----
-
-### 8.1.4 Updating the Codex Prompt for Section 8
-Append the following to the Section 8.0 Codex prompt:
-
-```
-ADD THE FOLLOWING NEW FEATURE:
-
-Implement full validation workflow as described in Section 8.1.
-
-1. After JSON files are loaded, call:
-     ROCUtils.validateRocMap(canonicalMap)
-
-2. Add a new "Validation Results" panel in the UI.
-   • Display warnings and errors.
-   • Use clear formatting.
-
-3. Curves with fatal errors must NOT appear in the curve-management table.
-
-4. Allow curves with warnings to appear, but highlight them.
-
-5. Disable export in Panel C until all remaining curves are valid.
-
-6. Do NOT implement validation inline—use ROC_utils.js exclusively.
-
-7. Do NOT modify continuous_ROC.html or ROC_utility.html.
-
-When finished, summarize the changes and stop.
+  file2.json:
+    roc1: ✗ Error — tpr decreases at index 14 (0.82 → 0.79)
+          Import aborted for this curve
 ```
 
 ---
 
-### End of Section 8.1 ROC File Validation
+## 8.1.3 Export Blocking Rules
+Export buttons in Panel C must remain **disabled** until:
+- All curves have `ok = true`
+- No curve has `fatal = true`
+
+Curves with warnings may be exported.
+
+---
+
+## 8.1.4 Complete Stand-Alone Codex Prompt
+Paste this into VS Code to fully implement the validation feature.
+
+```
+You are Codex, OpenAI's coding agent running inside VS Code.
+
+Task: Implement full ROC file validation as defined in Section 8.1
+(ROC_Utils_implementation_plan.md).
+
+************** FILES TO MODIFY **************
+- ROC_utils.js
+- roc_file_manager.html
+
+************** FILES NOT TO MODIFY **************
+- continuous_ROC.html
+- ROC_utility.html
+- Any other files in the workspace
+
+*********************************************
+
+Implement the following features:
+
+============================================================
+1. VALIDATION LOGIC IN ROC_utils.js
+============================================================
+
+Create two new exported functions:
+
+1. ROCUtils.validateRocCurve(curve, curveId)
+   • Return a structured report object:
+       {
+         ok: boolean,
+         fatal: boolean,
+         fixed: boolean,
+         warnings: [],
+         errors: [],
+         curveId: string
+       }
+
+   • Fatal errors:
+       - Non-monotonic fpr
+       - Non-monotonic tpr
+       - Array length mismatch
+       - Non-numeric values
+       - Missing required fields
+
+   • Non-fatal issues (auto-fix allowed, warning required):
+       - Insert missing (0,0)
+       - Append missing (1,1)
+       - Remove duplicate points
+       - Correct tiny floating-point reversals
+
+2. ROCUtils.validateRocMap(map)
+   • Validate all curves
+   • Return the full report structure
+
+============================================================
+2. VALIDATION UI IN roc_file_manager.html
+============================================================
+
+Add a new panel titled "Validation Results". After parsing ROC JSON files:
+   • Call ROCUtils.validateRocMap(canonicalMap)
+   • Display grouped warnings and errors
+   • Exclude curves with fatal errors from the curve-management table
+   • Highlight curves with warnings
+
+Use output formatting similar to:
+
+Validation Results:
+  file1.json:
+    modelA: ✓ valid
+    modelB: ! Warning — missing (0,0) point inserted
+
+  file2.json:
+    roc1: ✗ Error — tpr decreases at index 14 (0.82 → 0.79)
+          Curve rejected
+
+============================================================
+3. EXPORT BLOCKING
+============================================================
+
+Disable export buttons unless ALL remaining curves:
+   • Have ok = true
+   • Have fatal = false
+
+Warnings do not block export.
+
+============================================================
+4. CONSTRAINTS
+============================================================
+
+1. Do NOT modify continuous_ROC.html or ROC_utility.html.
+2. Do NOT refactor unrelated code.
+3. Do NOT create new filenames.
+4. Filenames are case-sensitive.
+5. All code must be complete — no placeholders.
+6. Follow Section 8.1 exactly.
+
+============================================================
+When finished, summarize the changes you made and stop.
+============================================================
+```
 
 ----------------------------------------------
 END OF DOCUMENT

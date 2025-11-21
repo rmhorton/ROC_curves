@@ -682,5 +682,124 @@
     return auc;
   };
 
+  ROCUtils.validateRocCurve = function(curve, curveId){
+    const id = String(curveId || (curve && curve.name) || 'curve');
+    const report = {
+      ok: true,
+      fatal: false,
+      fixed: false,
+      warnings: [],
+      errors: [],
+      curveId: id
+    };
+    if(!curve || typeof curve !== 'object'){
+      report.ok = false;
+      report.fatal = true;
+      report.errors.push('Curve is missing or not an object.');
+      return report;
+    }
+    const fpr = Array.isArray(curve.fpr) ? curve.fpr.map(Number) : null;
+    const tpr = Array.isArray(curve.tpr) ? curve.tpr.map(Number) : null;
+    if(!fpr || !tpr){
+      report.ok = false;
+      report.fatal = true;
+      report.errors.push('Curve must include numeric fpr and tpr arrays.');
+      return report;
+    }
+    if(fpr.length !== tpr.length){
+      report.ok = false;
+      report.fatal = true;
+      report.errors.push(`fpr/tpr length mismatch (${fpr.length} vs ${tpr.length}).`);
+      return report;
+    }
+    if(!fpr.length){
+      report.ok = false;
+      report.fatal = true;
+      report.errors.push('Curve must contain at least one point.');
+      return report;
+    }
+    for(let i=0;i<fpr.length;i++){
+      if(!Number.isFinite(fpr[i]) || !Number.isFinite(tpr[i])){
+        report.ok = false;
+        report.fatal = true;
+        report.errors.push(`Non-numeric value at index ${i}.`);
+        return report;
+      }
+      if(i>0){
+        if(fpr[i] < fpr[i-1] - 1e-9){
+          report.ok = false;
+          report.fatal = true;
+          report.errors.push(`fpr decreases at index ${i} (${fpr[i-1]} → ${fpr[i]}).`);
+          return report;
+        }
+        if(tpr[i] < tpr[i-1] - 1e-6){
+          report.ok = false;
+          report.fatal = true;
+          report.errors.push(`tpr decreases at index ${i} (${tpr[i-1]} → ${tpr[i]}).`);
+          return report;
+        }
+      }
+    }
+    const revised = [];
+    for(let i=0;i<fpr.length;i++){
+      const last = revised[revised.length - 1];
+      const current = {fpr:fpr[i], tpr:tpr[i], thr:Array.isArray(curve.threshold) ? curve.threshold[i] : undefined};
+      if(last && Math.abs(current.fpr - last.fpr) < 1e-9 && Math.abs(current.tpr - last.tpr) < 1e-9){
+        report.warnings.push(`Duplicate point at index ${i} removed.`);
+        report.fixed = true;
+        continue;
+      }
+      if(last && current.fpr < last.fpr){
+        current.fpr = last.fpr;
+        report.warnings.push(`Adjusted fpr at index ${i} to maintain monotonicity.`);
+        report.fixed = true;
+      }
+      if(last && current.tpr < last.tpr){
+        current.tpr = last.tpr;
+        report.warnings.push(`Adjusted tpr at index ${i} to maintain monotonicity.`);
+        report.fixed = true;
+      }
+      revised.push(current);
+    }
+    const hasZero = revised.some(pt=>Math.abs(pt.fpr) < 1e-9 && Math.abs(pt.tpr) < 1e-9);
+    if(!hasZero){
+      revised.unshift({fpr:0, tpr:0, thr:Number.POSITIVE_INFINITY});
+      report.warnings.push('Inserted missing (0,0) point.');
+      report.fixed = true;
+    }
+    const hasOne = revised.some(pt=>Math.abs(pt.fpr-1) < 1e-9 && Math.abs(pt.tpr-1) < 1e-9);
+    if(!hasOne){
+      revised.push({fpr:1, tpr:1, thr:Number.NEGATIVE_INFINITY});
+      report.warnings.push('Appended missing (1,1) point.');
+      report.fixed = true;
+    }
+    if(report.fixed){
+      curve.fpr = revised.map(pt=>pt.fpr);
+      curve.tpr = revised.map(pt=>pt.tpr);
+      if(Array.isArray(curve.threshold)){
+        const thresholds = [];
+        revised.forEach(pt=>{
+          thresholds.push(pt.thr === undefined ? null : pt.thr);
+        });
+        curve.threshold = thresholds;
+      }
+    }
+    report.ok = !report.fatal;
+    return report;
+  };
+
+  ROCUtils.validateRocMap = function(map){
+    const results = {};
+    if(!map || typeof map !== 'object'){
+      return results;
+    }
+    Object.keys(map).forEach(curveId=>{
+      const curve = map[curveId];
+      const report = ROCUtils.validateRocCurve(curve, curveId);
+      results[curveId] = report;
+    });
+    return results;
+  };
+
   globalScope.ROCUtils = ROCUtils;
 })(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this));
