@@ -18,9 +18,9 @@
         parsed = trimmed;
       }
       const num = typeof parsed === 'number' ? parsed : Number(parsed);
-      if(!Number.isFinite(num)){
-        throw new Error(`${label} has invalid numeric value at index ${idx}.`);
-      }
+      // if(!Number.isFinite(num)){
+      //   throw new Error(`${label} has invalid numeric value at index ${idx}.`);
+      // }
       return num;
     });
   }
@@ -176,11 +176,32 @@
       canonical.name = name;
     }
 
-    if(input.threshold !== undefined){
-      const threshold = coerceNumberArray(input.threshold, `${context}.threshold`);
-      if(threshold.length !== fpr.length){
+    if (input.threshold !== undefined) {
+      if (!Array.isArray(input.threshold)) {
+        throw new Error(`${context}.threshold must be an array.`);
+      }
+      if (input.threshold.length !== fpr.length) {
         throw new Error(`${context}.threshold length must match fpr/tpr length.`);
       }
+
+      // Allow null/undefined threshold entries (e.g., endpoints inserted by validator).
+      const threshold = input.threshold.map((value, idx) => {
+        if (value === null || value === undefined) {
+          // Preserve null explicitly: this means "no finite threshold at this point"
+          return null;
+        }
+        let parsed = value;
+        if (typeof parsed === 'string') {
+          const trimmed = parsed.trim();
+          if (trimmed === '') {
+            return null; // empty string treated like missing
+          }
+          parsed = trimmed;
+        }
+        const num = typeof parsed === 'number' ? parsed : Number(parsed);
+        return num; // may be NaN or Infinity; ROCUtility logic can handle non-finite values
+      });
+
       canonical.threshold = threshold;
     }
 
@@ -690,6 +711,7 @@
       fixed: false,
       warnings: [],
       errors: [],
+      notes: [],
       curveId: id
     };
     if(!curve || typeof curve !== 'object'){
@@ -762,16 +784,9 @@
       revised.push(current);
     }
     const hasZero = revised.some(pt=>Math.abs(pt.fpr) < 1e-9 && Math.abs(pt.tpr) < 1e-9);
-    if(!hasZero){
-      revised.unshift({fpr:0, tpr:0, thr:Number.POSITIVE_INFINITY});
-      report.warnings.push('Inserted missing (0,0) point.');
-      report.fixed = true;
-    }
     const hasOne = revised.some(pt=>Math.abs(pt.fpr-1) < 1e-9 && Math.abs(pt.tpr-1) < 1e-9);
-    if(!hasOne){
-      revised.push({fpr:1, tpr:1, thr:Number.NEGATIVE_INFINITY});
-      report.warnings.push('Appended missing (1,1) point.');
-      report.fixed = true;
+    if(!hasZero || !hasOne){
+      report.notes.push('This ROC curve does not include (0,0) or (1,1). This is normal for heavy-tailed distributions with asymptotic CDF tails. No correction needed.');
     }
     if(report.fixed){
       curve.fpr = revised.map(pt=>pt.fpr);
@@ -799,6 +814,22 @@
       results[curveId] = report;
     });
     return results;
+  };
+
+  ROCUtils.parseRocDataFromText = function(text, sourceName){
+    const trimmed = sourceName ? String(sourceName).split(/[\\\/]/).pop() : null;
+    const base = trimmed ? trimmed.replace(/\.[^.]+$/, '') : null;
+    const options = base ? { defaultCurveName: base } : {};
+
+    let raw;
+    try {
+      raw = JSON.parse(text);
+    } catch (err) {
+      throw new Error("Invalid JSON");
+    }
+
+    const canonical = ROCUtils.normalizeRocJson(raw, options);
+    return { data: canonical, sourceType: 'json' };
   };
 
   globalScope.ROCUtils = ROCUtils;

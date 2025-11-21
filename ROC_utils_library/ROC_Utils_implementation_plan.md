@@ -2003,5 +2003,371 @@ When finished, summarize the changes you made and stop.
 ============================================================
 ```
 
+
+
+```markdown
+# Codex Patch Instructions
+
+You are modifying three files in the same folder:
+
+- **ROC_utils.js**
+- **ROC_utility.html**
+- **roc_file_manager.html**
+
+Your task is to unify ROC JSON parsing across the system by moving
+`parseRocDataFromText` into `ROC_utils.js` and updating both apps to use
+the new centralized function.
+
+Do NOT change any other app behavior.
+Do NOT modify UI, plotting, metadata formats, selection behavior, or naming rules.
+Only fix parsing architecture.
+
+---
+
+# 1. Update ROC_utils.js
+
+### A. Add this new function at the bottom of ROC_utils.js:
+
+```js
+ROCUtils.parseRocDataFromText = function(text, sourceName){
+  // Derive default curve name from file name if possible
+  const trimmed = sourceName ? String(sourceName).split(/[\\/]/).pop() : null;
+  const base = trimmed ? trimmed.replace(/\.[^.]+$/, '') : null;
+  const options = base ? { defaultCurveName: base } : {};
+
+  let raw;
+  try {
+    raw = JSON.parse(text);
+  } catch (err) {
+    throw new Error("Invalid JSON");
+  }
+
+  const canonical = ROCUtils.normalizeRocJson(raw, options);
+  return { data: canonical, sourceType: 'json' };
+};
+```
+
+### B. Ensure no naming conflicts.
+Do not remove any existing functions.
+
+---
+
+# 2. Modify ROC_utility.html
+
+Search for its local implementation of `parseRocDataFromText`.
+It currently looks like this:
+
+```js
+function parseRocDataFromText(text, sourceName){
+  const defaultCurveName = deriveCurveNameFromSource(sourceName);
+  const rocJsonOptions = defaultCurveName ? {defaultCurveName} : undefined;
+  const parsed = ROCUtils.parseRocJsonText(text, rocJsonOptions);
+  return {data: parsed, sourceType: 'json'};
+}
+```
+
+### Replace the entire function with:
+
+```js
+function parseRocDataFromText(text, sourceName){
+  return ROCUtils.parseRocDataFromText(text, sourceName);
+}
+```
+
+Do NOT leave any old parsing logic behind.
+
+---
+
+# 3. Modify roc_file_manager.html
+
+`roc_file_manager` currently calls `ROCUtils.normalizeRocJson` directly.
+This is correct and should remain the default, BUT it must also accept text input
+via the same unified function.
+
+Search for the place where files are read:
+
+```js
+const raw = JSON.parse(text);
+const parsed = ROCUtils.normalizeRocJson(raw, options);
+```
+
+### Replace those lines with:
+
+```js
+const { data: parsed } = ROCUtils.parseRocDataFromText(text, file.name);
+```
+
+Do NOT change any ID-renaming logic or table-refresh logic.
+
+---
+
+# 4. Do NOT change anything else
+
+No UI edits.  
+No changes to the curve collection logic.  
+No changes to addCurvesToCollection.  
+No changes to validation workflows.  
+No changes to plotting or layout.  
+
+Only replace parsing logic with calls to `ROCUtils.parseRocDataFromText`.
+
+---
+
+# 5. Summary of required end state
+
+- Both apps call `ROCUtils.parseRocDataFromText(...)`.
+- All JSON parsing and canonicalization occur inside ROC_utils.js.
+- No app contains its own JSON parser anymore.
+- Multi-curve files (e.g. auc90_examples.json) now load correctly in all apps.
+- Validation error messages are consistent system-wide.
+
+Please apply these modifications now.
+```
+
+
+
+===
+
+
+```markdown
+# Codex Patch Instructions — Fix Threshold Parsing in ROCUtils
+
+You will modify **only one file**:
+
+- **ROC_utils.js**
+
+Your goal is:
+1. Allow ROC curves to contain `null` or `undefined` values in their `threshold` arrays.
+2. Preserve the canonical JSON structure.
+3. Make combined ROC files load correctly in **ROC_utility.html**.
+
+Do **not** change:
+- File formats
+- Validation behavior for fpr/tpr
+- Sorting or ID assignment
+- The structure of the exported combined file
+- Any UI code in either app
+
+The only change is to relax `threshold` parsing inside `ROCUtils.toCanonicalRocObject`.
+
+---
+
+# 1. Locate this block inside `ROCUtils.toCanonicalRocObject`:
+
+```js
+if(input.threshold !== undefined){
+  const threshold = coerceNumberArray(input.threshold, `${context}.threshold`);
+  if(threshold.length !== fpr.length){
+    throw new Error(`${context}.threshold length must match fpr/tpr length.`);
+  }
+  canonical.threshold = threshold;
+}
+```
+
+---
+
+# 2. Replace **that entire block** with this version:
+
+```js
+if (input.threshold !== undefined) {
+  if (!Array.isArray(input.threshold)) {
+    throw new Error(`${context}.threshold must be an array.`);
+  }
+  if (input.threshold.length !== fpr.length) {
+    throw new Error(`${context}.threshold length must match fpr/tpr length.`);
+  }
+
+  // NEW: Allow null/undefined threshold entries (e.g., endpoints inserted by validator).
+  const threshold = input.threshold.map((value, idx) => {
+    if (value === null || value === undefined) {
+      // Preserve null explicitly: this means "no finite threshold at this point"
+      return null;
+    }
+    let parsed = value;
+    if (typeof parsed === 'string') {
+      const trimmed = parsed.trim();
+      if (trimmed === '') {
+        return null; // empty string treated like missing
+      }
+      parsed = trimmed;
+    }
+    const num = typeof parsed === 'number' ? parsed : Number(parsed);
+    return num; // may be NaN or Infinity; ROCUtility logic can handle non-finite values
+  });
+
+  canonical.threshold = threshold;
+}
+```
+
+---
+
+# 3. Do **not** modify anything else.
+
+This change ensures:
+- Combined ROC files with auto-inserted (0,0) and (1,1) points no longer fail validation.
+- `null` threshold values are allowed and preserved.
+- Individual curve imports still work exactly as before.
+- All ROC apps can load multi-curve JSON files without errors.
+
+Please apply this patch now.
+```
+
+
+## 8.3 Corrected ROC Endpoint Logic for Heavy-Tailed Distributions
+
+### Purpose
+This section supersedes earlier rules regarding forced endpoints `(0,0)` and `(1,1)` in ROC curves.
+Heavy-tailed distributions (e.g., Cauchy, low-df t, SEP with small shape) do **not** reach CDF values of
+0 or 1 within any finite numerical domain. A numerically generated ROC curve should therefore:
+
+- **NOT** be required to explicitly include `(0,0)` or `(1,1)`
+- **NOT** be altered to artificially insert endpoints
+- **NOT** be considered invalid if the first point has `FPR > 0` or last point has `TPR < 1`
+
+This section corrects the validation logic, JSON schema assumptions, and file-manager behavior
+accordingly.
+
+---
+
+## 8.3.1 Updated ROC Validity Rules (supersedes 8.1 endpoint rules)
+ROC curves **must** satisfy:
+- FPR array monotone non-decreasing
+- TPR array monotone non-decreasing
+- FPR and TPR values within `[0,1]`
+- Arrays of equal length
+- Numeric values only (no NaN/Inf)
+
+ROC curves **may**:
+- Begin at any point `(FPR₀,TPR₀)` with `FPR₀ ≥ 0`, `TPR₀ ≥ 0`
+- End at any point `(FPR_n,TPR_n)` with `FPR_n ≤ 1`, `TPR_n ≤ 1`
+- Represent truncated numerical domains for heavy-tailed distributions
+
+### New rule:
+**Missing `(0,0)` and `(1,1)` are NOT warnings, NOT errors, and must NOT be auto-inserted.**
+
+---
+
+## 8.3.2 Updates to ROC JSON Schema
+The schema must explicitly state:
+
+> A ROC curve does not need to explicitly include `(0,0)` or `(1,1)`. Curves are permitted to
+> begin and end anywhere within the unit square as determined by the numerical domain on which the
+> ROC was computed.
+
+No endpoints are required. No endpoint inference or correction is performed.
+
+---
+
+## 8.3.3 Updates to ROC_utils.js Validation Logic
+Modify `ROCUtils.validateRocCurve` and `ROCUtils.validateRocMap`:
+
+### Remove:
+- Any logic that inserts `(0,0)` or `(1,1)`
+- Any warnings related to missing endpoints
+- Any endpoint auto-fix behavior
+
+### Retain:
+- Monotonicity checking
+- Length checking
+- Numeric checking
+- Value-range checking
+
+### Add (optional, non-blocking informative warning):
+- If the first point is far from `(0,0)` or last point far from `(1,1)`,
+  a *non-warning* note may be added for display only:
+  "Curve truncated due to finite numerical domain (expected for heavy-tailed distributions)."
+
+This note must NOT:
+- modify the curve
+- block import
+- appear as a validation error or warning
+
+---
+
+## 8.3.4 Updates to `roc_file_manager.html`
+
+### Remove:
+- Any logic that detects or corrects missing endpoints
+- Any UI warnings tied to endpoint presence
+- Any auto-insertion behavior connected to endpoint repair
+
+### Add:
+- A simple informational message (not a warning) in the Validation panel when curves appear
+  truncated:
+  "This ROC curve does not include (0,0) or (1,1). This is normal for heavy-tailed distributions
+  where the CDF approaches 0 and 1 asymptotically. No correction needed."
+
+### Behavior rules:
+- Curves missing endpoints must be included in the curve-management table
+- Curves missing endpoints must NOT block export
+- Curves missing endpoints must be treated as fully valid
+
+---
+
+## 8.3.5 Codex Prompt to Implement Section 8.3
+Paste the following into VS Code. This prompt is stand-alone and must _only_ apply the corrections
+from Section 8.3.
+
+```
+You are Codex, OpenAI's coding agent running inside VS Code.
+
+Task: Implement the changes described in Section 8.3 (ROC endpoint corrections),
+from ROC_Utils_implementation_plan.md.
+
+************** FILES TO MODIFY **************
+- ROC_utils.js
+- roc_file_manager.html
+
+************** FILES NOT TO MODIFY **************
+- continuous_ROC.html
+- ROC_utility.html
+- Any other files in the workspace
+
+*********************************************
+
+Implement the following:
+
+============================================================
+1. UPDATE VALIDATION LOGIC IN ROC_utils.js
+============================================================
+
+• Remove all code that inserts (0,0) or (1,1).
+• Remove all endpoint-related warnings.
+• Do NOT treat missing endpoints as errors.
+• Do NOT auto-correct missing endpoints.
+• Retain numeric-value, monotonicity, and length checks.
+• If desired, include a non-blocking informational note for truncated curves, but
+  it must NOT appear as a warning or error.
+• Ensure validateRocCurve and validateRocMap reflect these new rules.
+
+============================================================
+2. UPDATE roc_file_manager.html
+============================================================
+
+• Remove any UI warnings about missing endpoints.
+• Remove any endpoint auto-insertion or correction.
+• Curves missing endpoints must be treated as valid.
+• Allow such curves to appear in the curve table and be exported.
+• Add an informational message for truncated curves:
+    "This ROC curve does not include (0,0) or (1,1). This is normal for heavy-tailed
+     distributions with asymptotic CDF tails. No correction needed."
+• Ensure that this message does NOT block export or appear as a validation error.
+
+============================================================
+3. CONSTRAINTS
+============================================================
+
+1. Do NOT modify continuous_ROC.html or ROC_utility.html.
+2. Do NOT refactor unrelated code.
+3. Do NOT create or rename files.
+4. Filenames and capitalization must remain exactly as currently used.
+5. All changes must be complete — no placeholders.
+6. Follow Section 8.3 literally and completely.
+
+============================================================
+When finished, summarize the changes you made and stop.
+============================================================
+```
+
 ----------------------------------------------
 END OF DOCUMENT

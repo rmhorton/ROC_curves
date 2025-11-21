@@ -236,17 +236,20 @@
       });
       const html=orderedFiles.map(fileName=>{
         const blocks=grouped[fileName].map(entry=>{
-          const report=entry.report;
-          let statusLabel='✓ Valid';
-          let lines=[];
-          if(report.fatal){
-            statusLabel='✗ Error';
-            lines=report.errors.length ? report.errors.slice() : ['Fatal error'];
-            lines.push('Curve rejected');
-          }else if(report.warnings && report.warnings.length){
-            statusLabel='! Warning';
-            lines=report.warnings.slice();
-          }
+        const report=entry.report;
+        let statusLabel='✓ Valid';
+        let lines=[];
+        if(report.fatal){
+          statusLabel='✗ Error';
+          lines=report.errors.length ? report.errors.slice() : ['Fatal error'];
+          lines.push('Curve rejected');
+        }else if(report.warnings && report.warnings.length){
+          statusLabel='! Warning';
+          lines=report.warnings.slice();
+        }else if(report.notes && report.notes.length){
+          statusLabel='ℹ Info';
+          lines=report.notes.slice();
+        }
           const detailHtml=lines.map(line=>`<div class="validation-line">${line}</div>`).join('');
           const cls=report.fatal?'fatal':'';
           return `<div class="validation-entry ${cls}"><div><strong>${entry.originalId}</strong>: ${statusLabel}</div>${detailHtml}</div>`;
@@ -332,7 +335,7 @@
       for(const file of files){
         try{
           const text=await file.text();
-          const parsed=ROCUtils.parseRocJsonText(text, {defaultCurveName:file.name.replace(/\.[^.]+$/, '')});
+          const { data: parsed } = ROCUtils.parseRocDataFromText(text, file.name);
           loadedFiles.push({name:file.name, curves:parsed});
         }catch(err){
           loadError.textContent=`Failed to parse ${file.name}: ${err.message||err}`;
