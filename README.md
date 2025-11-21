@@ -16,7 +16,7 @@
 	- [Continuous ROC curves](apps/continuous_ROC.html) based on the cumulative probability distribution functions for positive and negative cases.
 		+ [user guide](doc/continuous_ROC_user_guide.html), including notes on possible features and improvements to this app.
 	- [ROC Utility](apps/ROC_utility.html) app showing cost-based utility on the background of the ROC plane.
-	- [Wilcoxon-Mann-Whitney U statistic meets AUC](apps/(Ustat_AUC.html)
+	- [Wilcoxon-Mann-Whitney U statistic meets AUC](apps/Ustat_AUC.html) an animated graphical proof.
 	- [Probabilistic interpretation](apps/probabilistic_roc.html) of AUC
 	
 * Tutorials
