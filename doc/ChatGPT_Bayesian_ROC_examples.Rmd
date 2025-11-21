@@ -1,0 +1,460 @@
+---
+title: "Bayesian ROC Analysis: Binormal, Bibeta, and Nonparametric (Bayesian Bootstrap)"
+author: "ChatGPT"
+date: "`r format(Sys.Date())`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 7,
+  fig.height = 5,
+  dpi = 120
+)
+set.seed(1)
+```
+
+# Introduction
+
+This document brings together three Bayesian approaches to ROC analysis with full posterior uncertainty:
+
+1. **Parametric binormal model** (scores for negatives and positives are Normal with different mean and variance). The ROC and AUC are computed inside the JAGS model using the Normal CDF.
+2. **Parametric bibeta model** (scores lie in [0,1] and follow Beta distributions by class). The ROC and AUC are computed in R from posterior draws.
+3. **Nonparametric Bayesian bootstrap** (no distributional assumptions). We put Dirichlet(1,...,1) priors on empirical weights and propagate uncertainty to ROC and AUC.
+
+Convention: **higher scores imply the positive class**. If your direction is reversed, negate the scores or swap definitions accordingly.
+
+---
+
+# Data and Notation
+
+Let y0 = (y0j) for j = 1..N0 be scores for the negative class and y1 = (y1i) for i = 1..N1 be scores for the positive class. For threshold t:
+
+* TPR(t) = Pr(y1 > t)
+* FPR(t) = Pr(y0 > t)
+
+The ROC is the set of pairs (FPR(t), TPR(t)) over all t. The AUC equals Pr(y1 > y0) + 0.5 * Pr(y1 = y0) (the Mann–Whitney probability with half credit for ties).
+
+---
+
+# 1) Binormal model in JAGS (ROC & AUC inside the model)
+
+
+Assume
+
+* y0 ~ Normal(mu0, sigma0^2)
+* y1 ~ Normal(mu1, sigma1^2)
+
+The binormal ROC has a closed-form AUC under this model.
+
+## JAGS model file
+
+Save as `bayes_roc_binormal.jags`.
+
+```{r write-binormal-model, eval=TRUE}
+binormal_model <- "model {
+  # Likelihood
+  for (i in 1:N0) { y0[i] ~ dnorm(mu0, tau0) }
+  for (j in 1:N1) { y1[j] ~ dnorm(mu1, tau1) }
+
+  # Priors (weakly-informative)
+  mu0    ~ dnorm(0, 1.0E-6)
+  mu1    ~ dnorm(0, 1.0E-6)
+  sigma0 ~ dunif(0, 1000)
+  sigma1 ~ dunif(0, 1000)
+  tau0 <- pow(sigma0, -2)
+  tau1 <- pow(sigma1, -2)
+
+  # ROC on a supplied grid of thresholds t[1:K]
+  for (k in 1:K) {
+    tpr[k] <- 1 - phi((t[k] - mu1) * sqrt(tau1))
+    fpr[k] <- 1 - phi((t[k] - mu0) * sqrt(tau0))
+  }
+
+  # Binormal AUC (closed form)
+  auc <- phi( (mu1 - mu0) / sqrt( (1 / tau0) + (1 / tau1) ) )
+
+  # OPTIONAL: Youden's J argmax (no which_max in JAGS)
+  for (k in 1:K) { youden[k] <- tpr[k] - fpr[k] }
+  best[1] <- youden[1]
+  idx[1]  <- 1
+  for (k in 2:K) {
+    better[k] <- step(youden[k] - best[k-1])
+    best[k]   <- better[k]*youden[k] + (1-better[k])*best[k-1]
+    idx[k]    <- better[k]*k + (1-better[k])*idx[k-1]
+  }
+  k_star <- idx[K]
+  t_star <- t[k_star]
+}"
+writeLines(binormal_model, "bayes_roc_binormal.jags")
+cat("Wrote bayes_roc_binormal.jags
+")
+```
+
+Note: JAGS does not provide `which_max`; the code above uses a running-maximum trick with `step` to compute an argmax. If you do not need an optimal threshold, you may remove the Youden-related lines.
+
+## R driver using jagsUI
+
+```{r binormal-fit, message=TRUE, warning=FALSE}
+library(jagsUI)
+set.seed(123)
+
+# Simulate binormal data (edit as needed)
+N0 <- 150; N1 <- 120
+y0 <- rnorm(N0, mean = 0,   sd = 1.0)
+y1 <- rnorm(N1, mean = 1.0, sd = 1.2)
+
+# Threshold grid covering the data
+all_y <- c(y0, y1)
+K     <- 101
+tgrid <- seq(min(all_y) - 0.5*sd(all_y), max(all_y) + 0.5*sd(all_y), length.out = K)
+
+# JAGS data & settings
+jags_data <- list(N0=length(y0), N1=length(y1), y0=y0, y1=y1, K=K, t=tgrid)
+params    <- c("mu0","mu1","sigma0","sigma1","auc","tpr","fpr","t_star","k_star")
+
+inits <- function() list(
+  mu0 = mean(y0), mu1 = mean(y1),
+  sigma0 = sd(y0) + 0.1, sigma1 = sd(y1) + 0.1
+)
+
+fit_binormal <- jags(
+  data = jags_data, inits = inits,
+  parameters.to.save = params,
+  model.file = "bayes_roc_binormal.jags",
+  n.chains = 3, n.adapt = 1000, n.iter = 6000,
+  n.burnin = 2000, n.thin = 2, parallel = TRUE
+)
+
+print(fit_binormal, digits = 3)
+
+# Summaries for ROC
+TPR_sims <- fit_binormal$sims.list$tpr
+FPR_sims <- fit_binormal$sims.list$fpr
+AUC_sims <- fit_binormal$sims.list$auc
+
+TPR_mean <- apply(TPR_sims, 2, mean)
+TPR_lo   <- apply(TPR_sims, 2, quantile, 0.025)
+TPR_hi   <- apply(TPR_sims, 2, quantile, 0.975)
+
+FPR_mean <- apply(FPR_sims, 2, mean)
+
+# Plot ROC with credible band
+ord <- order(FPR_mean)
+plot(FPR_mean[ord], TPR_mean[ord], type="l",
+     xlab="False Positive Rate", ylab="True Positive Rate")
+polygon(c(FPR_mean[ord], rev(FPR_mean[ord])),
+        c(TPR_lo[ord],   rev(TPR_hi[ord])),
+        border=NA, col=adjustcolor("gray80", 0.8))
+lines(FPR_mean[ord], TPR_mean[ord])
+abline(0,1,lty=3)
+
+cat(sprintf("Binormal posterior mean AUC = %.3f (95%% CrI: %.3f–%.3f)
+",
+            mean(AUC_sims), quantile(AUC_sims,0.025), quantile(AUC_sims,0.975)))
+```
+
+---
+
+# 2) Bibeta model in JAGS (ROC & AUC computed in R)
+
+Assume scores are in [0,1] and follow Beta distributions by class. Use the mean–precision reparameterization: alpha = m*k, beta = (1-m)*k with mean m in (0,1) and precision k > 0.
+
+JAGS lacks a Beta CDF, so we compute ROC and AUC in R for each posterior draw using pbeta and dbeta.
+
+## JAGS model file
+
+Save as `bibeta_roc.jags`.
+
+```{r write-bibeta-model, eval=TRUE}
+bibeta_model <- "model {
+  for (i in 1:N0) { y0[i] ~ dbeta(alpha0, beta0) }
+  for (j in 1:N1) { y1[j] ~ dbeta(alpha1, beta1) }
+
+  m0 ~ dbeta(1,1)
+  m1 ~ dbeta(1,1)
+  k0 ~ dgamma(1.0, 0.1)
+  k1 ~ dgamma(1.0, 0.1)
+
+  alpha0 <- m0 * k0
+  beta0  <- (1 - m0) * k0
+  alpha1 <- m1 * k1
+  beta1  <- (1 - m1) * k1
+}"
+writeLines(bibeta_model, "bibeta_roc.jags")
+cat("Wrote bibeta_roc.jags
+")
+```
+
+## R driver using jagsUI
+
+```{r bibeta-fit, message=TRUE, warning=FALSE}
+# Simulate bibeta data (edit as needed)
+set.seed(123)
+N0 <- 200; N1 <- 180
+m0_true <- 0.35; k0_true <- 20
+m1_true <- 0.70; k1_true <- 25
+
+a0_true <- m0_true * k0_true; b0_true <- (1 - m0_true) * k0_true
+ a1_true <- m1_true * k1_true; b1_true <- (1 - m1_true) * k1_true
+
+y0 <- rbeta(N0, a0_true, b0_true)
+y1 <- rbeta(N1, a1_true, b1_true)
+
+# If real data contain exact 0/1, jitter slightly into (0,1)
+# eps <- 1e-6; y0 <- pmin(pmax(y0, eps), 1-eps); y1 <- pmin(pmax(y1, eps), 1-eps)
+
+jags_data2 <- list(N0=N0, N1=N1, y0=y0, y1=y1)
+params2    <- c("m0","m1","k0","k1","alpha0","beta0","alpha1","beta1")
+
+inits2 <- function() list(
+  m0 = plogis(rnorm(1, qlogis(mean(y0)), 0.5)),
+  m1 = plogis(rnorm(1, qlogis(mean(y1)), 0.5)),
+  k0 = rgamma(1, 1, 0.1),
+  k1 = rgamma(1, 1, 0.1)
+)
+
+fit_bibeta <- jags(
+  data = jags_data2, inits = inits2,
+  parameters.to.save = params2,
+  model.file = "bibeta_roc.jags",
+  n.chains = 3, n.adapt = 1000, n.iter = 6000,
+  n.burnin = 2000, n.thin = 2, parallel = TRUE
+)
+
+print(fit_bibeta, digits = 3)
+
+# Build ROC/AUC from posterior draws
+S <- length(fit_bibeta$sims.list$m0)
+tgrid <- seq(0, 1, length.out = 201)
+TPR <- FPR <- matrix(NA_real_, nrow = S, ncol = length(tgrid))
+AUC <- numeric(S)
+
+x_int <- seq(0, 1, length.out = 1001)
+dx    <- x_int[2] - x_int[1]
+
+for (s in 1:S) {
+  a0 <- fit_bibeta$sims.list$alpha0[s]; b0 <- fit_bibeta$sims.list$beta0[s]
+  a1 <- fit_bibeta$sims.list$alpha1[s]; b1 <- fit_bibeta$sims.list$beta1[s]
+  FPR[s, ] <- 1 - pbeta(tgrid, a0, b0)
+  TPR[s, ] <- 1 - pbeta(tgrid, a1, b1)
+  AUC[s] <- sum(dbeta(x_int, a1, b1) * (1 - pbeta(x_int, a0, b0))) * dx
+}
+
+TPR_mean <- apply(TPR, 2, mean)
+TPR_lo   <- apply(TPR, 2, quantile, 0.025)
+TPR_hi   <- apply(TPR, 2, quantile, 0.975)
+FPR_mean <- apply(FPR, 2, mean)
+
+ord <- order(FPR_mean)
+plot(FPR_mean[ord], TPR_mean[ord], type="l",
+     xlab="False Positive Rate", ylab="True Positive Rate")
+polygon(c(FPR_mean[ord], rev(FPR_mean[ord])),
+        c(TPR_lo[ord],   rev(TPR_hi[ord])),
+        border=NA, col=adjustcolor("gray80", 0.8))
+lines(FPR_mean[ord], TPR_mean[ord])
+abline(0,1,lty=3)
+
+cat(sprintf("Bibeta posterior mean AUC = %.3f (95%% CrI: %.3f–%.3f)
+",
+            mean(AUC), quantile(AUC,0.025), quantile(AUC,0.975)))
+```
+
+---
+
+# 3) Nonparametric Bayesian ROC (Bayesian bootstrap)
+
+This approach makes no parametric assumptions on the score distributions. We place independent Dirichlet(1,...,1) priors on class-specific empirical weights. Each posterior draw yields a weighted empirical ROC and AUC.
+
+## How it works (quickly)
+
+* Class weights per draw: for draw s, sample w0 ~ Dirichlet(1,...,1) and w1 ~ Dirichlet(1,...,1) with lengths N0 and N1.
+* Posterior CDFs are weighted empirical CDFs. For threshold t: FPR_s(t) = 1 - sum_j w0j * 1(y0j <= t), TPR_s(t) = 1 - sum_i w1i * 1(y1i <= t).
+* AUC is the weighted Mann–Whitney probability with 0.5 credit for ties.
+* Credible bands come from pointwise quantiles of TPR across draws at a common FPR grid.
+
+## R implementation
+
+```{r bb-roc, message=FALSE}
+# Utilities
+rdirichlet1 <- function(n) { x <- rexp(n); x / sum(x) }
+
+roc_step_weighted <- function(y0, y1, w0, w1) {
+  stopifnot(length(y0) == length(w0), length(y1) == length(w1))
+  w0 <- w0 / sum(w0); w1 <- w1 / sum(w1)
+  y   <- c(y0, y1)
+  lab <- c(rep(0L, length(y0)), rep(1L, length(y1)))
+  w   <- c(w0, w1)
+  o   <- order(y, decreasing = TRUE)
+  y <- y[o]; lab <- lab[o]; w <- w[o]
+  runs <- rle(y)
+  idx_end <- cumsum(runs$lengths)
+  idx_start <- c(1L, head(idx_end, -1L) + 1L)
+  tp <- fp <- numeric(length(runs$lengths))
+  for (g in seq_along(runs$lengths)) {
+    sl <- idx_start[g]:idx_end[g]
+    fp[g] <- sum(w[sl][lab[sl] == 0L])
+    tp[g] <- sum(w[sl][lab[sl] == 1L])
+  }
+  FPR <- c(0, cumsum(fp))
+  TPR <- c(0, cumsum(tp))
+  FPR[length(FPR)] <- 1; TPR[length(TPR)] <- 1
+  list(fpr = FPR, tpr = TPR)
+}
+
+auc_weighted <- function(y0, y1, w0, w1) {
+  w0 <- w0 / sum(w0); w1 <- w1 / sum(w1)
+  s_all <- sort(unique(c(y0, y1)))
+  w0_at <- tapply(w0, factor(match(y0, s_all), levels = seq_along(s_all)), sum)
+  w0_at[is.na(w0_at)] <- 0
+  w1_at <- tapply(w1, factor(match(y1, s_all), levels = seq_along(s_all)), sum)
+  w1_at[is.na(w1_at)] <- 0
+  w0_cum_less <- c(0, head(cumsum(w0_at), -1))
+  sum(w1_at * (w0_cum_less + 0.5 * w0_at))
+}
+
+# Example data (replace with your own)
+set.seed(1)
+N0 <- 200; N1 <- 180
+y0 <- rnorm(N0, 0.0, 1.0)
+y1 <- rnorm(N1, 0.7, 1.2)
+
+# Posterior sampling
+S <- 2000
+fpr_grid <- seq(0, 1, length.out = 201)
+TPR_mat <- matrix(NA_real_, nrow = S, ncol = length(fpr_grid))
+AUC_vec <- numeric(S)
+
+for (s in 1:S) {
+  w0 <- rdirichlet1(length(y0))
+  w1 <- rdirichlet1(length(y1))
+  roc <- roc_step_weighted(y0, y1, w0, w1)
+  TPR_mat[s, ] <- approx(x = roc$fpr, y = roc$tpr, xout = fpr_grid,
+                         method = "linear", ties = "ordered", rule = 2)$y
+  AUC_vec[s] <- auc_weighted(y0, y1, w0, w1)
+}
+
+TPR_mean <- apply(TPR_mat, 2, mean)
+TPR_lo   <- apply(TPR_mat, 2, quantile, 0.025)
+TPR_hi   <- apply(TPR_mat, 2, quantile, 0.975)
+
+plot(fpr_grid, TPR_mean, type="l",
+     xlab="False Positive Rate", ylab="True Positive Rate")
+polygon(c(fpr_grid, rev(fpr_grid)),
+        c(TPR_lo,   rev(TPR_hi)),
+        border = NA, col = adjustcolor("gray80", 0.8))
+lines(fpr_grid, TPR_mean)
+abline(0,1,lty=3)
+
+cat(sprintf("Bayesian-bootstrap posterior mean AUC = %.3f (95%% CrI: %.3f–%.3f)
+",
+            mean(AUC_vec), quantile(AUC_vec, 0.025), quantile(AUC_vec, 0.975)))
+```
+
+---
+
+# Practical Notes
+
+* Directionality: If smaller scores imply the positive class, negate scores or swap the definitions of TPR/FPR (e.g., use Pr(y <= t)).
+* Zeros/ones in Beta data: For bibeta models with exact 0/1 observations, either jitter slightly into (0,1) or use a zero/one-inflated Beta model.
+* Computational tips: For large datasets, prefer vectorized operations and pre-sorted thresholds. In the Bayesian bootstrap, S in 1000–2000 draws usually suffices.
+* Partial AUC: To estimate AUC over FPR in [a,b], integrate the ROC segment numerically for each posterior draw and then summarize.
+
+# Reproducibility
+
+```{r session-info}
+sessionInfo()
+```
+
+---
+
+# Comments from Github CoPilot
+
+_Please tell me what this file does._
+
+This R Markdown file, titled **"Computing a Stochastic Bayesian ROC Curve in JAGS"**, demonstrates how to fit a Bayesian binormal model to ROC (Receiver Operating Characteristic) curve data using the JAGS (Just Another Gibbs Sampler) framework via the `jagsUI` R package. Here’s a breakdown of what it does:
+
+---
+
+### 1. **Model Setup and Purpose**
+- The file shows how to estimate a ROC curve and associated summary statistics (like AUC and the optimal threshold) for a binary classifier using Bayesian inference.
+- The model assumes that the "negative" and "positive" scores are each normally distributed but with unknown means and variances, which are estimated from the data.
+
+### 2. **Key Steps in the Document**
+
+#### **a. JAGS Model Code**
+- The JAGS model is defined as a string in R.
+- It models:
+  - **Likelihoods**: Observed scores for negatives (`y0`) and positives (`y1`) are drawn from normal distributions with unknown means (`mu0`, `mu1`) and precisions (`tau0`, `tau1`).
+  - **Priors**: Very weakly informative priors for means and standard deviations.
+  - **ROC Computation**: For a grid of thresholds, the model computes the true positive rate (TPR) and false positive rate (FPR) using the normal CDF (`phi`).
+  - **AUC**: The area under the ROC curve is computed in closed form for binormal distributions.
+  - **Youden’s J**: For each threshold, computes TPR-FPR, and then uses a stepwise algorithm to find the threshold that maximizes Youden’s J (optimal diagnostic cutpoint).
+
+#### **b. Data Simulation**
+- Synthetic data are generated for two groups:
+  - 150 negative scores (mean=0, sd=1.0)
+  - 120 positive scores (mean=1.0, sd=1.2)
+- A grid of thresholds is constructed to span the data range.
+
+#### **c. Running the Model**
+- The model is run using `jagsUI::jags()` with 3 chains, burn-in, thinning, and 6000 iterations.
+- Parameters monitored include group means/SDs, AUC, TPR, FPR, and the optimal threshold.
+
+#### **d. Results Extraction and Visualization**
+- Posterior samples of ROC curve points (TPR/FPR), AUC, and the optimal threshold are extracted.
+- Posterior means and 95% credible intervals for ROC curve points are computed.
+- A plot of the mean ROC curve is made with a credible band (uncertainty ribbon).
+- Posterior summaries for AUC and the optimal threshold are printed.
+
+---
+
+### 3. **What Can You Learn From This File?**
+- How to implement a Bayesian binormal ROC model in JAGS and R.
+- How to extract uncertainty bands for ROC curves, not just point estimates.
+- How to estimate the optimal cutpoint (threshold) using Bayesian posterior samples, accounting for uncertainty.
+- How to visualize and summarize the results.
+
+---
+
+### 4. **Who Is This For?**
+- Statisticians, data scientists, or researchers working with diagnostic tests or classifiers who want a principled Bayesian method to estimate the ROC curve and its uncertainty.
+
+---
+
+**Summary:**  
+This file is a reproducible R Markdown demonstration for fitting a Bayesian ROC model in JAGS, simulating example data, and visualizing posterior ROC curves, AUC, and the optimal threshold with full Bayesian uncertainty quantification.
+---
+
+There are three examples in this file. You described the first one (binormal); please describe the other two.
+---
+Based on the content of the repository and the context of your question, I do not have the full text of the remaining two examples in the ChatGPT_Bayesian_ROC_examples.Rmd file. However, from the structure of similar ROC modeling resources and the themes in this repository, the additional examples in this file are likely to demonstrate Bayesian ROC curve modeling using two alternative distributional assumptions besides the binormal (normal/normal) model.
+
+Typically, such examples would include:
+
+1. **Non-normal/Skewed Distributions (e.g., Gamma, Weibull, or Laplace):**
+   - These examples show how to compute ROC curves when the underlying score distributions for positives and/or negatives are not symmetric or normal (e.g., Gamma for skewed positive scores, or Laplace for heavier tails).
+   - The Bayesian model in JAGS would be adjusted to use the relevant distribution(s) for the likelihood of the observed scores, replacing the normal density with a gamma, Weibull, or Laplace as appropriate.
+   - The ROC curve computation—TPR, FPR—would use the corresponding cumulative distribution functions for those distributions.
+
+2. **Mixture or Heterogeneous Distributions:**
+   - This example would fit a Bayesian model where, for instance, the positive class is modeled as a mixture of two normals (to represent a heterogeneous population, such as early- and late-stage disease).
+   - The JAGS model would introduce a latent class variable and mixture weights.
+   - The ROC curve is then computed by integrating over the posterior predictive distributions for the mixture.
+
+In both cases, the file would provide:
+- JAGS model code adapted for the new distribution(s).
+- Simulated or real score data for negatives and positives.
+- R code for running the model, extracting posterior ROC curve samples, AUC, and optimal thresholds.
+- Visualization of the results, highlighting differences in ROC shape and uncertainty due to the alternative distributional assumptions.
+
+If you would like a more detailed or precise description of these examples, please provide their code or text, or let me know if you would like help finding them in the repository.
+
+---

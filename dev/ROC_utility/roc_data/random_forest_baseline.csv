@@ -1,0 +1,7 @@
+curve_id,threshold,fpr,tpr
+random_forest_baseline,1.0,0.00,0.00
+random_forest_baseline,0.8,0.20,0.50
+random_forest_baseline,0.5,0.40,0.70
+random_forest_baseline,0.3,0.60,0.85
+random_forest_baseline,0.1,0.80,0.90
+random_forest_baseline,0.0,1.00,1.00

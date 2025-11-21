@@ -1,0 +1,32 @@
+---
+title: "Plot ROC curve for simulated dataset"
+author: "Bob"
+date: "2025-10-30"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries}
+library(ROCR)
+```
+
+## Load data
+
+```{r load_data}
+data_file <- "~/Downloads/simulated_dataset.csv"
+
+sim_data <- read.csv(data_file)
+print(sprintf("Read %d data points.", nrow(sim_data)))
+
+# sim_data <- sim_data[sample(1:nrow(sim_data)), ] # scramble the row order
+
+sim_data |> head()
+
+pred <- with(sim_data, prediction(score, label))
+perf <- performance(pred, "tpr", "fpr")
+plot(perf)
+```
+

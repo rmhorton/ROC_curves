@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>U Illustration with Sounds and ROC</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    body { font-family: sans-serif; }
+    .positive { fill: lightblue; }
+    .negative { fill: orange; }
+    .grid line { stroke: lightgray; stroke-opacity: 0.7; shape-rendering: crispEdges; }
+    .grid path { stroke-width: 0; }
+    text.bar-label { fill: black; font-size: 12px; text-anchor: start; dominant-baseline: middle; }
+    .stairstep-outline { fill: none; stroke: red; stroke-width: 2; }
+    .roc-line { fill: none; stroke: blue; stroke-width: 2; }
+  </style>
+</head>
+<body>
+  <h2>U Illustration - Parts 1 and 2 (Toggle Animation with Sound, ROC & Stairstep Box)</h2>
+  <button id="toggle">Toggle Part 1 / Part 2</button>
+  <svg id="chart" width="800" height="500"></svg>
+
+  <script>
+    const category = [1,1,1,1,0,1,1,0,1,0,1,0,1,0,0,1,0,0,0,0];
+    const prediction = [20,19,18,17,16,15,14,13,11.5,11.5,10,9,8,7,6,5,4,3,2,1];
+
+    let data = category.map((c, i) => ({ category: c, pred: prediction[i] }));
+    data.sort((a,b) => b.pred - a.pred);
+
+    let i = 0;
+    while (i < data.length) {
+      let j = i;
+      while (j+1 < data.length && data[j+1].pred === data[i].pred) j++;
+      const avgRank = data.length - (i + j)/2;
+      for (let k = i; k <= j; k++) {
+        data[k].rank = avgRank;
+      }
+      i = j + 1;
+    }
+
+    const svg = d3.select("#chart");
+    const width = +svg.attr("width");
+    const height = +svg.attr("height");
+    const barHeight = height / data.length;
+    const leftMargin = 100;
+
+    const widthScale = d3.scaleLinear().domain([0, data.length]).range([0, width - leftMargin - 100]);
+    const xAxisScale = d3.scaleLinear().domain([0, data.length]).range([leftMargin, leftMargin + widthScale(data.length)]);
+    const yAxisScale = d3.scaleLinear().domain([0, data.length]).range([height, 0]);
+
+    svg.selectAll("line.vertical").data(d3.range(0, data.length+1)).enter()
+      .append("line")
+      .attr("class", "grid vertical")
+      .attr("x1", d => xAxisScale(d))
+      .attr("x2", d => xAxisScale(d))
+      .attr("y1", yAxisScale(0))
+      .attr("y2", yAxisScale(data.length))
+      .attr("stroke", "lightgray");
+
+    svg.selectAll("line.horizontal").data(d3.range(0, data.length+1)).enter()
+      .append("line")
+      .attr("class", "grid horizontal")
+      .attr("x1", xAxisScale(0))
+      .attr("x2", xAxisScale(data.length))
+      .attr("y1", d => yAxisScale(d))
+      .attr("y2", d => yAxisScale(d))
+      .attr("stroke", "lightgray");
+
+    const bars = svg.selectAll("rect").data(data).enter()
+      .append("rect")
+      .attr("x", leftMargin)
+      .attr("y", (d,i) => height - (i+1)*barHeight)
+      .attr("width", d => widthScale(d.rank))
+      .attr("height", barHeight - 2)
+      .attr("class", d => d.category === 1 ? "positive" : "negative");
+
+    const labels = svg.selectAll("text").data(data).enter()
+      .append("text")
+      .attr("class", "bar-label")
+      .attr("x", d => leftMargin + 2)
+      .attr("y", (d,i) => height - (i+1)*barHeight + (barHeight-2)/2)
+      .text(d => d.pred);
+
+    const positives = data.filter(d => d.category === 1);
+
+    function computeROC(data) {
+      let groups = [];
+      let i = 0;
+      while (i < data.length) {
+        let j = i;
+        while (j+1 < data.length && data[j+1].pred === data[i].pred) j++;
+        groups.push(data.slice(i,j+1));
+        i = j+1;
+      }
+      let tp = 0, fp = 0;
+      const rocPoints = [{x:0, y:0}];
+      for (let g of groups) {
+        let groupTP = g.filter(d=>d.category===1).length;
+        let groupFP = g.filter(d=>d.category===0).length;
+        tp += groupTP;
+        fp += groupFP;
+        rocPoints.push({x: fp, y: tp});
+      }
+      return rocPoints;
+    }
+
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+    function playSwoosh() { const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain(); osc.type='sawtooth'; osc.frequency.setValueAtTime(600, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(200, audioCtx.currentTime+0.8); gain.gain.setValueAtTime(0.3, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime+0.8); osc.connect(gain).connect(audioCtx.destination); osc.start(); osc.stop(audioCtx.currentTime+0.8); }
+    function playTinkle() { const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain(); osc.type='triangle'; osc.frequency.setValueAtTime(800, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime+0.5); gain.gain.setValueAtTime(0.2, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime+0.5); osc.connect(gain).connect(audioCtx.destination); osc.start(); osc.stop(audioCtx.currentTime+0.5); }
+    function playSlide() { const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain(); osc.type='square'; osc.frequency.setValueAtTime(300, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime+0.6); gain.gain.setValueAtTime(0.25, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime+0.6); osc.connect(gain).connect(audioCtx.destination); osc.start(); osc.stop(audioCtx.currentTime+0.6); }
+
+    let isPart2 = false;
+    d3.select("#toggle").on("click", function() {
+      if (!isPart2) {
+        playSwoosh();
+        const negatives = data.filter(d => d.category === 0);
+        const stepX = widthScale(1);
+        const bottomRight = leftMargin + widthScale(positives[0].rank);
+
+        bars.filter(d => d.category === 0).transition().duration(1000).attr("x", d => -widthScale(d.rank)-50);
+        labels.filter(d => d.category === 0).transition().duration(1000).attr("x", d => -widthScale(d.rank)-50).on("end", function() {
+          playTinkle();
+          positives.forEach((d,i) => d.targetY = height-(i+1)*barHeight);
+          bars.filter(d => d.category === 1).transition().duration(1000).attr("y", d => positives.find(p=>p.pred===d.pred).targetY);
+          labels.filter(d => d.category === 1).transition().duration(1000).attr("y", d => positives.find(p=>p.pred===d.pred).targetY+(barHeight-2)/2).on("end", function() {
+            playSlide();
+            positives.forEach((d,i) => d.targetRight = i===0?bottomRight:positives[i-1].targetRight-stepX);
+            bars.filter(d=>d.category===1).transition().duration(1000).attr("x", d => positives.find(p=>p.pred===d.pred).targetRight - widthScale(d.rank));
+            labels.filter(d=>d.category===1).transition().duration(1000).attr("x", d => positives.find(p=>p.pred===d.pred).targetRight - widthScale(d.rank)+2).on("end", function() {
+              const stairstepWidth = stepX * positives.length;
+              const stairstepHeight = barHeight * positives.length;
+              svg.append("rect").attr("x", bottomRight - stairstepWidth).attr("y", height - stairstepHeight).attr("width", stairstepWidth).attr("height", stairstepHeight).attr("class", "stairstep-outline");
+
+              const rocPoints = computeROC(data);
+              const rocLine = d3.line().x(d => xAxisScale(d.x)).y(d => yAxisScale(d.y));
+              svg.append("path").datum(rocPoints).attr("class","roc-line").attr("d", rocLine);
+            });
+          });
+        });
+        isPart2 = true;
+      } else {
+        bars.transition().duration(1000).attr("x", leftMargin).attr("y", (d,i) => height-(i+1)*barHeight);
+        labels.transition().duration(1000).attr("x", leftMargin+2).attr("y", (d,i) => height-(i+1)*barHeight + (barHeight-2)/2);
+        svg.selectAll(".stairstep-outline").remove();
+        svg.selectAll(".roc-line").remove();
+        isPart2 = false;
+      }
+    });
+  </script>
+</body>
+</html>
