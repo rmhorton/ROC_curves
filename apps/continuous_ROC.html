@@ -41,16 +41,14 @@
     .data-import-options{display:flex;flex-direction:column;gap:6px}
     .data-import-options label{display:flex;align-items:center;gap:6px;font-size:12px;color:#3a3a5a}
     .plot-with-legend{position:relative}
-    .plot-legend{position:absolute;top:12px;right:12px;background:rgba(255,255,255,0.92);border:1px solid #dcdcee;border-radius:6px;padding:6px 10px;font-size:11px;color:#3a3a5a;display:flex;gap:10px}
-    .plot-legend span{display:flex;align-items:center;gap:4px;white-space:nowrap}
     .rug-pos line{stroke:#d62728;stroke-width:1.2;opacity:0.75}
     .rug-neg line{stroke:#1f77b4;stroke-width:1.2;opacity:0.75}
-    .legend-swatch{width:12px;height:12px;border-radius:2px;display:inline-block}
-    .legend-pos{background:rgba(255,0,0,0.4)}
-    .legend-neg{background:rgba(0,0,255,0.4)}
-    .legend-theoretical{background:#1f77b4}
-    .legend-empirical-roc{background:#7d3cff}
     .roc-empirical{stroke:#7d3cff;stroke-width:2;fill:none;stroke-dasharray:5 4}
+    .legend-bar{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;font-size:12px;color:#30304a}
+    .legend-item{display:flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid #dcdcee;border-radius:8px;cursor:pointer;user-select:none;background:#f9f9ff;transition:background 0.15s,border-color 0.15s,opacity 0.15s}
+    .legend-item:hover{background:#f0f0ff}
+    .legend-item.inactive{opacity:0.45;background:#f4f4f7}
+    .legend-swatch{width:14px;height:14px;border-radius:3px;flex:0 0 auto;border:1px solid #d1d1e0}
     .sim-options{display:flex;flex-direction:column;gap:6px;margin-top:10px;font-size:12px;color:#3a3a5a}
     .sim-options label{display:flex;align-items:center;gap:6px}
     .add-component-btn{margin-top:0;padding:6px 10px}
@@ -158,14 +156,13 @@ body {
     <div class="plot-block">
       <div class="plot-with-legend">
         <div id="distPlot"></div>
-        <div id="empiricalLegend" class="plot-legend">
-          <span><span class="legend-swatch legend-pos"></span>Positive histogram</span>
-          <span><span class="legend-swatch legend-neg"></span>Negative histogram</span>
-          <span><span class="legend-swatch legend-empirical-roc"></span>Empirical ROC</span>
-        </div>
       </div>
+      <div id="scoreLegend" class="legend-bar"></div>
     </div>
-    <div class="plot-block"><div id="rocPlot"></div></div>
+    <div class="plot-block">
+      <div id="rocPlot"></div>
+      <div id="rocLegend" class="legend-bar"></div>
+    </div>
   </div>
 
   <div id="thresholdArea">
@@ -200,11 +197,6 @@ body {
         <input type="file" id="dataImportInput" accept=".csv" style="margin-top:6px;">
         <div style="font-size:11px;color:#666;margin-top:6px;">Drop a CSV here or use the file picker. Required columns: <code>score</code>, <code>label</code>.</div>
       </div>
-      <div class="data-import-options">
-        <label><input type="checkbox" id="toggleEmpiricalHistogram" checked>Show empirical histograms</label>
-        <label><input type="checkbox" id="toggleEmpiricalRoc">Show empirical ROC</label>
-        <label><input type="checkbox" id="toggleEmpiricalPoints">Show empirical data points</label>
-      </div>
       <div id="dataImportStatus">No empirical data loaded.</div>
       <button id="dataExportButton" style="margin-top:10px;">Export Dataset CSV</button>
       <div id="exportStatus" style="font-size:12px;color:#666;margin-top:6px;"></div>
@@ -228,11 +220,126 @@ body {
       const CONFIG=window.MULTIDISTRIBUTION_CONFIG||{};
       const {STRINGS,FEATURES,DISTRIBUTIONS,DISTRIBUTION_ORDER,DEFAULT_OPTIONS}=CONFIG;
       const ROC_CONFIG=window.ROC_EXPLORER_CONFIG||{};
+      const visibilityState={
+        score:{
+          posPDF:true,
+          negPDF:true,
+          posHist:DEFAULT_OPTIONS.showEmpiricalHistogram??true,
+          negHist:DEFAULT_OPTIONS.showEmpiricalHistogram??true,
+          empiricalPoints:DEFAULT_OPTIONS.showEmpiricalPoints??false
+        },
+        roc:{
+          theoretical:true,
+          empirical:DEFAULT_OPTIONS.showEmpiricalRoc??false
+        }
+      };
       let currentEmpiricalDataset={name:'simulated_dataset', source:'simulated'};
       window.currentEmpiricalDataset=currentEmpiricalDataset;
       if(!STRINGS||!FEATURES||!DISTRIBUTIONS||!DISTRIBUTION_ORDER||!DEFAULT_OPTIONS){
         document.body.innerHTML='<p style="color:#a20000">Configuration not found. Ensure multidistribution_config.js is loaded.</p>';
         return;
+      }
+
+      const DEFAULT_COLOR_CONFIG={
+        positive:{hue:'#1f77b4',histogramOpacity:0.4,rugOpacity:0.75,pdfOpacity:1},
+        negative:{hue:'#d62728',histogramOpacity:0.4,rugOpacity:0.75,pdfOpacity:1}
+      };
+
+      function resolveColorConfig(source){
+        const result={
+          positive:{...DEFAULT_COLOR_CONFIG.positive},
+          negative:{...DEFAULT_COLOR_CONFIG.negative}
+        };
+        ['positive','negative'].forEach(key=>{
+          const entry=source?.[key];
+          if(!entry){return;}
+          if(typeof entry.hue==='string' && entry.hue.trim()){result[key].hue=entry.hue;}
+          ['histogramOpacity','rugOpacity','pdfOpacity'].forEach(field=>{
+            const val=Number(entry[field]);
+            if(Number.isFinite(val)){result[key][field]=val;}
+          });
+        });
+        return result;
+      }
+
+      function applyColorStyles(colors){
+        const toRgba=ROCUtils.hexOpacityToRgba;
+        document.querySelectorAll('style[data-role="color-theme"]').forEach(node=>node.remove());
+        const css=`
+.hist-pos-bar{fill:${toRgba(colors.positive.hue,colors.positive.histogramOpacity)};}
+.hist-neg-bar{fill:${toRgba(colors.negative.hue,colors.negative.histogramOpacity)};}
+.rug-pos line{stroke:${toRgba(colors.positive.hue,colors.positive.rugOpacity)};opacity:1;}
+.rug-neg line{stroke:${toRgba(colors.negative.hue,colors.negative.rugOpacity)};opacity:1;}
+.legend-pos{background:${toRgba(colors.positive.hue,colors.positive.histogramOpacity)};}
+.legend-neg{background:${toRgba(colors.negative.hue,colors.negative.histogramOpacity)};}
+.pdf-line-positive{stroke:${toRgba(colors.positive.hue,colors.positive.pdfOpacity)};}
+.pdf-line-negative{stroke:${toRgba(colors.negative.hue,colors.negative.pdfOpacity)};}
+`;
+        const styleEl=document.createElement('style');
+        styleEl.setAttribute('data-role','color-theme');
+        styleEl.textContent=css;
+        document.head.appendChild(styleEl);
+      }
+
+      const COLOR_CONFIG=resolveColorConfig(CONFIG.COLORS);
+      applyColorStyles(COLOR_CONFIG);
+      const COLOR_HELPERS={
+        posPdf:ROCUtils.hexOpacityToRgba(COLOR_CONFIG.positive.hue,COLOR_CONFIG.positive.pdfOpacity),
+        negPdf:ROCUtils.hexOpacityToRgba(COLOR_CONFIG.negative.hue,COLOR_CONFIG.negative.pdfOpacity),
+        posHist:ROCUtils.hexOpacityToRgba(COLOR_CONFIG.positive.hue,COLOR_CONFIG.positive.histogramOpacity),
+        negHist:ROCUtils.hexOpacityToRgba(COLOR_CONFIG.negative.hue,COLOR_CONFIG.negative.histogramOpacity),
+        posRug:ROCUtils.hexOpacityToRgba(COLOR_CONFIG.positive.hue,COLOR_CONFIG.positive.rugOpacity),
+        negRug:ROCUtils.hexOpacityToRgba(COLOR_CONFIG.negative.hue,COLOR_CONFIG.negative.rugOpacity),
+        empirical:'#7d3cff',
+        roc:'#30307c'
+      };
+
+      const scoreLegendContainer=document.getElementById('scoreLegend');
+      const rocLegendContainer=document.getElementById('rocLegend');
+      const scoreLegendItems=[
+        {key:'posPDF',label:'Positive PDF',color:COLOR_HELPERS.posPdf},
+        {key:'negPDF',label:'Negative PDF',color:COLOR_HELPERS.negPdf},
+        {key:'posHist',label:'Positive histogram',color:COLOR_HELPERS.posHist},
+        {key:'negHist',label:'Negative histogram',color:COLOR_HELPERS.negHist},
+        {key:'empiricalPoints',label:'Empirical points',color:COLOR_HELPERS.empirical}
+      ];
+      const rocLegendItems=[
+        {key:'theoretical',label:'Theoretical ROC',color:COLOR_HELPERS.roc},
+        {key:'empirical',label:'Empirical ROC',color:COLOR_HELPERS.empirical}
+      ];
+
+      function buildLegend(container, items, sectionKey){
+        if(!container){return;}
+        container.innerHTML='';
+        items.forEach(item=>{
+          const el=document.createElement('div');
+          el.className='legend-item';
+          el.dataset.section=sectionKey;
+          el.dataset.key=item.key;
+          const swatch=document.createElement('span');
+          swatch.className='legend-swatch';
+          swatch.style.background=item.color;
+          const label=document.createElement('span');
+          label.textContent=item.label;
+          el.appendChild(swatch);
+          el.appendChild(label);
+          el.addEventListener('click',()=>{
+            const current=visibilityState[sectionKey][item.key];
+            visibilityState[sectionKey][item.key]=!current;
+            renderLegendSelection();
+            update();
+          });
+          container.appendChild(el);
+        });
+      }
+
+      function renderLegendSelection(){
+        document.querySelectorAll('.legend-item').forEach(el=>{
+          const section=el.dataset.section;
+          const key=el.dataset.key;
+          const active=visibilityState?.[section]?.[key];
+          el.classList.toggle('inactive',!active);
+        });
       }
 
       const prevalenceSlider=document.getElementById('prevalenceSlider');
@@ -310,31 +417,9 @@ body {
       prevalenceSlider.value=state.prevalence;
       prevalenceValEl.textContent=STRINGS.controls.prevalenceValue(state.prevalence);
 
-      const toggleHistogram=document.getElementById('toggleEmpiricalHistogram');
-      const toggleEmpiricalRoc=document.getElementById('toggleEmpiricalRoc');
-      const toggleEmpiricalPoints=document.getElementById('toggleEmpiricalPoints');
       const autoResampleToggle=document.getElementById('autoResampleToggle');
       const resampleButton=document.getElementById('resampleButton');
       autoResampleToggle.checked=state.autoResample;
-      toggleHistogram.checked=state.showEmpiricalHistogram;
-      toggleEmpiricalRoc.checked=state.showEmpiricalRoc;
-      if(toggleEmpiricalPoints){
-        toggleEmpiricalPoints.checked=state.showEmpiricalPoints;
-      }
-      toggleHistogram.addEventListener('change',event=>{
-        state.showEmpiricalHistogram=event.target.checked;
-        update();
-      });
-      toggleEmpiricalRoc.addEventListener('change',event=>{
-        state.showEmpiricalRoc=event.target.checked;
-        update();
-      });
-      if(toggleEmpiricalPoints){
-        toggleEmpiricalPoints.addEventListener('change',event=>{
-          state.showEmpiricalPoints=event.target.checked;
-          update();
-        });
-      }
       autoResampleToggle.addEventListener('change',event=>{
         state.autoResample=event.target.checked;
         if(state.autoResample && currentEmpiricalDataset.source==='simulated'){
@@ -403,6 +488,10 @@ body {
         .attr('y',distHeight+42)
         .attr('text-anchor','middle')
         .text(STRINGS.plots.scoreXAxis);
+
+      buildLegend(scoreLegendContainer,scoreLegendItems,'score');
+      buildLegend(rocLegendContainer,rocLegendItems,'roc');
+      renderLegendSelection();
       distContent.append('text')
         .attr('class','axis-label')
         .attr('transform','rotate(-90)')
@@ -669,7 +758,6 @@ body {
         const statusEl=document.getElementById('dataImportStatus');
         if(!hasEmpiricalData()){
           statusEl.textContent='No empirical data loaded.';
-          updateEmpiricalToggleAvailability();
           return;
         }
         const positives=state.importedRawPos.length;
@@ -680,22 +768,12 @@ body {
         } else {
           statusEl.textContent=`${name}: ${positives+negatives} samples imported (${positives} positive, ${negatives} negative).`;
         }
-        updateEmpiricalToggleAvailability();
       }
 
       function refreshDatasetExportState(){
         const exportBtn=document.getElementById('dataExportButton');
         if(!exportBtn) return;
         exportBtn.style.display=currentEmpiricalDataset.source==='simulated'?'':'none';
-      }
-
-      function updateEmpiricalToggleAvailability(){
-        const enabled=hasEmpiricalData();
-        [toggleHistogram, toggleEmpiricalRoc, toggleEmpiricalPoints].forEach(el=>{
-          if(el){
-            el.disabled=!enabled;
-          }
-        });
       }
 
       function setDatasetName(name){
@@ -1132,7 +1210,7 @@ body {
         let histPosData=[];
         let histNegData=[];
         let histMaxDensity=0;
-        const histActive=state.showEmpiricalHistogram && hasEmpiricalSamples;
+        const histActive=hasEmpiricalSamples && (visibilityState.score.posHist||visibilityState.score.negHist);
         if(histActive){
           const totalPos=empiricalSamples.positives.length;
           const totalNeg=empiricalSamples.negatives.length;
@@ -1156,8 +1234,16 @@ body {
         distXAxisGroup.call(d3.axisBottom(distXScale));
         distYAxisGroup.call(d3.axisLeft(distYScale));
 
-        distPosLinePath.datum(dataPoints).attr('d',distPosLineGenerator);
-        distNegLinePath.datum(dataPoints).attr('d',distNegLineGenerator);
+        if(visibilityState.score.posPDF){
+          distPosLinePath.style('display',null).datum(dataPoints).attr('d',distPosLineGenerator);
+        } else {
+          distPosLinePath.style('display','none').attr('d',null);
+        }
+        if(visibilityState.score.negPDF){
+          distNegLinePath.style('display',null).datum(dataPoints).attr('d',distNegLineGenerator);
+        } else {
+          distNegLinePath.style('display','none').attr('d',null);
+        }
 
         const renderHist=(group,data,className)=>{
           const selection=group.selectAll('rect').data(data);
@@ -1176,10 +1262,20 @@ body {
         };
 
         if(histActive){
-          histPosGroup.style('display',null);
-          histNegGroup.style('display',null);
-          renderHist(histPosGroup,histPosData,'hist-pos-bar');
-          renderHist(histNegGroup,histNegData,'hist-neg-bar');
+          if(visibilityState.score.posHist){
+            histPosGroup.style('display',null);
+            renderHist(histPosGroup,histPosData,'hist-pos-bar');
+          } else {
+            histPosGroup.selectAll('rect').remove();
+            histPosGroup.style('display','none');
+          }
+          if(visibilityState.score.negHist){
+            histNegGroup.style('display',null);
+            renderHist(histNegGroup,histNegData,'hist-neg-bar');
+          } else {
+            histNegGroup.selectAll('rect').remove();
+            histNegGroup.style('display','none');
+          }
         } else {
           histPosGroup.selectAll('rect').remove();
           histNegGroup.selectAll('rect').remove();
@@ -1187,7 +1283,7 @@ body {
           histNegGroup.style('display','none');
         }
 
-        const pointsActive=state.showEmpiricalPoints && hasEmpiricalSamples;
+        const pointsActive=visibilityState.score.empiricalPoints && hasEmpiricalSamples;
         const rugHeight=8;
         const baseY=distYScale.range()[0];
         const renderRugLines=(group,data)=>{
@@ -1255,11 +1351,15 @@ body {
         const auc=ROCUtils.computeAuc(rocSorted);
         rocTitle.text(STRINGS.plots.rocTitle(auc));
 
-        if(rocSorted.length>=2){rocLinePath.datum(rocSorted).attr('d',rocLineGenerator);} else {rocLinePath.attr('d',null);}    
+        if(visibilityState.roc.theoretical && rocSorted.length>=2){
+          rocLinePath.style('display',null).datum(rocSorted).attr('d',rocLineGenerator);
+        } else {
+          rocLinePath.style('display','none').attr('d',null);
+        }
         rocXAxisGroup.call(d3.axisBottom(rocXScale).ticks(6));
         rocYAxisGroup.call(d3.axisLeft(rocYScale).ticks(6));
 
-        if(state.showEmpiricalRoc && hasEmpiricalSamples){
+        if(visibilityState.roc.empirical && hasEmpiricalSamples){
           const empiricalRoc=ROCUtils.computeEmpiricalRoc(empiricalPointList);
           if(empiricalRoc.length>=2){
             empiricalRocPath.datum(empiricalRoc).attr('d',rocLineGenerator).style('opacity',1).raise();
@@ -1286,6 +1386,7 @@ body {
         const accuracy=sensitivity*prevalence+specificity*(1-prevalence);
         const headers=STRINGS.metrics.prevalenceHeader;
         document.getElementById('metricsPrev').innerHTML=`<table><tr><th>${headers[0]}</th><th>${headers[1]}</th><th>${headers[2]}</th></tr><tr><td>${ppv.toFixed(3)}</td><td>${npv.toFixed(3)}</td><td>${accuracy.toFixed(3)}</td></tr></table>`;
+        renderLegendSelection();
       }
 
       function handleDrag(event){
@@ -1460,6 +1561,83 @@ body {
         return trimmed;
       }
 
+      function snapshotDistributions(){
+        const cloneComponentData=comp=>({
+          distribution:comp.distribution,
+          weight:comp.weight,
+          parameters:{...comp.parameters}
+        });
+        return {
+          positives:(state.posComponents||[]).map(cloneComponentData),
+          negatives:(state.negComponents||[]).map(cloneComponentData)
+        };
+      }
+
+      function computeEmpiricalHistograms(minX,maxX){
+        const hasData=hasEmpiricalData();
+        if(!hasData){
+          return {positives:[],negatives:[],domain:[minX,maxX],binCount:0};
+        }
+        const positives=state.importedRawPos;
+        const negatives=state.importedRawNeg;
+        const total=Math.max(positives.length+negatives.length,1);
+        const binCount=Math.min(40,Math.max(10,Math.round(Math.sqrt(total))));
+        const binGenerator=(d3.histogram?d3.histogram():d3.bin()).domain([minX,maxX]).thresholds(binCount);
+        const toDensity=(bins,totalCount)=>bins.map(bin=>{
+          const width=(bin.x1??bin.x0)-(bin.x0??bin.x1);
+          const density=(totalCount>0 && width>0)?bin.length/(totalCount*width):0;
+          return {x0:bin.x0,x1:bin.x1,density};
+        });
+        const posBins=positives.length?toDensity(binGenerator(positives),positives.length):[];
+        const negBins=negatives.length?toDensity(binGenerator(negatives),negatives.length):[];
+        return {positives:posBins,negatives:negBins,domain:[minX,maxX],binCount};
+      }
+
+      function pointsToRocArrays(points){
+        if(!Array.isArray(points)||!points.length){return null;}
+        const fpr=[];
+        const tpr=[];
+        const thr=[];
+        points.forEach(pt=>{
+          const f=Number(pt?.fpr);
+          const t=Number(pt?.tpr);
+          const h=pt?.thr;
+          if(Number.isFinite(f)&&Number.isFinite(t)){
+            fpr.push(f);
+            tpr.push(t);
+            thr.push(Number.isFinite(Number(h))?Number(h):null);
+          }
+        });
+        if(!fpr.length||fpr.length!==tpr.length){return null;}
+        const hasThr=thr.some(v=>v!==null);
+        return hasThr?{fpr,tpr,thr}:{fpr,tpr};
+      }
+
+      function buildContinuousMetadata(curveName, auc, minX, maxX, empiricalPointList){
+        const distributions=snapshotDistributions();
+        const samplingSettings={
+          prevalence:state.prevalence,
+          sampleSize:Number(document.getElementById('sampleSizeInput')?.value)||200,
+          autoResample:state.autoResample,
+          dataImported:state.dataImported,
+          datasetName:currentEmpiricalDataset.name||null,
+          importedSampleCount:state.importedSampleCount||0
+        };
+        const samplesROC=empiricalPointList?.length?ROCUtils.computeEmpiricalRoc(empiricalPointList):[];
+        const samplesArray=[];
+        const sampleObject=pointsToRocArrays(samplesROC);
+        if(sampleObject){samplesArray.push(sampleObject);}
+        const samplesHist=computeEmpiricalHistograms(minX,maxX);
+        return {
+          name:curveName,
+          auc,
+          distributions,
+          samplingSettings,
+          samplesROC:samplesArray,
+          samplesHist
+        };
+      }
+
       function getPreferredRocPoints(){
         const processedEmpirical=getProcessedEmpiricalPoints();
         const empiricalRoc=ROCUtils.computeEmpiricalRoc(processedEmpirical);
@@ -1508,6 +1686,18 @@ body {
         }
         const canonicalCurve=ROCUtils.toCanonicalRocObject(baseCurve,{idHint:curveName});
         canonicalCurve.name=curveName;
+        const empiricalSamples=getProcessedEmpiricalSamples();
+        const hasEmpiricalSamples=empiricalSamples.positives.length>0||empiricalSamples.negatives.length>0;
+        const empiricalPointList=hasEmpiricalSamples?getProcessedEmpiricalPoints():[];
+        const metadata=buildContinuousMetadata(
+          curveName,
+          ROCUtils.computeAuc(selection.points),
+          state.domain?.[0],
+          state.domain?.[1],
+          empiricalPointList
+        );
+        canonicalCurve.metadata=canonicalCurve.metadata||{};
+        canonicalCurve.metadata.continuous_roc_explorer=metadata;
         return {canonicalCurve,source:selection.source};
       }
 

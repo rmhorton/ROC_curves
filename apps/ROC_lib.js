@@ -142,6 +142,95 @@
     return Number.isFinite(value) ? Number(value).toString() : '';
   }
 
+  ROCUtils.hexOpacityToRgba = function(hex, opacity = 1){
+    const clamp = (val, min = 0, max = 1)=>Math.min(Math.max(val, min), max);
+    if(typeof hex !== 'string'){
+      return `rgba(0,0,0,${clamp(opacity)})`;
+    }
+    let normalized = hex.trim();
+    if(normalized.startsWith('#')){
+      normalized = normalized.slice(1);
+    }
+    if(normalized.length === 3){
+      normalized = normalized.split('').map(ch=>ch+ch).join('');
+    }
+    if(normalized.length !== 6 || /[^0-9a-f]/i.test(normalized)){
+      return `rgba(0,0,0,${clamp(opacity)})`;
+    }
+    const intVal = parseInt(normalized, 16);
+    const r = (intVal >> 16) & 255;
+    const g = (intVal >> 8) & 255;
+    const b = intVal & 255;
+    const alpha = clamp(Number(opacity));
+    return `rgba(${r},${g},${b},${alpha})`;
+  };
+
+  function normalizeSampleRoc(entry){
+    const coerceArray = (arr)=>{
+      if(!Array.isArray(arr)) return null;
+      const out = arr.map(v=>Number(v)).filter(v=>Number.isFinite(v));
+      return out.length === arr.length ? out : null;
+    };
+    // Accept already-normalized object form
+    if(entry && typeof entry === 'object' && !Array.isArray(entry)){
+      const fpr = coerceArray(entry.fpr);
+      const tpr = coerceArray(entry.tpr);
+      if(!fpr || !tpr || !fpr.length || fpr.length !== tpr.length){
+        return null;
+      }
+      let thr = null;
+      if(entry.threshold){
+        const maybe = coerceArray(entry.threshold);
+        if(maybe && maybe.length === fpr.length){
+          thr = maybe;
+        }
+      } else if(entry.thr){
+        const maybe = coerceArray(entry.thr);
+        if(maybe && maybe.length === fpr.length){
+          thr = maybe;
+        }
+      }
+      return thr ? {fpr, tpr, thr} : {fpr, tpr};
+    }
+    // Accept array-of-points legacy form
+    if(Array.isArray(entry)){
+      const fpr = [];
+      const tpr = [];
+      const thr = [];
+      entry.forEach(pt=>{
+        const f = Number(pt?.fpr);
+        const t = Number(pt?.tpr);
+        const h = pt?.thr;
+        if(Number.isFinite(f) && Number.isFinite(t)){
+          fpr.push(f);
+          tpr.push(t);
+          thr.push(Number.isFinite(Number(h)) ? Number(h) : null);
+        }
+      });
+      if(!fpr.length || fpr.length !== tpr.length){
+        return null;
+      }
+      const hasThr = thr.some(v=>v !== null);
+      if(hasThr && thr.length === fpr.length){
+        return {fpr, tpr, thr};
+      }
+      return {fpr, tpr};
+    }
+    return null;
+  }
+
+  function normalizeSamplesRocArray(samples){
+    if(!Array.isArray(samples)) return [];
+    const normalized = [];
+    samples.forEach(entry=>{
+      const norm = normalizeSampleRoc(entry);
+      if(norm){
+        normalized.push(norm);
+      }
+    });
+    return normalized;
+  }
+
   ROCUtils.toCanonicalRocObject = function(input, options = {}){
     if(!isPlainObject(input)){
       throw new Error('ROC curve must be an object.');
@@ -220,6 +309,17 @@
       Object.keys(input.metadata).forEach(key=>{
         metadata[key] = input.metadata[key];
       });
+      if(metadata.continuous_roc_explorer && Array.isArray(metadata.continuous_roc_explorer.samplesROC)){
+        const cleaned = normalizeSamplesRocArray(metadata.continuous_roc_explorer.samplesROC);
+        if(cleaned.length){
+          metadata.continuous_roc_explorer = {
+            ...metadata.continuous_roc_explorer,
+            samplesROC: cleaned
+          };
+        } else {
+          delete metadata.continuous_roc_explorer.samplesROC;
+        }
+      }
       canonical.metadata = metadata;
     }
 

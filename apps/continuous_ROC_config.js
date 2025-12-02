@@ -282,10 +282,26 @@ const DEFAULT_OPTIONS = {
   autoResample: false
 };
 
+const COLORS = {
+  positive: {
+    hue: "#1f77b4",
+    histogramOpacity: 0.4,
+    rugOpacity: 0.75,
+    pdfOpacity: 1
+  },
+  negative: {
+    hue: "#d62728",
+    histogramOpacity: 0.4,
+    rugOpacity: 0.75,
+    pdfOpacity: 1
+  }
+};
+
 window.MULTIDISTRIBUTION_CONFIG = {
   STRINGS,
   FEATURES,
   DISTRIBUTIONS,
   DISTRIBUTION_ORDER,
-  DEFAULT_OPTIONS
+  DEFAULT_OPTIONS,
+  COLORS
 };
