@@ -615,6 +615,21 @@
     return blob;
   };
 
+  ROCUtils.normalizeWeightsForClass = function(className, components){
+    if(!Array.isArray(components) || !components.length){
+      return [];
+    }
+    const weights = components.map(comp=>Math.max(Number(comp?.weight) || 0, 0));
+    let total = weights.reduce((acc,val)=>acc + val, 0);
+    if(!Number.isFinite(total) || total <= 0){
+      total = components.length;
+    }
+    components.forEach((comp, idx)=>{
+      comp.weight = weights[idx] / total;
+    });
+    return components;
+  };
+
   ROCUtils.computeEmpiricalRoc = function(points){
     if(!Array.isArray(points) || !points.length){
       return [];

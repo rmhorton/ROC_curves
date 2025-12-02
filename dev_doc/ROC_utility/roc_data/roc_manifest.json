@@ -1,0 +1,7 @@
+[
+    "roc_data/both_edges.json",
+    "roc_data/left_edge.json",
+    "roc_data/neither_edge.json",
+    "roc_data/neither_edge_cauchy.json",
+    "roc_data/top_edge.json"
+]
