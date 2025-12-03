@@ -1929,6 +1929,228 @@ Implement:
 
 ---
 
+```
+# v1.15.7.1 — Fix ROC Plot Resizing & Layout Stability When Adding Sampled Curves
+
+## A. Goals
+- Prevent the ROC plot `<svg>` from suddenly expanding in size when multiple sampled curves are added.
+- Ensure the ROC and Score plots **never exceed their intended dimensions**, regardless of the number of curves.
+- Lock the ROC plot’s outer container layout so that additional `<path>` elements do not cause:
+  - Auto-resizing of the `<svg>`
+  - Overflow that expands its parent `.plot-block`
+  - Layout shifts relative to the Score plot
+- Ensure all curves are clipped cleanly within the plot area.
+- Confirm that legends, axes, and curves still behave normally after clipping.
+
+---
+
+## B. Implementation Plan
+Perform all modifications in **`continuous_ROC.html`** (CSS and SVG structure) and **`ROC_lib.js`** (ensuring no dynamic resizing).
+
+### 1. Lock ROC SVG dimensions
+Locate:
+```js
+const rocSvg = d3.select('#rocPlot').append('svg')
+```
+Change it so the SVG keeps a fixed viewBox and CSS-locked size, e.g.:
+
+```html
+style="max-width:540px; width:100%; height:auto;"
+```
+
+Verify no sampled-curve code modifies:
+- `width`
+- `height`
+- `viewBox`
+
+### 2. Add a clipping rectangle
+Add:
+```js
+rocContent.append('clipPath')
+  .attr('id','rocClip')
+  .append('rect')
+  .attr('x',0)
+  .attr('y',0)
+  .attr('width',rocWidth)
+  .attr('height',rocHeight);
+```
+Apply to all ROC paths:
+```js
+.attr('clip-path','url(#rocClip)')
+```
+
+### 3. Prevent dynamic SVG resizing
+Search in `ROC_lib.js` for code modifying width/height/viewBox during sampling and remove it.
+
+### 4. Add CSS to stabilize layout
+```css
+#rocPlot svg {
+  max-width: 540px;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.roc-samples path {
+  vector-effect: non-scaling-stroke;
+}
+
+#rocLegend {
+  flex-wrap: wrap;
+  max-width: 540px;
+}
+```
+
+### 5. Test
+Add 1, 5, 10, 20, 50 samples and confirm:
+- No plot expansion
+- Score plot stays aligned
+- No scrollbars appear unexpectedly
+
+---
+
+## C. Codex Prompt
+```
+Implement roadmap milestone v1.15.7.1 from `ContinuousROC_Explorer_Roadmap_v1.15.md`.
+
+Files:
+  - continuous_ROC.html
+  - ROC_lib.js
+
+Steps:
+1. Lock ROC SVG size in continuous_ROC.html:
+   - Add CSS: max-width:540px; width:100%; height:auto.
+   - Ensure no dynamic width/height/viewBox adjustments occur.
+
+2. Add a clipPath (#rocClip) sized to rocWidth × rocHeight.
+   - Apply clip-path to rocSampleGroup, rocLinePath, and empiricalRocPath.
+
+3. In ROC_lib.js, remove any code that alters SVG dimensions during sampling.
+
+4. Add CSS:
+   - #rocPlot svg { max-width:540px; width:100%; height:auto; }
+   - .roc-samples path { vector-effect: non-scaling-stroke; }
+   - #rocLegend { flex-wrap:wrap; max-width:540px; }
+
+5. Test by generating many samples; ensure SVG and container no longer expand.
+
+Do not modify unrelated logic.
+```
+```
+
+---
+
+# Version v1.15.7.2 — Multi-Row Wrapping Legend
+
+## A. Goals
+- Prevent the ROC legend from expanding horizontally when many sample ROC curves are present.
+- Keep the app layout stable regardless of the number of legend items.
+- Make legend items automatically wrap onto multiple rows.
+- Maintain full interactivity: every legend item must remain clickable.
+- Ensure legend width visually matches the ROC plot width so the two remain aligned.
+- Make the solution purely structural/CSS (no need to modify metadata or sampling logic).
+
+---
+
+## B. Implementation Plan
+
+### 1. Update CSS for the ROC legend container
+Add or modify CSS in `continuous_ROC.html`:
+
+```css
+#rocLegend {
+  display: flex;
+  flex-wrap: wrap;          /* allows multi-row layout */
+  justify-content: flex-start;
+  align-items: center;
+  gap: 6px 12px;            /* vertical and horizontal spacing */
+  max-width: 540px;         /* match ROC plot width */
+}
+```
+
+### 2. Ensure each legend item is a non-stretching flex child
+This ensures items align cleanly without unpredictable width expansion.
+
+```css
+#rocLegend .legend-item {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;            /* prevent stretching */
+  white-space: nowrap;       /* prevent internal wrapping */
+  cursor: pointer;
+}
+```
+
+### 3. Optional: enforce a minimum width per item
+This stabilizes rows when sample counts are very large.
+
+```css
+#rocLegend .legend-item {
+  min-width: 120px;         /* approx. 4–5 items per row */
+}
+```
+
+### 4. Match legend width to plot width
+Ensure the ROC plot container uses a consistent fixed width (as in v1.15.7.1).
+This allows legend wrapping to behave predictably.
+
+```css
+#rocPlot svg {
+  max-width: 540px;
+  width: 100%;
+}
+```
+
+### 5. No JavaScript changes needed
+Since the legend items are already generated as a list of interactive `<div>` or `<g>` elements, only styling needs to change.
+The legend continues to:
+- Build one entry per ROC element
+- Toggle visibility through click handlers
+- Trigger plot redraws
+
+### 6. Testing
+After updating CSS:
+1. Generate 20–50 sample ROC curves via “New Sample”.
+2. Confirm:
+   - Legend wraps onto multiple rows.
+   - No horizontal scrolling occurs.
+   - ROC plot and Score plot stay properly aligned.
+   - Legend item visibility toggles still work.
+   - Layout remains stable when adding, removing, or toggling legend items.
+
+---
+
+## C. Codex Prompt
+```
+Implement roadmap milestone v1.15.7.2 from `ContinuousROC_Explorer_Roadmap_v1.15.md`.
+
+Goal: Make the ROC legend automatically wrap onto multiple rows and prevent horizontal expansion when many items are present.
+
+Files to modify:
+- continuous_ROC.html (CSS section only)
+
+Steps:
+1. Update the #rocLegend CSS rule:
+   - Add: display:flex; flex-wrap:wrap;
+   - Add: gap:6px 12px;
+   - Add: max-width:540px;
+
+2. Update #rocLegend .legend-item:
+   - Add: flex:0 0 auto;
+   - Add: white-space:nowrap;
+   - Add: display:flex; align-items:center;
+   - (Optional) Add: min-width:120px;
+
+3. Ensure #rocPlot svg has max-width:540px; for consistent layout.
+
+4. Do not modify the JavaScript legend logic.
+
+5. Test by generating many sample ROC curves. Confirm the legend wraps onto multiple rows and no layout deformation occurs.
+
+Follow the roadmap instructions precisely without altering unrelated code.
+```
+
+
 # Version v1.15.8 — Confidence Band Computation (95% Pointwise)
 
 ## A. Goals

@@ -48,6 +48,8 @@
     .rug-neg line{stroke:#1f77b4;stroke-width:1.2;opacity:0.75}
     .roc-empirical{stroke:#7d3cff;stroke-width:2;fill:none;stroke-dasharray:5 4}
     .legend-bar{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;font-size:12px;color:#30304a}
+    #rocLegend{display:flex;flex-wrap:wrap;gap:6px 12px;max-width:540px}
+    #rocLegend .legend-item{flex:0 0 auto;white-space:nowrap;display:flex;align-items:center;min-width:120px}
     .legend-item{display:flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid #dcdcee;border-radius:8px;cursor:pointer;user-select:none;background:#f9f9ff;transition:background 0.15s,border-color 0.15s,opacity 0.15s}
     .legend-item:hover{background:#f0f0ff}
     .legend-item.inactive{opacity:0.45;background:#f4f4f7}
@@ -59,6 +61,10 @@
     .plots{display:flex;flex-wrap:wrap;gap:20px;margin-bottom:50px}
     .plot-block{flex:1;min-width:360px}
     #distPlot,#rocPlot{width:100%;height:420px}
+    #rocPlot{max-width:540px}
+    #rocPlot svg{max-width:540px;width:100%;height:auto}
+    .roc-samples path{vector-effect:non-scaling-stroke}
+    #rocLegend{flex-wrap:wrap;max-width:540px}
     #thresholdArea{display:flex;flex-wrap:wrap;gap:40px;align-items:flex-start;margin-bottom:28px}
     #thresholdControl,#prevalenceControl{flex:1;min-width:280px}
     #thresholdControl .hint{font-size:12px;color:#60607a;margin-top:6px}
@@ -193,6 +199,10 @@ body {
       <div class="component-row">
         <label for="sampleSizeInput">Sample size:</label>
         <input type="number" id="sampleSizeInput" value="200" min="10" step="10">
+      </div>
+      <div class="component-row">
+        <label for="numSamplesInput"># samples (ROC reps):</label>
+        <input type="number" id="numSamplesInput" value="20" min="1" step="1">
       </div>
       <button id="resampleButton" style="margin-top:10px;">New sample</button>
       <div id="dataImportDropZone" style="margin-top:14px;">
@@ -475,7 +485,8 @@ body {
         autoResample:DEFAULT_OPTIONS.autoResample??false,
         simulatedDataActive:false,
         samplesROC:[],
-        samplesHist:null
+        samplesHist:null,
+        numSamples:20
       };
 
       thresholdValEl.textContent=STRINGS.controls.thresholdValue(state.threshold);
@@ -485,16 +496,34 @@ body {
 
       const autoResampleToggle=document.getElementById('autoResampleToggle');
       const resampleButton=document.getElementById('resampleButton');
+      const numSamplesInput=document.getElementById('numSamplesInput');
+      const sampleSizeInput=document.getElementById('sampleSizeInput');
       autoResampleToggle.checked=state.autoResample;
       autoResampleToggle.addEventListener('change',event=>{
         state.autoResample=event.target.checked;
         if(state.autoResample && currentEmpiricalDataset.source==='simulated'){
           resampleFromState();
+          regenerateSampleRocs();
         }
       });
       resampleButton.addEventListener('click',()=>{
         resampleFromState(true);
+        regenerateSampleRocs(true);
       });
+      if(numSamplesInput){
+        numSamplesInput.value=state.numSamples;
+        numSamplesInput.addEventListener('input',event=>{
+          const val=Math.max(1,Math.round(Number(event.target.value)||1));
+          state.numSamples=val;
+          event.target.value=String(val);
+          regenerateSampleRocs(true);
+        });
+      }
+      if(sampleSizeInput){
+        sampleSizeInput.addEventListener('input',()=>{
+          regenerateSampleRocs(true);
+        });
+      }
 
       const dataImportInput=document.getElementById('dataImportInput');
       dataImportInput.addEventListener('change',event=>{
@@ -647,11 +676,15 @@ body {
 
       const rocSvg=d3.select('#rocPlot').append('svg')
         .attr('viewBox',`0 0 ${rocDims.width} ${rocDims.height}`)
-        .attr('preserveAspectRatio','xMidYMid meet');
+        .attr('preserveAspectRatio','xMidYMid meet')
+        .attr('width',rocDims.width)
+        .attr('height',rocDims.height);
       const rocContent=rocSvg.append('g')
         .attr('transform',`translate(${rocDims.margin.left},${rocDims.margin.top})`);
       const rocWidth=rocDims.width-rocDims.margin.left-rocDims.margin.right;
       const rocHeight=rocDims.height-rocDims.margin.top-rocDims.margin.bottom;
+      const rocClip=rocContent.append('clipPath').attr('id','rocClip');
+      rocClip.append('rect').attr('x',0).attr('y',0).attr('width',rocWidth).attr('height',rocHeight);
 
       const rocTitle=rocSvg.append('text')
         .attr('class','chart-title')
@@ -678,9 +711,9 @@ body {
         .attr('text-anchor','middle')
         .text(STRINGS.plots.rocYAxis);
 
-      const rocSampleGroup=rocContent.append('g').attr('class','roc-samples');
-      const rocLinePath=rocContent.append('path').attr('class','roc-line');
-      const empiricalRocPath=rocContent.append('path').attr('class','roc-empirical').style('opacity',0);
+      const rocSampleGroup=rocContent.append('g').attr('class','roc-samples').attr('clip-path','url(#rocClip)');
+      const rocLinePath=rocContent.append('path').attr('class','roc-line').attr('clip-path','url(#rocClip)');
+      const empiricalRocPath=rocContent.append('path').attr('class','roc-empirical').style('opacity',0).attr('clip-path','url(#rocClip)');
       rocContent.append('path').attr('class','roc-random')
         .attr('d',`M${rocXScale(0)},${rocYScale(0)} L${rocXScale(1)},${rocYScale(1)}`);
       const rocPoint=rocContent.append('circle').attr('class','roc-point').attr('r',6);
@@ -921,9 +954,38 @@ body {
       function maybeAutoResample(){
         if(state.autoResample && currentEmpiricalDataset.source==='simulated'){
           resampleFromState();
+          regenerateSampleRocs();
         }
       }
-
+      function regenerateSampleRocs(force=false){
+        if(!force && !state.autoResample){return;}
+        const numSamples=Math.max(1,Number(state.numSamples)||1);
+        const {nPos,nNeg}=getSampleCounts();
+        const curves=[];
+        setBusy(true);
+        try{
+          for(let i=0;i<numSamples;i++){
+            const posSamples=sampleDistribution('pos',state.posComponents,nPos);
+            const negSamples=sampleDistribution('neg',state.negComponents,nNeg);
+            const points=[
+              ...posSamples.map(score=>({score,label:1})),
+              ...negSamples.map(score=>({score,label:0}))
+            ];
+            const rocPoints=ROCUtils.computeEmpiricalRoc(points);
+            if(rocPoints.length){
+              const mapped=pointsToRocArrays(rocPoints);
+              if(mapped){curves.push(mapped);}
+            }
+          }
+          state.samplesROC=curves;
+          visibilityState.roc.sample={};
+          state.samplesROC.forEach((_,idx)=>{visibilityState.roc.sample[idx]=true;});
+          refreshRocLegend();
+        } finally {
+          setBusy(false);
+        }
+        update();
+      }
       function parseEmpiricalCsv(text, filename){
         let parsed;
         try{
