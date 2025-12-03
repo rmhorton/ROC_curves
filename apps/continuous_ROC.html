@@ -351,7 +351,7 @@ body {
           el.appendChild(label);
           el.addEventListener('click',()=>{
             const section=visibilityState[sectionKey]||{};
-            if(sectionKey==='roc' && item.key.startsWith('sample_')){
+            if(sectionKey==='roc' && typeof item.key==='number'){
               section.sample=section.sample||{};
               const current=section.sample[item.key];
               section.sample[item.key]=!current;
@@ -372,12 +372,15 @@ body {
           const section=el.dataset.section;
           const key=el.dataset.key;
           let active=visibilityState?.[section]?.[key];
-          if(section==='roc' && key.startsWith('sample_')){
-            active=visibilityState.roc.sample?.[key];
-            if(active===undefined){
-              if(!visibilityState.roc.sample){visibilityState.roc.sample={};}
-              visibilityState.roc.sample[key]=true;
-              active=true;
+          if(section==='roc' && key!==undefined && key!==''){
+            const numericKey=Number(key);
+            if(Number.isFinite(numericKey)){
+              active=visibilityState.roc.sample?.[numericKey];
+              if(active===undefined){
+                if(!visibilityState.roc.sample){visibilityState.roc.sample={};}
+                visibilityState.roc.sample[numericKey]=true;
+                active=true;
+              }
             }
           }
           el.classList.toggle('inactive',!active);
@@ -447,7 +450,7 @@ body {
         return [cloneComponent(opts||{distribution:DISTRIBUTION_ORDER[0]})];
       }
 
-      const state={
+        const state={
         threshold:DEFAULT_OPTIONS.threshold??0.5,
         prevalence:DEFAULT_OPTIONS.prevalence??0.5,
         thresholdInitialized:false,
@@ -467,9 +470,9 @@ body {
         showEmpiricalPoints:DEFAULT_OPTIONS.showEmpiricalPoints??false,
         empiricalPoints:[],
         autoResample:DEFAULT_OPTIONS.autoResample??false,
-        simulatedDataActive:false
-        ,
-        samplesROC:[]
+        simulatedDataActive:false,
+        samplesROC:[],
+        samplesHist:null
       };
 
       thresholdValEl.textContent=STRINGS.controls.thresholdValue(state.threshold);
@@ -552,7 +555,7 @@ body {
       buildLegend(scoreLegendContainer,scoreLegendItems,'score');
       function refreshRocLegend(){
         const sampleItems=(state.samplesROC||[]).map((_,idx)=>({
-          key:`sample_${idx}`,
+          key:idx,
           label:`Sample ROC ${idx+1}`,
           color:COLOR_HELPERS.sample
         }));
@@ -1233,10 +1236,18 @@ body {
 
         const empiricalSamples=getProcessedEmpiricalSamples();
         const hasEmpiricalSamples=empiricalSamples.positives.length>0||empiricalSamples.negatives.length>0;
+        const hasSampleHist=state.samplesHist && Array.isArray(state.samplesHist.positives) && Array.isArray(state.samplesHist.negatives);
         const empiricalPointList=hasEmpiricalSamples?getProcessedEmpiricalPoints():[];
 
         let minX=Math.min(pos.domain[0],neg.domain[0]);
         let maxX=Math.max(pos.domain[1],neg.domain[1]);
+        if(hasSampleHist && Array.isArray(state.samplesHist.domain)){
+          const [dMin,dMax]=state.samplesHist.domain;
+          if(Number.isFinite(dMin)&&Number.isFinite(dMax)){
+            minX=Math.min(minX,dMin);
+            maxX=Math.max(maxX,dMax);
+          }
+        }
         if(hasEmpiricalSamples){
           const combined=[...empiricalSamples.positives,...empiricalSamples.negatives];
           if(combined.length){
@@ -1280,21 +1291,34 @@ body {
         let histPosData=[];
         let histNegData=[];
         let histMaxDensity=0;
-        const histActive=hasEmpiricalSamples && (visibilityState.score.posHist||visibilityState.score.negHist);
+        const histActive=(hasEmpiricalSamples||hasSampleHist) && (visibilityState.score.posHist||visibilityState.score.negHist);
         if(histActive){
-          const totalPos=empiricalSamples.positives.length;
-          const totalNeg=empiricalSamples.negatives.length;
-          const total=Math.max(totalPos+totalNeg,1);
-          const binCount=Math.min(40,Math.max(10,Math.round(Math.sqrt(total))));
-          const binGenerator=(d3.histogram?d3.histogram():d3.bin()).domain([minX,maxX]).thresholds(binCount);
-          const toDensity=(bins,totalCount)=>bins.map(bin=>{
-            const width=(bin.x1??bin.x0)-(bin.x0??bin.x1);
-            const density=(totalCount>0 && width>0)?bin.length/(totalCount*width):0;
-            histMaxDensity=Math.max(histMaxDensity,density);
-            return {x0:bin.x0,x1:bin.x1,density};
-          });
-          histPosData=totalPos?toDensity(binGenerator(empiricalSamples.positives),totalPos):[];
-          histNegData=totalNeg?toDensity(binGenerator(empiricalSamples.negatives),totalNeg):[];
+          if(hasSampleHist){
+            const toDensity=(bins)=>{
+              return bins.map(bin=>{
+                const width=(bin.x1??bin.x0)-(bin.x0??bin.x1);
+                const density=width>0?(bin.density ?? 0):0;
+                histMaxDensity=Math.max(histMaxDensity,density);
+                return {...bin,density};
+              });
+            };
+            histPosData=toDensity(state.samplesHist.positives||[]);
+            histNegData=toDensity(state.samplesHist.negatives||[]);
+          } else {
+            const totalPos=empiricalSamples.positives.length;
+            const totalNeg=empiricalSamples.negatives.length;
+            const total=Math.max(totalPos+totalNeg,1);
+            const binCount=Math.min(40,Math.max(10,Math.round(Math.sqrt(total))));
+            const binGenerator=(d3.histogram?d3.histogram():d3.bin()).domain([minX,maxX]).thresholds(binCount);
+            const toDensity=(bins,totalCount)=>bins.map(bin=>{
+              const width=(bin.x1??bin.x0)-(bin.x0??bin.x1);
+              const density=(totalCount>0 && width>0)?bin.length/(totalCount*width):0;
+              histMaxDensity=Math.max(histMaxDensity,density);
+              return {x0:bin.x0,x1:bin.x1,density};
+            });
+            histPosData=totalPos?toDensity(binGenerator(empiricalSamples.positives),totalPos):[];
+            histNegData=totalNeg?toDensity(binGenerator(empiricalSamples.negatives),totalNeg):[];
+          }
         }
 
         const yMax=Math.max(theoreticalMax,histMaxDensity);
@@ -1428,7 +1452,7 @@ body {
           if(!fpr||!tpr||fpr.length!==tpr.length||!fpr.length){return null;}
           const points=fpr.map((f,i)=>({fpr:Number(f),tpr:Number(tpr[i])})).filter(pt=>Number.isFinite(pt.fpr)&&Number.isFinite(pt.tpr));
           if(points.length!==fpr.length){return null;}
-          return {key:`sample_${idx}`,points};
+          return {key:idx,points};
         }).filter(Boolean);
         const samplePaths=rocSampleGroup.selectAll('path.sample-roc')
           .data(sampleCurves,d=>d.key);
@@ -1773,16 +1797,17 @@ body {
         const meta=ROCUtils.extractContinuousRocMetadata(curve);
         if(!meta){
           state.samplesROC=[];
-          if(visibilityState.roc.sample){visibilityState.roc.sample={};}
+          state.samplesHist=null;
+          visibilityState.roc.sample={};
           refreshRocLegend();
           renderLegendSelection();
           return false;
         }
         state.samplesROC=Array.isArray(meta.samplesROC)?meta.samplesROC:[];
-        if(!visibilityState.roc.sample){visibilityState.roc.sample={};}
+        state.samplesHist=meta.samplesHist||null;
+        visibilityState.roc.sample={};
         state.samplesROC.forEach((_,idx)=>{
-          const key=`sample_${idx}`;
-          if(visibilityState.roc.sample[key]===undefined){visibilityState.roc.sample[key]=true;}
+          visibilityState.roc.sample[idx]=true;
         });
         refreshRocLegend();
         renderLegendSelection();

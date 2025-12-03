@@ -214,6 +214,9 @@
         cleaned.samplesROC = samples;
       }
     }
+    if(meta.samplesHist && typeof meta.samplesHist === 'object'){
+      cleaned.samplesHist = {...meta.samplesHist};
+    }
     return Object.keys(cleaned).length ? cleaned : null;
   };
 

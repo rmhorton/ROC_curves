@@ -1578,6 +1578,225 @@ Follow the roadmap instructions precisely and do not alter unrelated code.
 
 ---
 
+# Version v1.15.5.9 — Fix Sample ROC & Histogram Display After Import
+
+## A. Goals
+- Ensure **all** imported sample ROC curves are drawn on the ROC plot (not just the first one).
+- Wire sample ROC curves correctly into the **interactive legend**, so legend toggles control their visibility.
+- Ensure **sample histograms** (for sampled datasets) are restored from metadata and rendered in the Score Distributions plot.
+- Keep behavior consistent between:
+  - fresh sampling inside the app, and
+  - importing previously exported JSON.
+- Do not change the canonical JSON schema that was established in v1.15.5.8.
+
+---
+
+## B. Implementation Plan
+
+### 1. State wiring for sample ROC curves and histograms
+
+1.1 **Confirm state properties** in `continuous_ROC.html`:
+- There should be state properties for sample curves and histograms, e.g.:
+  - `state.samplesROC` (array of sample ROC objects)
+  - `state.samplesHist` (histogram data for samples, if present)
+
+1.2 **On import**, after metadata extraction (from v1.15.5.8):
+- Ensure that:
+  ```js
+  state.samplesROC = metadata.samplesROC || [];
+  state.samplesHist = metadata.samplesHist || null;
+  ```
+- This must be done in the same function that restores:
+  - distributions
+  - samplingSettings
+  - continuous ROC data
+
+1.3 **Initialize sample visibility state**:
+- Ensure `visibilityState.roc.sample` is an object keyed by sample index:
+  ```js
+  visibilityState.roc.sample = {};
+  state.samplesROC.forEach((_, i) => {
+    visibilityState.roc.sample[i] = true; // default ON
+  });
+  ```
+- This must run **every time** new samples are loaded (both after import and after new sampling runs).
+
+---
+
+### 2. Draw all sample ROC curves in drawRocPlot()
+
+2.1 **Bind data correctly**:
+- In `drawRocPlot()` (or equivalent), ensure that sample curves are drawn with a standard D3 data join:
+  ```js
+  const samples = state.samplesROC || [];
+
+  const sampleSel = rocSvg.selectAll(".sample-roc")
+    .data(samples);
+
+  sampleSel.exit().remove();
+
+  const sampleEnter = sampleSel.enter()
+    .append("path")
+    .attr("class", "sample-roc");
+
+  const sampleMerge = sampleEnter.merge(sampleSel);
+  ```
+- Do **not** use only `samples[0]` or a single path for all samples.
+
+2.2 **Respect visibilityState.roc.sample[i]**:
+- When computing the path for each sample, check visibility:
+  ```js
+  sampleMerge
+    .attr("display", (d, i) => visibilityState.roc.sample && visibilityState.roc.sample[i] ? null : "none")
+    .attr("d", d => sampleRocLine(d))  // sampleRocLine uses d.fpr / d.tpr
+    .attr("stroke-width", 1)           // thin line
+    .attr("stroke", CONFIG.COLORS.sample || "#666")
+    .attr("fill", "none");
+  ```
+
+2.3 **Define sampleRocLine helper if needed**:
+- Implement a helper similar to the main ROC line generator, but for sample curves:
+  ```js
+  const sampleRocLine = d3.line()
+    .x((_, i) => xScale(d.fpr[i]))
+    .y((_, i) => yScale(d.tpr[i]));
+  ```
+- Or adapt existing line code to use `d.fpr` / `d.tpr` arrays.
+
+---
+
+### 3. Integrate sample ROC curves into the interactive legend
+
+3.1 **Extend legend items to include sample curves**:
+- In the ROC legend-building code, after adding entries for:
+  - continuous ROC
+  - empirical ROC (if present)
+- Add entries for each sample, e.g.:
+  ```js
+  state.samplesROC.forEach((_, i) => {
+    legendItems.push({
+      key: `sample-${i}`,
+      label: `Sample ROC ${i + 1}`,
+      type: "sample",
+      index: i
+    });
+  });
+  ```
+
+3.2 **Wire legend toggles to visibilityState.roc.sample**:
+- In the legend event handler, add a branch for `item.type === "sample"`:
+  ```js
+  if (item.type === "sample") {
+    const idx = item.index;
+    const current = !!visibilityState.roc.sample[idx];
+    visibilityState.roc.sample[idx] = !current;
+    drawRocPlot();
+    return;
+  }
+  ```
+
+3.3 **Visual feedback in legend**:
+- Toggle a CSS class or opacity to show when a sample is hidden:
+  ```js
+  legendEntry
+    .classed("legend-off", !visibilityState.roc.sample[item.index]);
+  ```
+
+---
+
+### 4. Restore and display sample histograms in Score Distributions plot
+
+4.1 **State assignment from metadata**:
+- Ensure that metadata extraction includes sample histograms, using the canonical name:
+  ```js
+  if (meta.samplesHist && typeof meta.samplesHist === "object") {
+    cleaned.samplesHist = meta.samplesHist;
+  }
+  ```
+- In `continuous_ROC.html`, assign:
+  ```js
+  state.samplesHist = metadata.samplesHist || null;
+  ```
+
+4.2 **Update Score Distributions renderer**:
+- In the function that draws score distributions (e.g., `drawScoreDistributions()`):
+  - Continue drawing theoretical density curves and empirical histograms.
+  - Add logic to draw **sample histograms** (e.g., aggregated, or a representative sample):
+    ```js
+    if (state.samplesHist) {
+      const hist = state.samplesHist; // expect hist.positives, hist.negatives
+      // Draw positive sample histogram bars
+      // Draw negative sample histogram bars
+    }
+    ```
+- Use subdued colors or transparency so they do not overwhelm the main histograms.
+
+4.3 **Legend / visibility integration for sample histograms** (optional for this milestone):
+- For now, it is acceptable if sample histograms are always shown when `state.samplesHist` is present.
+- Future versions can add a dedicated legend toggle for sample histograms.
+
+---
+
+### 5. Testing
+
+Use at least two test files exported from v1.15.5.8 or later, including one with multiple samples (e.g., `BB_2_samp.json`):
+
+1. Load the app in a fresh session.
+2. Import the JSON file.
+3. Verify:
+   - Continuous ROC curve appears.
+   - **All** sample ROC curves are visible.
+   - Each sample ROC curve has a corresponding legend entry.
+   - Clicking the legend entry hides/shows its sample curve.
+   - Sample histograms (if present in metadata) appear in the Score Distributions plot.
+   - No errors or warnings in the console.
+
+---
+
+## C. Codex Prompt
+```text
+Implement roadmap milestone v1.15.5.9 from `ContinuousROC_Explorer_Roadmap_v1.15.md`.
+
+Goal: Fix sample ROC and histogram display after import so that all imported samples draw correctly, respond to legend toggles, and show their histograms in the Score Distributions plot.
+
+Files to modify:
+- continuous_ROC.html
+- ROC_lib.js (only if needed to include samplesHist in metadata extraction)
+
+Tasks:
+1. Ensure that after metadata import, the following assignments occur:
+   state.samplesROC = metadata.samplesROC || [];
+   state.samplesHist = metadata.samplesHist || null;
+   visibilityState.roc.sample = {};
+   state.samplesROC.forEach((_, i) => { visibilityState.roc.sample[i] = true; });
+
+2. In drawRocPlot(), update the sample ROC rendering:
+   - Bind data with selectAll(".sample-roc").data(state.samplesROC).
+   - Enter/exit/update paths correctly.
+   - Use fpr/tpr arrays to generate the path.
+   - Respect visibilityState.roc.sample[i] when setting display.
+
+3. Extend the ROC legend builder to create one entry per sample ROC curve:
+   - Labels like "Sample ROC 1", "Sample ROC 2", etc.
+   - Each legend entry toggles visibilityState.roc.sample[index] and triggers drawRocPlot().
+
+4. In ROCUtils.extractContinuousRocMetadata (ROC_lib.js), ensure that samplesHist is read from meta.samplesHist and passed through as cleaned.samplesHist.
+
+5. In the Score Distributions renderer (continuous_ROC.html), add logic to draw sample histograms when state.samplesHist is present.
+
+6. Remove any reliance on legacy sample or histogram field names; use only:
+   samplesROC, samplesHist, samplingSettings.
+
+7. Test with a JSON file generated by v1.15.5.8 that contains multiple samples. Confirm that:
+   - All sample curves draw.
+   - Legend toggles work for each sample.
+   - Sample histograms appear on the Score Distributions plot.
+
+Follow sections A and B of milestone v1.15.5.9 exactly and do not alter unrelated code.
+```
+
+---
+
 # Version v1.15.6 — Integrate All Distributions from `jstat_extra.js`
 
 ## A. Goals
