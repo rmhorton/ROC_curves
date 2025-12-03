@@ -2404,3 +2404,1354 @@ Steps:
 
 Follow the roadmap instructions exactly. Do not modify unrelated code.
 ```
+
+
+=====
+
+# Technical Appendix: DeLong-Based Analytic Confidence Bands for ROC Curves
+
+*(with annotated references and implementation guidance)*
+
+---
+
+## 1. Overview
+
+DeLong’s method (DeLong, DeLong & Clarke-Pearson 1988) is widely used for computing the variance of the area under an ROC curve (AUC) via **nonparametric U-statistics**. Although originally applied to AUC, the same influence-function machinery extends naturally to **pointwise inference for the ROC curve** itself—allowing analytic computation of ROC confidence bands.
+
+This appendix provides:
+- The theoretical foundation behind DeLong-type bands
+- The key references supporting each step
+- Explicit connections to your JavaScript implementation
+
+---
+
+## 2. Theoretical Foundations
+
+### 2.1 Basic ROC Definitions
+Let:
+- \( X_1, \dots, X_m \): positive scores
+- \( Y_1, \dots, Y_n \): negative scores
+
+ROC definitions:
+\[
+TPR(t) = P(X > t), \qquad FPR(t) = P(Y > t)
+\]
+
+A ROC point corresponds to a threshold \(t\), or equivalently to a specific FPR value.
+
+---
+
+## 3. DeLong’s U-Statistic Structure
+
+### 3.1 Pairwise comparisons
+Define the indicator:
+\[
+\phi(X_i, Y_j) =
+\begin{cases}
+1 & X_i > Y_j \\
+0.5 & X_i = Y_j \\
+0 & X_i < Y_j
+\end{cases}
+\]
+
+AUC estimator (U-statistic):
+\[
+\widehat{AUC} = \frac{1}{mn} \sum_{i=1}^m \sum_{j=1}^n \phi(X_i, Y_j)
+\]
+
+### 3.2 Influence functions
+For variance estimation:
+\[
+V_i = \frac{1}{n} \sum_{j=1}^n \phi(X_i, Y_j), \qquad
+W_j = \frac{1}{m} \sum_{i=1}^m \phi(X_i, Y_j)
+\]
+
+These represent the influence each observation has on the estimator.
+
+**Primary Reference:**  
+DeLong ER, DeLong DM, Clarke-Pearson DL. *Biometrics* 1988.
+
+---
+
+## 4. Extending DeLong to the ROC Curve
+
+To obtain analytic ROC confidence bands, DeLong’s U-statistic machinery is extended to estimate the variance of **TPR at fixed FPR**.
+
+### Annotated References
+1. **Hsieh & Turnbull (1996)** — Derive asymptotic distribution for nonparametric ROC estimators and provide the foundation for analytic ROC bands.
+2. **Pepe (2003)** — Applies influence functions to ROC points; gives clear formulas.
+3. **Zhou et al. (2002)** — Practical guide for diagnostic ROC methods.
+
+---
+
+## 5. Influence Functions for ROC Points
+
+At threshold \(t\):
+\[
+\widehat{TPR}(t) = \frac{1}{m} \sum I(X_i > t), \qquad
+\widehat{FPR}(t) = \frac{1}{n} \sum I(Y_j > t)
+\]
+
+Influence functions define how individual observations shift these quantities.
+
+Variance at FPR \(f\):
+\[
+Var[\widehat{TPR}(f)] \approx \frac{1}{m}\widehat{TPR}(f)(1-\widehat{TPR}(f))
++ \frac{1}{n} \int [G^{-1}(f)]'^2 d\widehat{H}
+\]
+
+(Hsieh & Turnbull 1996).
+
+This defines the analytic structure behind ROC pointwise CIs.
+
+---
+
+## 6. Practical Computation (For Implementation)
+
+For each FPR grid point:
+1. Convert FPR → threshold for negatives.
+2. Compute empirical TPR.
+3. Build influence values:
+   - Positives: \( I(X_i > t_f) - TPR(f) \)
+   - Negatives: analogous term reflecting threshold perturbation.
+4. Estimate variance:
+   \[
+   Var[\widehat{TPR}(f)] = \frac{1}{m} \sum (IF_i^{(+)})^2 + \frac{1}{n} \sum (IF_j^{(-)})^2
+   \]
+5. Compute pointwise CI:
+   \[
+   TPR(f) \pm 1.96 \sqrt{Var}
+   \]
+
+This matches the computational target in milestone **v1.15.9**.
+
+---
+
+## 7. Bootstrap vs. DeLong Bands
+
+| Property | Bootstrap (v1.15.8) | DeLong (v1.15.9) |
+|---------|----------------------|-------------------|
+| Cost | High | Very low |
+| Shape | Jagged | Smooth |
+| Assumptions | Almost none | Asymptotic normality |
+| Band type | Pointwise | Pointwise (analytic) |
+| Teaching value | High | Advanced |
+
+Bootstrap bands show sampling variability; DeLong bands give analytic precision.
+
+---
+
+## 8. Recommended Citation
+
+Use this compact citation in your code or roadmap:
+
+> *Analytic ROC confidence bands are computed using the nonparametric U-statistic influence-function method of DeLong, DeLong & Clarke-Pearson (1988), extended to ROC curves per Hsieh & Turnbull (1996), and as described by Pepe (2003) and Zhou et al. (2002).*
+
+---
+
+## 9. Annotated References
+
+**1. DeLong ER, DeLong DM, Clarke-Pearson DL (1988).**
+*Comparing the areas under two or more correlated ROC curves: A nonparametric approach.* Biometrics 44(3): 837–845.  
+Defines U-statistic variance estimator and influence-function framework.
+
+**2. Hsieh H, Turnbull BW (1996).**
+*Nonparametric and semiparametric estimation of the ROC curve.* Annals of Statistics 24(1): 25–40.  
+Derives asymptotic ROC distribution; foundation for analytic bands.
+
+**3. Pepe MS (2003).**
+*The Statistical Evaluation of Medical Tests for Classification and Prediction.* Oxford University Press.  
+Accessible derivations and formulas for ROC intervals.
+
+**4. Zhou X, Obuchowski N, McClish DK (2002).**
+*Statistical Methods in Diagnostic Medicine.* Wiley.  
+Practical formulas and variance approximations.
+
+**5. Robin X et al. (2011).**
+*pROC: an open-source package for R and S+ to analyze and compare ROC curves.* BMC Bioinformatics.  
+Shows applied computation of analytic ROC confidence intervals.
+
+---
+
+
+
+# Version v1.15.10 — ROC Sample Animation (Playback Only)
+
+## A. Goals
+- Add **animated playback** of sampled ROC curves directly inside the existing ROC plot SVG.
+- During animation:
+  - Only **one sample curve** is visible at a time.
+  - Continuous ROC curve and confidence band remain visible.
+  - All non-animated sample curves are hidden.
+- Provide UI controls:
+  - **Play / Pause** button
+  - **Replay** / Restart button
+  - **Frame rate slider** (1–30 FPS)
+  - **Loop animation** checkbox
+- Ensure animation uses the same scales, axes, and clipPaths as the ROC plot.
+- Prepare infrastructure for v1.15.11 (APNG export), but no export functionality yet.
+
+---
+## B. Implementation Plan
+
+### 1. Add UI controls
+In `continuous_ROC.html`, below the ROC plot controls, add a new section:
+- `<button id="animPlay">Play</button>`
+- `<button id="animPause">Pause</button>`
+- `<button id="animRestart">Restart</button>`
+- `<input type="range" id="animFPS" min="1" max="30" value="10">`
+- `<input type="checkbox" id="animLoop"> Loop animation`
+
+Wrap them in a container `#rocAnimationControls`.
+
+### 2. Add animation state object
+In your global `state` object:
+```js
+state.animation = {
+  playing: false,
+  index: 0,
+  fps: 10,
+  loop: false,
+  timerID: null
+};
+```
+
+### 3. Create a dedicated animation layer in the ROC SVG
+Inside the ROC plot’s `<svg>` creation (after axes):
+```js
+const animationLayer = rocSvg.append('g')
+  .attr('id', 'rocAnimationLayer')
+  .attr('clip-path', 'url(#rocClip)');
+```
+This layer will hold exactly **one** `<path>` at a time.
+
+### 4. Write function to render one sample curve
+Add to ROC drawing code:
+```js
+function drawAnimatedSample(index) {
+  const curve = state.samplesROC[index];
+  if(!curve) return;
+
+  const line = d3.line()
+    .x(d => xScale(d.fpr))
+    .y(d => yScale(d.tpr))
+    .curve(d3.curveLinear);
+
+  const pathData = line(curve.points);
+
+  const layer = d3.select('#rocAnimationLayer');
+  const p = layer.selectAll('path').data([pathData]);
+
+  p.enter().append('path')
+    .merge(p)
+    .attr('d', pathData)
+    .attr('class', 'animated-sample')
+    .attr('stroke', state.config.colors.sampleAnimation)
+    .attr('stroke-width', 2)
+    .attr('fill', 'none');
+
+  p.exit().remove();
+}
+```
+
+### 5. Implement animation loop
+In `continuous_ROC.html`:
+```js
+function stepAnimation() {
+  if(!state.animation.playing) return;
+
+  drawAnimatedSample(state.animation.index);
+  state.animation.index++;
+
+  if(state.animation.index >= state.samplesROC.length) {
+    if(state.animation.loop) {
+      state.animation.index = 0;
+    } else {
+      state.animation.playing = false;
+      return;
+    }
+  }
+
+  state.animation.timerID = setTimeout(stepAnimation, 1000 / state.animation.fps);
+}
+```
+
+### 6. Attach UI event handlers
+```js
+document.getElementById('animPlay').onclick = () => {
+  if(!state.samplesROC || !state.samplesROC.length) return;
+  state.animation.playing = true;
+  stepAnimation();
+};
+
+document.getElementById('animPause').onclick = () => {
+  state.animation.playing = false;
+  clearTimeout(state.animation.timerID);
+};
+
+document.getElementById('animRestart').onclick = () => {
+  state.animation.index = 0;
+  drawAnimatedSample(0);
+};
+
+document.getElementById('animFPS').oninput = (e) => {
+  state.animation.fps = +e.target.value;
+};
+
+document.getElementById('animLoop').onchange = (e) => {
+  state.animation.loop = e.target.checked;
+};
+```
+
+### 7. Hide all static sample curves during animation
+In `drawRocPlot()`:
+```js
+if(state.animation.playing) {
+  d3.select('#rocSampleGroup').attr('display', 'none');
+} else {
+  d3.select('#rocSampleGroup').attr('display', null);
+}
+```
+This ensures only the animated curve is visible.
+
+### 8. Testing
+- Generate 5–50 samples.
+- Verify animation cycles through them at selected FPS.
+- Verify loop mode works.
+- Verify pause/resume works.
+- Ensure animation layer uses existing ROC clipPath.
+
+---
+## C. Codex Prompt
+```
+Implement milestone v1.15.10 from `ContinuousROC_Explorer_Roadmap_v1.15.md`.
+
+Goal: Add sampled ROC curve animation inside the existing ROC plot SVG.
+
+Modify:
+  • continuous_ROC.html (UI + logic + SVG layer)
+
+Steps:
+1. Add new UI controls (Play, Pause, Restart, FPS slider, Loop checkbox).
+2. Add state.animation object.
+3. Add a new <g id="rocAnimationLayer"> inside the ROC SVG, clipped with #rocClip.
+4. Add drawAnimatedSample(index) that draws a single ROC sample curve.
+5. Add stepAnimation() loop using setTimeout and current FPS.
+6. Add event handlers for play/pause/restart/FPS/loop.
+7. In drawRocPlot(), hide static sample curves when animation is active.
+8. Test with generated samples to ensure playback works correctly.
+
+Do not modify unrelated code.
+```
+
+---
+
+
+# Version v1.15.11 — Export ROC Sample Animation as APNG
+
+## A. Goals
+- Add **APNG export** for the sampled ROC curve animation created in v1.15.10.
+- Export the animation **exactly as it appears in the existing ROC plot SVG**, including:
+  - One sample curve per frame
+  - Continuous ROC curve (visible)
+  - CI band (if visible)
+  - Axis lines and labels
+- Use a **fixed frame rate** set by the user
+- Support looping (respect the `Loop animation` checkbox)
+- Produce a downloadable `.png` / `.apng` file
+- Ensure APNG export is **pixel-perfect** and identical to the preview animation
+
+---
+
+## B. Implementation Plan
+
+### 1. Add a new export button
+In `continuous_ROC.html`, under animation controls, add:
+```html
+<button id="animExport">Export Animation (APNG)</button>
+```
+
+### 2. Determine frame sequence
+- Use the same sample order as the animation layer in v1.15.10.
+- Frame count = number of sample ROC curves.
+- Time per frame = `1000 / state.animation.fps` (in ms).
+- Looping: if `state.animation.loop` is true, embed APNG loop info.
+
+### 3. Convert each frame to a raster image
+APNG requires raster frames, so for each sample curve:
+1. Draw the frame into the **existing ROC plot SVG** as in v1.15.10:
+   ```js
+   drawAnimatedSample(i);
+   ```
+2. Convert the current ROC SVG to a `<canvas>` using:
+   - `XMLSerializer()` to get SVG XML
+   - Create a Blob URL
+   - Draw onto `<canvas>` via an `<img>`
+3. Obtain PNG binary data for this frame:
+   ```js
+   const pngData = canvas.toDataURL('image/png');
+   ```
+
+### 4. Build an APNG encoder
+Use a browser-compatible APNG encoder (JavaScript implementation). For example:
+- UPNG.js (widely used, no dependencies)
+- Or implement minimal APNG assembly manually (recommended: UPNG for reliability)
+
+Add UPNG.js directly into the HTML:
+```html
+<script src="UPNG.js"></script>
+```
+(Place this next to your existing JS includes.)
+
+### 5. Construct APNG using UPNG.js
+After generating all PNG frames:
+```js
+const apng = UPNG.encode(framesRGBAArray, width, height, 0, frameDelaysArray);
+const blob = new Blob([apng], {type: "image/png"});
+```
+where:
+- `framesRGBAArray` is an array of `Uint8Array` RGBA buffers (one per frame)
+- `frameDelaysArray` contains delays in **milliseconds** per frame
+- Width/height match the rendered canvas
+
+### 6. Trigger download
+Add code:
+```js
+const url = URL.createObjectURL(blob);
+const a = document.createElement("a");
+a.href = url;
+a.download = "roc_animation.apng";
+a.click();
+URL.revokeObjectURL(url);
+```
+
+### 7. UI integration
+Bind the button:
+```js
+document.getElementById('animExport').onclick = async () => {
+  await exportRocAnimationAPNG();
+};
+```
+
+### 8. Add exportRocAnimationAPNG() function
+In `continuous_ROC.html` add:
+```js
+async function exportRocAnimationAPNG() {
+  const fps = state.animation.fps;
+  const delay = Math.round(1000 / fps);
+  const samples = state.samplesROC;
+  if(!samples || !samples.length) return;
+
+  const frames = [];
+  const delays = [];
+
+  for(let i = 0; i < samples.length; i++) {
+    drawAnimatedSample(i);
+    const png = await svgToPngCanvasData();  // helper described below
+    frames.push(png.rgba);
+    delays.push(delay);
+  }
+
+  const width = frames[0].width;
+  const height = frames[0].height;
+
+  const apng = UPNG.encode(frames.map(f => f.data), width, height, 0, delays);
+  const blob = new Blob([apng], {type:"image/png"});
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'roc_animation.apng';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+```
+
+### 9. Add the svgToPngCanvasData() helper
+```js
+function svgToPngCanvasData() {
+  return new Promise(resolve => {
+    const svg = document.querySelector('#rocPlot svg');
+    const xml = new XMLSerializer().serializeToString(svg);
+    const svg64 = btoa(unescape(encodeURIComponent(xml)));
+    const imgSrc = 'data:image/svg+xml;base64,' + svg64;
+
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = svg.clientWidth;
+      canvas.height = svg.clientHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      resolve({
+        data: imageData.data,
+        width: canvas.width,
+        height: canvas.height
+      });
+    };
+    img.src = imgSrc;
+  });
+}
+```
+
+### 10. Testing
+- Run animation preview in-app.
+- Export APNG.
+- Verify frame sequence and timing.
+- Confirm that continuous ROC and CI band match the preview.
+- Ensure large frame sets (e.g., 100 frames) export without freezing.
+
+---
+
+## C. Codex Prompt
+```
+Implement milestone v1.15.11 from `ContinuousROC_Explorer_Roadmap_v1.15.md`.
+
+Goal: Add APNG export for sampled ROC curve animations.
+
+Modify:
+  • continuous_ROC.html (UI, APNG logic, SVG→PNG conversion, UPNG integration)
+
+Steps:
+1. Add the Export Animation (APNG) button.
+2. Add UPNG.js <script> tag for APNG encoding.
+3. Add exportRocAnimationAPNG() to:
+   - Loop through sample ROC curves
+   - Render each into the existing ROC SVG
+   - Convert SVG to canvas → RGBA data
+   - Collect frames and delays
+   - Encode into APNG
+   - Trigger file download
+4. Add svgToPngCanvasData() helper to rasterize frames.
+5. Bind animExport button to export function.
+6. Confirm exported APNG matches preview animation.
+
+Do not modify unrelated logic.
+```
+
+---
+
+# Version v1.15.12 — Global Busy Indicator & Async Operation Wrapper
+
+## A. Goals
+- Add a **global busy indicator system** to the Continuous ROC Explorer.
+- Ensure that *any long-running computation* automatically triggers:
+  - A visual busy indicator (spinner overlay)
+  - A global `state.busy = true` flag
+  - Temporary disabling of UI inputs that should not be used while busy
+- Ensure the indicator automatically hides when work is complete.
+- Wrap all long-running tasks, including:
+  - Sampling (v1.15.7)
+  - Confidence band computation (v1.15.8)
+  - DeLong analytic band computation (v1.15.9)
+  - Animation export (v1.15.11)
+  - Future sampling settings export/import
+- Provide a simple, reusable wrapper:
+  ```js
+  await withBusy(async () => {
+      // long-running code
+  });
+  ```
+- Do NOT modify the logic of long-running operations; only wrap them.
+- Busy indicator must work in all browsers that support the app.
+
+---
+
+## B. Implementation Plan
+
+### 1. Add busy indicator HTML
+Insert directly under `<body>` in `continuous_ROC.html`:
+```html
+<div id="busyOverlay" style="display:none;">
+  <div id="busySpinner"></div>
+</div>
+```
+Add inline CSS or to existing `<style>` block:
+```css
+#busyOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0,0,0,0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+#busySpinner {
+  width: 60px;
+  height: 60px;
+  border: 8px solid #eee;
+  border-top-color: #4285f4;
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin { 100% { transform: rotate(360deg); } }
+```
+
+### 2. Add global busy state
+Add inside the top-level `state` object in `continuous_ROC.html`:
+```js
+state.busy = false;
+```
+
+### 3. Add withBusy() wrapper
+Place this near other utility functions in `continuous_ROC.html`:
+```js
+async function withBusy(fn) {
+  try {
+    state.busy = true;
+    document.getElementById('busyOverlay').style.display = 'flex';
+    disableUiDuringBusy(true);
+    return await fn();
+  } finally {
+    state.busy = false;
+    document.getElementById('busyOverlay').style.display = 'none';
+    disableUiDuringBusy(false);
+  }
+}
+```
+
+### 4. Disable UI during busy
+Add a helper:
+```js
+function disableUiDuringBusy(disabled) {
+  const controls = document.querySelectorAll('input, button, select');
+  controls.forEach(el => {
+    if(el.id !== 'busyOverlay') el.disabled = disabled;
+  });
+}
+```
+
+### 5. Wrap all long-running operations
+Modify all calls that perform expensive work:
+
+#### Sampling
+Replace:
+```js
+generateSamples();
+```
+with:
+```js
+await withBusy(async () => {
+  await generateSamples();
+});
+```
+
+#### Confidence bands (bootstrap)
+Wrap the sampling-band computation in the same manner.
+
+#### DeLong analytic band computation
+Wrap the call to `computeDelongRocBand`.
+
+#### APNG export
+Replace:
+```js
+exportRocAnimationAPNG();
+```
+with:
+```js
+await withBusy(async () => {
+  await exportRocAnimationAPNG();
+});
+```
+
+#### JSON import parsing (if large)
+Wrap the import process, not the file picker.
+
+### 6. Ensure animation playback is not blocked
+Animation playback (`stepAnimation()`) must **not** be wrapped in busy logic.
+Busy indicator is only for *non-interactive*, long-run computations.
+
+### 7. Testing Scenarios
+- Sampling 100 samples → busy indicator should appear.
+- Exporting 100-frame APNG → spinner appears.
+- Computing bootstrap band or DeLong band → spinner appears.
+- UI buttons disabled during busy, re-enabled after.
+- Animation playback continues to function normally.
+
+---
+
+## C. Codex Prompt
+```
+Implement milestone v1.15.12 from `ContinuousROC_Explorer_Roadmap_v1.15.md`.
+
+Goal: Add a global busy indicator with an overlay spinner and a reusable async wrapper.
+
+Modify only:
+  • continuous_ROC.html
+
+Steps:
+1. Add #busyOverlay and #busySpinner HTML elements at the top of <body>.
+2. Add CSS for overlay, spinner, and animation.
+3. Add state.busy = false to the global state.
+4. Add withBusy(fn) helper and disableUiDuringBusy(disabled) helper.
+5. Wrap long-running operations using:
+      await withBusy(async () => { ... });
+   Specifically wrap:
+   - sample generation
+   - sample-band computations
+   - DeLong band computations
+   - APNG animation export
+   - large JSON import operations
+6. Disable UI controls during busy and restore afterwards.
+7. Do not wrap animation playback; it must remain interactive.
+
+Do not modify unrelated code.
+```
+
+---
+
+
+# Version v1.15.13 — Dynamic Parameter UI for All Distribution Families
+
+## A. Goals
+- Replace the current **hard-coded parameter input UI** with a fully **dynamic, schema-driven** system.
+- Automatically generate parameter controls from the `DISTRIBUTIONS` object in `ROC_lib.js`.
+- Ensure new distributions added in the future (e.g., from jstat_extras) automatically:
+  - appear in the dropdown
+  - show correct parameter inputs
+  - save/restore correctly via internal keys
+- Support default values, min/max checks (if provided), and type constraints.
+- Ensure that sampling, distribution rendering, and import/export all use the new system.
+
+---
+
+## B. Implementation Plan
+
+### 1. Extend DISTRIBUTIONS schema (in ROC_lib.js)
+Each distribution entry must include a `params` descriptor, e.g.:
+```js
+normal: {
+  label: "Normal (μ, σ)",
+  key: "normal",
+  params: [
+    { name: "mean", label: "μ", default: 0, type: "number" },
+    { name: "sd", label: "σ", default: 1, type: "number", min: 0 }
+  ],
+  // ... existing functions
+}
+```
+If any distribution is missing a `params` array, create one based on how the distribution’s pdf/cdf functions currently accept parameters.
+
+*No changes to existing distribution functionality.*
+
+---
+
+### 2. Modify the HTML generation for parameter inputs (continuous_ROC.html)
+Remove the current hard-coded `<input>` elements for distribution parameters.
+
+Replace them with a dynamic container:
+```html
+<div id="distParamContainer"></div>
+```
+
+---
+
+### 3. Add generateParameterUI() helper
+Add in continuous_ROC.html:
+```js
+function generateParameterUI(distKey, target, currentValues = {}) {
+  const def = DISTRIBUTIONS[distKey];
+  if(!def || !def.params) return;
+
+  const container = document.getElementById(target);
+  container.innerHTML = "";
+
+  def.params.forEach(p => {
+    const row = document.createElement("div");
+    row.className = "paramRow";
+
+    const label = document.createElement("label");
+    label.textContent = p.label || p.name;
+    row.appendChild(label);
+
+    const input = document.createElement("input");
+    input.type = p.type || "number";
+    input.min = p.min ?? "";
+    input.max = p.max ?? "";
+    input.step = p.step ?? "any";
+    input.value = currentValues[p.name] ?? p.default;
+    input.dataset.paramName = p.name;
+
+    input.oninput = () => updateParamsFromUI(distKey, target);
+
+    row.appendChild(input);
+    container.appendChild(row);
+  });
+}
+```
+
+This creates one row per parameter in the schema.
+
+---
+
+### 4. Add updateParamsFromUI() helper
+```js
+function updateParamsFromUI(distKey, target) {
+  const def = DISTRIBUTIONS[distKey];
+  const container = document.getElementById(target);
+  const inputs = container.querySelectorAll("input[data-param-name]");
+
+  const result = {};
+  inputs.forEach(inp => {
+    const name = inp.dataset.paramName;
+    const val = Number(inp.value);
+    result[name] = val;
+  });
+
+  // store into state
+  if(target === "posDistParamContainer") state.positive.params = result;
+  if(target === "negDistParamContainer") state.negative.params = result;
+
+  regenerateIfNeeded();
+}
+```
+
+---
+
+### 5. Hook up distribution dropdown changes
+Where positive/negative distribution selection is handled:
+```js
+onPosDistChange = (newKey) => {
+  state.positive.dist = newKey;
+  generateParameterUI(newKey, "posDistParamContainer", state.positive.params);
+  regenerateIfNeeded();
+};
+
+onNegDistChange = (newKey) => {
+  state.negative.dist = newKey;
+  generateParameterUI(newKey, "negDistParamContainer", state.negative.params);
+  regenerateIfNeeded();
+};
+```
+
+This ensures the correct UI is built instantly.
+
+---
+
+### 6. Update import logic
+When importing metadata:
+- distribution key comes directly from JSON → OK
+- parameters → pass into `generateParameterUI()` so the UI reflects imported values
+
+E.g.:
+```js
+generateParameterUI(state.positive.dist,
+                    "posDistParamContainer",
+                    importedMeta.distributions.positive[0].params);
+```
+
+Same for the negative side.
+
+---
+
+### 7. Update export logic
+Ensure export uses:
+```js
+params: state.positive.params
+```
+not UI scraping.
+
+State now contains the authoritative parameter set.
+
+---
+
+### 8. Remove all legacy, hard-coded parameter HTML
+All `<input id="posDistMean">`, etc., should be removed.
+
+Make sure CSS styling for `.paramRow` is added:
+```css
+.paramRow {
+  margin: 4px 0;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+```
+
+---
+
+### 9. Testing
+- Switch between dozens of distribution families → correct parameters appear
+- Save & import → UI regenerates correctly
+- Sampling and ROC generation still use correct parameters
+- jstat_extras distributions behave correctly
+- Animations and APNG export unaffected
+
+---
+
+## C. Codex Prompt
+```
+Implement milestone v1.15.13 from `ContinuousROC_Explorer_Roadmap_v1.15.md`.
+
+Goal: Replace hard-coded distribution parameter UI with a dynamic, schema-driven system.
+
+Modify:
+  • continuous_ROC.html
+  • ROC_lib.js (add/complete params arrays inside DISTRIBUTIONS entries)
+
+Steps:
+1. Add a <div id="distParamContainer"> placeholder (and separate containers for positive and negative if needed).
+2. Extend each DISTRIBUTIONS entry in ROC_lib.js with a params array: name, label, default, type, min/max.
+3. Add generateParameterUI(distKey, target, currentValues) helper to build inputs dynamically.
+4. Add updateParamsFromUI() to push values into state.
+5. On distribution dropdown change, call generateParameterUI() and refresh the ROC via regenerateIfNeeded().
+6. Modify import logic so that imported params are passed into generateParameterUI().
+7. Modify export logic so state.positive.params and state.negative.params are exported.
+8. Remove all legacy hard-coded parameter <input> elements.
+9. Add minimal CSS (.paramRow) for layout.
+10. Test distribution switching, import/export, sampling, and ROC generation.
+
+Do not modify unrelated functionality.
+```
+
+Use the existing distribution schemas defined in continuous_ROC_config.js. 
+Do NOT duplicate any distribution definitions into ROC_lib.js. 
+All dynamic parameter UI generation must use the distribution metadata from the config file.
+
+Please restructure the UI helpers and parameter containers exactly as described in v1.15.13, 
+but use the config-defined distribution metadata as the schema source. 
+
+ROC_lib.js should remain unchanged except for reading distribution names/keys 
+passed from the UI and metadata.
+
+---
+
+
+# Version v1.15.14 — Full Color Palette Integration via `continuous_ROC_config.js`
+
+## A. Goals
+- Ensure **all colors** used by the Continuous ROC Explorer are defined exclusively in:
+  - `continuous_ROC_config.js` (external config)
+  - the **defaultConfig** object inside `continuous_ROC.html` (fallback)
+- Remove any remaining hard-coded color literals in:
+  - distribution curves
+  - histograms
+  - rug plots
+  - empirical ROC
+  - sample curves
+  - animated sample curve
+  - confidence band shading and boundaries
+  - legend swatches
+  - any SVG/HTML element with inline `stroke`, `fill`, or styles
+- Expand the configuration’s color palette to include all required roles:
+  - `positiveCurve`, `positiveHistogram`, `positiveRug`
+  - `negativeCurve`, `negativeHistogram`, `negativeRug`
+  - `empiricalCurve`, `empiricalPts`
+  - `sampleCurve`, `sampleAnimation`
+  - `confidenceBandUpper`, `confidenceBandLower`, `confidenceBandFill`
+- Ensure the UI updates correctly when the config is loaded.
+- Ensure the animation and APNG export use the configured colors.
+
+---
+
+## B. Implementation Plan
+
+### 1. Expand `defaultConfig` inside `continuous_ROC.html`
+Add a complete set of color keys:
+```js
+defaultConfig.colors = {
+  positiveCurve: "#1f77b4",
+  positiveHistogram: "rgba(31,119,180,0.25)",
+  positiveRug: "#1f77b4",
+
+  negativeCurve: "#d62728",
+  negativeHistogram: "rgba(214,39,40,0.25)",
+  negativeRug: "#d62728",
+
+  empiricalCurve: "#2ca02c",
+  empiricalPts: "#2ca02c",
+
+  sampleCurve: "#888888",
+  sampleAnimation: "#ff9900",
+
+  confidenceBandUpper: "#9467bd",
+  confidenceBandLower: "#9467bd",
+  confidenceBandFill: "rgba(148,103,189,0.25)"
+};
+```
+
+### 2. Update `continuous_ROC_config.js`
+Ensure the external config file uses **the same keys**.
+Missing keys should fall back to defaults automatically.
+
+### 3. Add a helper: `getColor(name)`
+Add in `continuous_ROC.html`:
+```js
+function getColor(key) {
+  return state.config.colors[key] ?? defaultConfig.colors[key];
+}
+```
+This guarantees fallback behavior.
+
+### 4. Replace all hard-coded colors in ROC rendering
+Search for `stroke:`, `fill:`, inline hex codes.
+Replace examples such as:
+```js
+.attr('stroke', '#1f77b4')
+```
+with:
+```js
+.attr('stroke', getColor('positiveCurve'))
+```
+Similarly replace all other literal colors.
+
+Update legend swatches the same way:
+```js
+swatch.style('background-color', getColor('positiveCurve'));
+```
+
+### 5. Update histogram drawing
+Replace any use of fixed `rgba(r,g,b,a)` strings with config-driven colors:
+```js
+.attr('fill', getColor('positiveHistogram'));
+```
+
+### 6. Update rug plot colors
+Replace any inline CSS or hard-coded color logic.
+
+### 7. Update sampled ROC curve colors
+Both static sample curves and animated sample curves must use:
+```js
+getColor('sampleCurve')
+getColor('sampleAnimation')
+```
+
+### 8. Update confidence band coloring
+Replace:
+- Boundary colors → `getColor('confidenceBandUpper')`, `getColor('confidenceBandLower')`
+- Fill shading → `getColor('confidenceBandFill')`
+
+### 9. APNG export must respect configured colors
+Because APNG export rasterizes the SVG, colors must already be correct in the SVG.
+No additional APNG-specific logic is required.
+
+### 10. Testing
+- Load app with *no* external config → defaults apply.
+- Load app with partial config → defaults fill missing keys.
+- Load with custom colors → verify all components update.
+- Test APNG export to confirm color fidelity.
+
+---
+
+## C. Codex Prompt
+```
+Implement milestone v1.15.14 from `ContinuousROC_Explorer_Roadmap_v1.15.md`.
+
+Goal: Integrate all color usage with the configuration system and remove all hard-coded colors.
+
+Modify:
+  • continuous_ROC.html
+  • continuous_ROC_config.js (ensure matching keys)
+
+Steps:
+1. Expand defaultConfig.colors to include all required color roles.
+2. Add getColor(key) helper to continuous_ROC.html.
+3. Replace all hard-coded stroke/fill colors in the codebase with getColor().
+4. Update legend swatches to use config-driven colors.
+5. Ensure histogram, rug plot, empirical ROC, sample curves, sample animation, and confidence bands all use config colors.
+6. Ensure APNG export reflects the configured colors via SVG rasterization.
+7. Test with missing, partial, and full external configs.
+
+Do not modify unrelated logic.
+```
+
+---
+
+
+# Version v1.15.15 — Distribution Fill Colors (TP/FP/TN/FN Distinguishable)
+
+## A. Goals
+- Add **configurable fill colors** for the areas under the distribution curves.
+- Ensure that:
+  - Positive distribution fill color ≠ Negative distribution fill color.
+  - The fills correspond meaningfully to **TP / FP / TN / FN** conceptual regions.
+  - These colors are specified entirely in:
+    - `continuous_ROC_config.js` (external config)
+    - `defaultConfig` fallback inside `continuous_ROC.html`.
+- Remove any remaining hard-coded fill colors in the distribution PDF rendering.
+- Integrate fill colors with the existing D3 drawing logic for the Score Distributions plot.
+- Ensure rug plots and legends remain consistent with the new design.
+
+---
+
+## B. Implementation Plan
+
+### 1. Add new color roles to `defaultConfig.colors`
+Add to the color section (in `continuous_ROC.html`):
+```js
+defaultConfig.colors = {
+  // positive distribution
+  positiveCurve: "#1f77b4",
+  positiveCurveFill: "rgba(31,119,180,0.20)",
+  positiveRug: "#1f77b4",
+
+  // negative distribution
+  negativeCurve: "#d62728",
+  negativeCurveFill: "rgba(214,39,40,0.20)",
+  negativeRug: "#d62728",
+
+  // empirical
+  empiricalCurve: "#2ca02c",
+  empiricalPts: "#2ca02c",
+
+  // samples
+  sampleCurve: "#888888",
+  sampleAnimation: "#ff9900",
+
+  // confidence bands
+  confidenceBandUpper: "#9467bd",
+  confidenceBandLower: "#9467bd",
+  confidenceBandFill: "rgba(148,103,189,0.25)"
+};
+```
+
+### 2. Add matching entries to `continuous_ROC_config.js`
+The external config file should contain the same keys.  
+Missing entries should fall back to defaults automatically.
+
+### 3. Add conceptual mapping to TP/FP/TN/FN (explanation)
+Although the Score Distribution plot is not a confusion matrix, the filled regions correspond intuitively to:
+- Positive PDF area → contributes to **TP** at lower thresholds and **FN** at higher thresholds.
+- Negative PDF area → contributes to **FP** at lower thresholds and **TN** at higher thresholds.
+
+No changes to thresholds or ROC logic are needed; colors simply help distinguish the conceptual regions.
+
+### 4. Modify D3 distribution rendering (continuous_ROC.html)
+Locate the code that draws the PDFs for positive and negative distributions.  
+Replace current fill logic with:
+```js
+.attr('fill', getColor('positiveCurveFill'))
+```
+and
+```js
+.attr('fill', getColor('negativeCurveFill'))
+```
+where appropriate.
+
+The stroke remains:
+```js
+.attr('stroke', getColor('positiveCurve'))
+```
+and
+```js
+.attr('stroke', getColor('negativeCurve'))
+```
+
+### 5. Update legend entries
+Legend swatches should also use the new fill colors:
+```js
+swatch.style('background-color', getColor('positiveCurveFill'));
+```
+for positive distribution entries, and similarly for negative.
+
+### 6. Ensure rug plots remain outline-only
+Rug mark colors should stay as stroke-only (no fill), using:
+```js
+getColor('positiveRug')
+getColor('negativeRug')
+```
+This keeps the visualization clean.
+
+### 7. Confirm interaction: hiding and showing elements
+Interactive legend toggles should hide/show the entire filled PDF region, not just the strokes.
+
+If necessary, wrap each PDF in a `<g class="pdfGroup">` container.
+
+### 8. Testing
+- Verify fill colors appear correctly for both distributions.
+- Confirm legend swatches match config colors.
+- Change config colors in `continuous_ROC_config.js` and reload → verify correct update.
+- Import/export continuous ROC states → ensure fill colors are **not** part of data (colors come only from config).
+- APNG export should rasterize filled PDFs correctly.
+
+---
+
+## C. Codex Prompt
+```
+Implement milestone v1.15.15 from `ContinuousROC_Explorer_Roadmap_v1.15.md`.
+
+Goal: Add configurable fill colors for positive and negative distribution PDFs, fully integrated with the external config file.
+
+Modify:
+  • continuous_ROC.html
+  • continuous_ROC_config.js
+
+Steps:
+1. Add new color keys: positiveCurveFill, negativeCurveFill (with defaults).
+2. Update external config file to allow overriding the same keys.
+3. Replace hard-coded distribution fill colors with getColor('positiveCurveFill') and getColor('negativeCurveFill').
+4. Update legend swatches to use the new fill colors.
+5. Ensure rug plots still use stroke-only colors (positiveRug, negativeRug).
+6. Make sure filled PDFs hide/show correctly via the interactive legend.
+7. Confirm APNG export rasterizes fill colors correctly.
+
+Do not modify unrelated logic.
+```
+
+---
+
+# Version v1.15.16 — Complete Sampling Settings Import/Export
+
+## A. Goals
+- Ensure **all sampling-related settings** are saved and restored through the JSON metadata block of each exported ROC curve.
+- Support full round-trip persistence for:
+  - Sample size (cases per replicate)
+  - Number of replicates
+  - Random seed (if present)
+  - Sampling method (currently deterministic mixture sampler)
+  - Histogram bin settings (if applicable in future versions)
+  - Any new sampling-related configuration added later
+- Importing a curve should:
+  - Restore all sampling settings into the UI
+  - Use defaults only for missing fields
+  - Trigger necessary redraws
+- Exporting a curve should:
+  - Include a `sampling` block in metadata reflecting all current UI settings
+- **Do not** embed the raw sampled datasets in the metadata (samplesROC already saved separately).
+
+---
+
+## B. Implementation Plan
+
+### 1. Define canonical sampling settings schema
+In both export and import logic, the following canonical structure will be used:
+```json
+sampling: {
+  "sampleSize": <number>,
+  "numSamples": <number>,
+  "randomSeed": <number|null>,
+  "method": "mixture" | "otherFutureMethods",
+  "histogramBins": <number|null>
+}
+```
+
+Place this definition in comments in both:
+- `continuous_ROC.html`
+- `ROC_lib.js` (where metadata is handled)
+
+---
+
+### 2. Extend state object for sampling
+In `continuous_ROC.html`, ensure:
+```js
+state.sampling = {
+  sampleSize: 1000,
+  numSamples: 50,
+  randomSeed: null,
+  method: "mixture",
+  histogramBins: null
+};
+```
+Overwrite only missing fields if already present.
+
+---
+
+### 3. Export sampling settings
+Locate the code that builds metadata for export.
+Ensure:
+```js
+metadata.continuous_roc_explorer.sampling = {
+  sampleSize: state.sampling.sampleSize,
+  numSamples: state.sampling.numSamples,
+  randomSeed: state.sampling.randomSeed,
+  method: state.sampling.method,
+  histogramBins: state.sampling.histogramBins
+};
+```
+
+Verify that `samplesROC` continues to export separately.
+
+---
+
+### 4. Import sampling settings from metadata
+In `ROCUtils.extractContinuousRocMetadata`, sampling is already extracted into `cleaned.sampling` if present.
+Now modify the import handler in `continuous_ROC.html` so that after calling `extractContinuousRocMetadata`:
+
+```js
+if(meta.sampling) {
+  const s = meta.sampling;
+  state.sampling.sampleSize = s.sampleSize ?? state.sampling.sampleSize;
+  state.sampling.numSamples = s.numSamples ?? state.sampling.numSamples;
+  state.sampling.randomSeed = s.randomSeed ?? state.sampling.randomSeed;
+  state.sampling.method = s.method ?? state.sampling.method;
+  state.sampling.histogramBins = s.histogramBins ?? state.sampling.histogramBins;
+}
+```
+
+---
+
+### 5. Update UI elements to reflect imported state
+For all sampling UI controls:
+- Set their `.value` to the imported `state.sampling.*` values.
+- Trigger any necessary change events (`oninput` or custom handlers) so the app stays in sync.
+
+Example:
+```js
+document.getElementById('sampleSizeInput').value = state.sampling.sampleSize;
+document.getElementById('numSamplesInput').value = state.sampling.numSamples;
+// etc.
+```
+
+---
+
+### 6. Trigger redraws after importing sampling settings
+After UI update, trigger:
+```js
+regenerateIfNeeded();
+```
+or the equivalent logic to refresh distributions, ROC, and legends.
+
+If samples exist in metadata (`samplesROC`), do *not* auto-regenerate samples — use the imported curves as-is.
+
+---
+
+### 7. Testing scenarios
+1. Create a continuous ROC; set non-default sampling settings.
+2. Generate sample curves.
+3. Export JSON.
+4. Reload app; import JSON.
+5. Verify:
+   - sampling settings populate UI correctly
+   - distributions and ROC curves import correctly
+   - sample curves import correctly
+   - no missing-field errors
+6. Change only some sampling fields in config; ensure defaults fill the rest.
+
+---
+
+## C. Codex Prompt
+```
+Implement milestone v1.15.16 from `ContinuousROC_Explorer_Roadmap_v1.15.md`.
+
+Goal: Add full import/export support for all sampling-related settings.
+
+Modify:
+  • continuous_ROC.html
+  • ROC_lib.js (only metadata structure comments; keep logic unchanged unless noted)
+
+Steps:
+1. Define canonical sampling schema (sampleSize, numSamples, randomSeed, method, histogramBins).
+2. Ensure state.sampling contains all fields.
+3. Add sampling block to export metadata in continuous_ROC.html.
+4. In import logic, fully restore sampling settings into state.sampling.
+5. Update UI controls to reflect imported sampling settings.
+6. Trigger necessary redraws after import.
+7. Verify sample curves (samplesROC) are imported unchanged.
+
+Do not modify unrelated logic.
+```
+
+---
+
+
+# To Do:
+
+* I skipped the animation milestones (v1.15.10 and v1.15.11).
+* skipped 12
+* implemented 1.15.13

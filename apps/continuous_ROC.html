@@ -26,6 +26,7 @@
     .component-controls button:hover,.add-component-btn:hover{background:#dedef4}
     .component-remove-btn{min-width:120px;padding:6px 10px;text-align:center;background:#ffeaea;border-color:#e0a3a3;color:#a41a1a;font-weight:700;border-radius:8px}
     .component-remove-btn:hover{background:#ffd8d8}
+    .param-row{display:flex;align-items:center;gap:8px;margin:6px 0;font-size:13px;color:#30304a}
     .component-row{display:flex;align-items:center;gap:8px;margin:6px 0;font-size:13px;color:#30304a}
     .component-row label{min-width:110px}
     .component-row input:not([type=range]),.component-row select{flex:1;padding:5px 6px;border-radius:6px;border:1px solid #c6c6db;font-size:13px}
@@ -152,13 +153,15 @@ body {
   <p class="description" id="pageIntro"></p>
 
   <div class="controls">
-    <div class="ctrl" id="negControl">
-      <h3 id="negTitle">Negatives</h3>
-      <div id="negParams"></div>
-    </div>
-    <div class="ctrl" id="posControl">
-      <h3 id="posTitle">Positives</h3>
-      <div id="posParams"></div>
+    <div id="distParamContainer" class="dist-param-container">
+      <div class="ctrl" id="negControl">
+        <h3 id="negTitle">Negatives</h3>
+        <div id="negParams"></div>
+      </div>
+      <div class="ctrl" id="posControl">
+        <h3 id="posTitle">Positives</h3>
+        <div id="posParams"></div>
+      </div>
     </div>
   </div>
 
@@ -610,7 +613,7 @@ body {
 
       buildLegend(scoreLegendContainer,scoreLegendItems,'score');
       function refreshRocLegend(){
-        const sampleItems=(state.samplesROC||[]).map((_,idx)=>({
+      const sampleItems=(state.samplesROC||[]).map((_,idx)=>({
           key:idx,
           label:`Sample ROC ${idx+1}`,
           color:COLOR_HELPERS.sample
@@ -767,6 +770,77 @@ body {
 
       function getDistributionKeys(){
         return DISTRIBUTION_KEYS.slice();
+      }
+
+      function generateParameterUI(def, component, onChange){
+        const container=document.createElement('div');
+        (def.parameters||[]).forEach(meta=>{
+          const row=document.createElement('div');
+          row.className='param-row';
+          const label=document.createElement('label');
+          label.textContent=meta.label||meta.id;
+          label.style.minWidth='110px';
+          row.appendChild(label);
+          const paramId=meta.id;
+          const setValue=(val)=>{
+            component.parameters[paramId]=val;
+            if(typeof onChange==='function'){onChange(paramId,val);}
+          };
+          const defaultVal=component.parameters[paramId]!==undefined?component.parameters[paramId]:meta.value;
+          if(meta.slider){
+            const controls=document.createElement('div');
+            controls.className='parameter-controls';
+            const slider=document.createElement('input');
+            slider.type='range';
+            slider.className='parameter-slider';
+            const numeric=document.createElement('input');
+            numeric.type='number';
+            numeric.className='parameter-number';
+            ['min','max','step'].forEach(attr=>{
+              const val=meta.slider[attr]??meta[attr];
+              if(val!==undefined){slider[attr]=val;}
+            });
+            ['min','max','step'].forEach(attr=>{
+              const val=meta[attr];
+              if(val!==undefined){numeric[attr]=val;}
+            });
+            slider.value=String(defaultVal);
+            numeric.value=String(defaultVal);
+            slider.addEventListener('input',e=>{
+              const v=Number(e.target.value);
+              if(Number.isFinite(v)){
+                numeric.value=String(v);
+                setValue(v);
+              }
+            });
+            numeric.addEventListener('input',e=>{
+              const v=Number(e.target.value);
+              if(Number.isFinite(v)){
+                slider.value=String(v);
+                setValue(v);
+              }
+            });
+            controls.appendChild(slider);
+            controls.appendChild(numeric);
+            row.appendChild(controls);
+          } else {
+            const input=document.createElement('input');
+            input.type=meta.type||'number';
+            if(meta.step!==undefined){input.step=meta.step;}
+            if(meta.min!==undefined){input.min=meta.min;}
+            if(meta.max!==undefined){input.max=meta.max;}
+            input.value=String(defaultVal);
+            input.addEventListener('input',e=>{
+              const v=Number(e.target.value);
+              if(Number.isFinite(v)){
+                setValue(v);
+              }
+            });
+            row.appendChild(input);
+          }
+          container.appendChild(row);
+        });
+        return container;
       }
 
       function normalizeWeightsForClass(className,{mutate=true}={}){
@@ -1180,105 +1254,12 @@ body {
             card.appendChild(weightRow);
           }
 
-          def.parameters.forEach(meta=>{
-            const row=document.createElement('div');
-            row.className='component-row';
-            const label=document.createElement('label');
-            label.textContent=meta.label;
-            row.appendChild(label);
-
-            const stored=component.parameters.hasOwnProperty(meta.id)?component.parameters[meta.id]:meta.value;
-            let value=Number(stored);
-            if(!Number.isFinite(value)){
-              const fallback=Number(meta.value);
-              value=Number.isFinite(fallback)?fallback:0;
-            }
-            component.parameters[meta.id]=value;
-
-            if(meta.slider){
-              const controls=document.createElement('div');
-              controls.className='parameter-controls';
-
-              const slider=document.createElement('input');
-              slider.type='range';
-              slider.className='parameter-slider';
-              const sliderConfig=meta.slider||{};
-              const resolvedMin=sliderConfig.min??meta.min;
-              const resolvedMax=sliderConfig.max??meta.max;
-              const resolvedStep=sliderConfig.step??meta.step;
-              if(resolvedMin!==undefined){slider.min=resolvedMin;}
-              if(resolvedMax!==undefined){slider.max=resolvedMax;}
-              if(resolvedStep!==undefined){slider.step=resolvedStep;}
-              if(slider.min!==''){
-                const numericMin=Number(slider.min);
-                if(Number.isFinite(numericMin)){value=Math.max(value,numericMin);}
-              }
-              if(slider.max!==''){
-                const numericMax=Number(slider.max);
-                if(Number.isFinite(numericMax)){value=Math.min(value,numericMax);}
-              }
-              component.parameters[meta.id]=value;
-              slider.value=String(value);
-
-              const input=document.createElement('input');
-              input.type=meta.type||'number';
-              input.className='parameter-number';
-              if(meta.step!==undefined){input.step=meta.step;}
-              if(meta.min!==undefined){input.min=meta.min;}
-              if(meta.max!==undefined){input.max=meta.max;}
-              input.value=String(value);
-
-              const commit=val=>{
-                component.parameters[meta.id]=val;
-                input.value=String(val);
-                slider.value=String(val);
-                update();
-                maybeAutoResample();
-              };
-
-              slider.addEventListener('input',event=>{
-                const numeric=Number(event.target.value);
-                if(Number.isFinite(numeric)){commit(numeric);}
-              });
-
-              input.addEventListener('input',event=>{
-                const numeric=Number(event.target.value);
-                if(Number.isFinite(numeric)){
-                  let clamped=numeric;
-                  if(slider.min!==''){
-                    const numericMin=Number(slider.min);
-                    if(Number.isFinite(numericMin)){clamped=Math.max(clamped,numericMin);}
-                  }
-                  if(slider.max!==''){
-                    const numericMax=Number(slider.max);
-                    if(Number.isFinite(numericMax)){clamped=Math.min(clamped,numericMax);}
-                  }
-                  commit(clamped);
-                }
-              });
-
-              controls.appendChild(slider);
-              controls.appendChild(input);
-              row.appendChild(controls);
-            } else {
-              const input=document.createElement('input');
-              input.type=meta.type||'number';
-              if(meta.step!==undefined){input.step=meta.step;}
-              if(meta.min!==undefined){input.min=meta.min;}
-              if(meta.max!==undefined){input.max=meta.max;}
-              input.value=String(value);
-              input.addEventListener('input',event=>{
-                const numeric=Number(event.target.value);
-                if(Number.isFinite(numeric)){
-                  component.parameters[meta.id]=numeric;
-                  update();
-                  maybeAutoResample();
-                }
-              });
-              row.appendChild(input);
-            }
-            card.appendChild(row);
+          const paramsUI=generateParameterUI(def,component,(id,val)=>{
+            component.parameters[id]=val;
+            update();
+            maybeAutoResample();
           });
+          card.appendChild(paramsUI);
 
           if(component.distribution==='studentT'){
             const info=document.createElement('div');
