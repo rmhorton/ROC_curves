@@ -212,6 +212,8 @@ body {
       </div>
       <button id="rocExportJsonButton" style="margin-top:10px;">Export ROC (JSON)</button>
       <button id="rocExportCsvButton" style="margin-top:10px;">Export ROC (CSV – human readable)</button>
+      <button id="rocImportJsonButton" style="margin-top:10px;">Import ROC JSON…</button>
+      <input type="file" id="rocImportFile" accept=".json,application/json" style="display:none">
     </div>
   </div>
 
@@ -220,6 +222,7 @@ body {
       const CONFIG=window.MULTIDISTRIBUTION_CONFIG||{};
       const {STRINGS,FEATURES,DISTRIBUTIONS,DISTRIBUTION_ORDER,DEFAULT_OPTIONS}=CONFIG;
       const ROC_CONFIG=window.ROC_EXPLORER_CONFIG||{};
+      let isRestoringImportedState=false;
       const visibilityState={
         score:{
           posPDF:true,
@@ -230,7 +233,8 @@ body {
         },
         roc:{
           theoretical:true,
-          empirical:DEFAULT_OPTIONS.showEmpiricalRoc??false
+          empirical:DEFAULT_OPTIONS.showEmpiricalRoc??false,
+          sample:{}
         }
       };
       let currentEmpiricalDataset={name:'simulated_dataset', source:'simulated'};
@@ -239,16 +243,31 @@ body {
         document.body.innerHTML='<p style="color:#a20000">Configuration not found. Ensure multidistribution_config.js is loaded.</p>';
         return;
       }
+      const DISTRIBUTIONS_INTERNAL=Object.fromEntries(
+        Object.entries(DISTRIBUTIONS||{}).map(([key,def])=>{
+          const trimmed=String(key||'').trim();
+          return trimmed?[trimmed,def]:null;
+        }).filter(Boolean)
+      );
+      const DISTRIBUTION_KEYS=Array.isArray(DISTRIBUTION_ORDER)
+        ? DISTRIBUTION_ORDER.map(key=>String(key||'').trim()).filter(key=>DISTRIBUTIONS_INTERNAL[key])
+        : Object.keys(DISTRIBUTIONS_INTERNAL);
+      if(!DISTRIBUTION_KEYS.length){
+        document.body.innerHTML='<p style="color:#a20000">No distributions configured. Check multidistribution_config.js.</p>';
+        return;
+      }
 
       const DEFAULT_COLOR_CONFIG={
         positive:{hue:'#1f77b4',histogramOpacity:0.4,rugOpacity:0.75,pdfOpacity:1},
-        negative:{hue:'#d62728',histogramOpacity:0.4,rugOpacity:0.75,pdfOpacity:1}
+        negative:{hue:'#d62728',histogramOpacity:0.4,rugOpacity:0.75,pdfOpacity:1},
+        sample:{hue:'#7d3cff',opacity:0.7}
       };
 
       function resolveColorConfig(source){
         const result={
           positive:{...DEFAULT_COLOR_CONFIG.positive},
-          negative:{...DEFAULT_COLOR_CONFIG.negative}
+          negative:{...DEFAULT_COLOR_CONFIG.negative},
+          sample:{...DEFAULT_COLOR_CONFIG.sample}
         };
         ['positive','negative'].forEach(key=>{
           const entry=source?.[key];
@@ -259,6 +278,12 @@ body {
             if(Number.isFinite(val)){result[key][field]=val;}
           });
         });
+        if(source?.sample){
+          const entry=source.sample;
+          if(typeof entry.hue==='string' && entry.hue.trim()){result.sample.hue=entry.hue;}
+          const val=Number(entry.opacity);
+          if(Number.isFinite(val)){result.sample.opacity=val;}
+        }
         return result;
       }
 
@@ -291,7 +316,8 @@ body {
         posRug:ROCUtils.hexOpacityToRgba(COLOR_CONFIG.positive.hue,COLOR_CONFIG.positive.rugOpacity),
         negRug:ROCUtils.hexOpacityToRgba(COLOR_CONFIG.negative.hue,COLOR_CONFIG.negative.rugOpacity),
         empirical:'#7d3cff',
-        roc:'#30307c'
+        roc:'#30307c',
+        sample:ROCUtils.hexOpacityToRgba(COLOR_CONFIG.sample.hue,COLOR_CONFIG.sample.opacity)
       };
 
       const scoreLegendContainer=document.getElementById('scoreLegend');
@@ -303,7 +329,7 @@ body {
         {key:'negHist',label:'Negative histogram',color:COLOR_HELPERS.negHist},
         {key:'empiricalPoints',label:'Empirical points',color:COLOR_HELPERS.empirical}
       ];
-      const rocLegendItems=[
+      const baseRocLegendItems=[
         {key:'theoretical',label:'Theoretical ROC',color:COLOR_HELPERS.roc},
         {key:'empirical',label:'Empirical ROC',color:COLOR_HELPERS.empirical}
       ];
@@ -324,8 +350,16 @@ body {
           el.appendChild(swatch);
           el.appendChild(label);
           el.addEventListener('click',()=>{
-            const current=visibilityState[sectionKey][item.key];
-            visibilityState[sectionKey][item.key]=!current;
+            const section=visibilityState[sectionKey]||{};
+            if(sectionKey==='roc' && item.key.startsWith('sample_')){
+              section.sample=section.sample||{};
+              const current=section.sample[item.key];
+              section.sample[item.key]=!current;
+            } else {
+              const current=section[item.key];
+              section[item.key]=!current;
+            }
+            visibilityState[sectionKey]=section;
             renderLegendSelection();
             update();
           });
@@ -337,9 +371,33 @@ body {
         document.querySelectorAll('.legend-item').forEach(el=>{
           const section=el.dataset.section;
           const key=el.dataset.key;
-          const active=visibilityState?.[section]?.[key];
+          let active=visibilityState?.[section]?.[key];
+          if(section==='roc' && key.startsWith('sample_')){
+            active=visibilityState.roc.sample?.[key];
+            if(active===undefined){
+              if(!visibilityState.roc.sample){visibilityState.roc.sample={};}
+              visibilityState.roc.sample[key]=true;
+              active=true;
+            }
+          }
           el.classList.toggle('inactive',!active);
         });
+      }
+
+      function resetVisibilityState(){
+        ['score','roc'].forEach(section=>{
+          if(!visibilityState[section]){visibilityState[section]={};}
+          Object.keys(visibilityState[section]).forEach(key=>{
+            visibilityState[section][key]=true;
+          });
+          if(section==='roc'){
+            visibilityState.roc.sample=visibilityState.roc.sample||{};
+            Object.keys(visibilityState.roc.sample).forEach(key=>{
+              visibilityState.roc.sample[key]=true;
+            });
+          }
+        });
+        renderLegendSelection();
       }
 
       const prevalenceSlider=document.getElementById('prevalenceSlider');
@@ -358,9 +416,9 @@ body {
       document.getElementById('prevalenceLabel').textContent=STRINGS.controls.prevalenceLabel;
 
       function cloneComponent(src={}){
-        const fallback=DISTRIBUTION_ORDER.find(key=>DISTRIBUTIONS[key])||Object.keys(DISTRIBUTIONS)[0];
-        const key=(src.distribution&&DISTRIBUTIONS[src.distribution])?src.distribution:fallback;
-        const def=DISTRIBUTIONS[key];
+        const fallback=DISTRIBUTION_KEYS.find(key=>DISTRIBUTIONS_INTERNAL[key])||Object.keys(DISTRIBUTIONS_INTERNAL)[0];
+        const key=(src.distribution&&DISTRIBUTIONS_INTERNAL[src.distribution])?src.distribution:fallback;
+        const def=DISTRIBUTIONS_INTERNAL[key];
         const params={};
         const source=src.parameters||{};
         def.parameters.forEach(meta=>{
@@ -410,6 +468,8 @@ body {
         empiricalPoints:[],
         autoResample:DEFAULT_OPTIONS.autoResample??false,
         simulatedDataActive:false
+        ,
+        samplesROC:[]
       };
 
       thresholdValEl.textContent=STRINGS.controls.thresholdValue(state.threshold);
@@ -490,7 +550,15 @@ body {
         .text(STRINGS.plots.scoreXAxis);
 
       buildLegend(scoreLegendContainer,scoreLegendItems,'score');
-      buildLegend(rocLegendContainer,rocLegendItems,'roc');
+      function refreshRocLegend(){
+        const sampleItems=(state.samplesROC||[]).map((_,idx)=>({
+          key:`sample_${idx}`,
+          label:`Sample ROC ${idx+1}`,
+          color:COLOR_HELPERS.sample
+        }));
+        buildLegend(rocLegendContainer,[...baseRocLegendItems,...sampleItems],'roc');
+      }
+      refreshRocLegend();
       renderLegendSelection();
       distContent.append('text')
         .attr('class','axis-label')
@@ -604,6 +672,7 @@ body {
         .attr('text-anchor','middle')
         .text(STRINGS.plots.rocYAxis);
 
+      const rocSampleGroup=rocContent.append('g').attr('class','roc-samples');
       const rocLinePath=rocContent.append('path').attr('class','roc-line');
       const empiricalRocPath=rocContent.append('path').attr('class','roc-empirical').style('opacity',0);
       rocContent.append('path').attr('class','roc-random')
@@ -633,7 +702,7 @@ body {
       addAreaTooltip(areaFPPath,areaTooltips.fp);
 
       function getDistributionKeys(){
-        return DISTRIBUTION_ORDER.filter(key=>Boolean(DISTRIBUTIONS[key]));
+        return DISTRIBUTION_KEYS.slice();
       }
 
       function normalizeWeightsForClass(className,{mutate=true}={}){
@@ -697,7 +766,7 @@ body {
             card.dataset.distribution=component.distribution;
             const infoEl=card.querySelector('[data-role="studentt-stats"]');
             const headerEl=card.querySelector('[data-role="component-header"]');
-            const def=DISTRIBUTIONS[component.distribution];
+          const def=DISTRIBUTIONS_INTERNAL[component.distribution];
             const defaultLabel=(FEATURES.allowMultiComponents?`${STRINGS.multi.componentLabel(index)} — `:'')+(def?.label||component.distribution);
             if(component.distribution!=='studentT'){
               if(infoEl){
@@ -899,11 +968,11 @@ body {
         const list=document.createElement('div');
         list.className='component-list';
         components.forEach((component,index)=>{
-          if(!DISTRIBUTIONS[component.distribution]){
+          if(!DISTRIBUTIONS_INTERNAL[component.distribution]){
             component.distribution=distributionKeys[0];
             component.parameters=cloneComponent({distribution:distributionKeys[0]}).parameters;
           }
-          const def=DISTRIBUTIONS[component.distribution];
+          const def=DISTRIBUTIONS_INTERNAL[component.distribution];
           const card=document.createElement('div');
           card.className='component-card';
           card.dataset.componentPrefix=prefix;
@@ -943,11 +1012,12 @@ body {
           distributionKeys.forEach(key=>{
             const opt=document.createElement('option');
             opt.value=key;
-            opt.textContent=DISTRIBUTIONS[key].label;
+            opt.textContent=DISTRIBUTIONS_INTERNAL[key].label;
             distSelect.appendChild(opt);
           });
           distSelect.value=component.distribution;
             distSelect.addEventListener('change',event=>{
+              if(isRestoringImportedState){return;}
               components[index]=cloneComponent({distribution:event.target.value,weight:component.weight});
               renderComponents(prefix);
               update();
@@ -1135,7 +1205,7 @@ body {
         const allowMulti=FEATURES.allowMultiComponents;
         const components=allowMulti?getNormalizedComponents(prefix):(state[prefix+'Components']||[]);
         const resolved=components.map(component=>{
-          const def=DISTRIBUTIONS[component.distribution];
+          const def=DISTRIBUTIONS_INTERNAL[component.distribution];
           const params=def.mapper?def.mapper(component.parameters):component.parameters;
           const domain=def.domain?def.domain(params):[-5,5];
           const weight=allowMulti?(Math.max(Number(component.weight)||0,0)||0):1;
@@ -1351,6 +1421,32 @@ body {
         const auc=ROCUtils.computeAuc(rocSorted);
         rocTitle.text(STRINGS.plots.rocTitle(auc));
 
+        const sampleCurves=(state.samplesROC||[]).map((entry,idx)=>{
+          if(!entry || typeof entry!=='object'){return null;}
+          const fpr=Array.isArray(entry.fpr)?entry.fpr:null;
+          const tpr=Array.isArray(entry.tpr)?entry.tpr:null;
+          if(!fpr||!tpr||fpr.length!==tpr.length||!fpr.length){return null;}
+          const points=fpr.map((f,i)=>({fpr:Number(f),tpr:Number(tpr[i])})).filter(pt=>Number.isFinite(pt.fpr)&&Number.isFinite(pt.tpr));
+          if(points.length!==fpr.length){return null;}
+          return {key:`sample_${idx}`,points};
+        }).filter(Boolean);
+        const samplePaths=rocSampleGroup.selectAll('path.sample-roc')
+          .data(sampleCurves,d=>d.key);
+        samplePaths.exit().remove();
+        samplePaths.enter()
+          .append('path')
+          .attr('class','sample-roc')
+          .merge(samplePaths)
+          .attr('d',d=>rocLineGenerator(d.points))
+          .attr('stroke',COLOR_HELPERS.sample)
+          .attr('stroke-width',1)
+          .attr('fill','none')
+          .style('display',d=>{
+            const visible=visibilityState.roc.sample?.[d.key];
+            return visible===false?'none':null;
+          })
+          .lower();
+
         if(visibilityState.roc.theoretical && rocSorted.length>=2){
           rocLinePath.style('display',null).datum(rocSorted).attr('d',rocLineGenerator);
         } else {
@@ -1453,6 +1549,8 @@ body {
       document.getElementById('dataExportButton').addEventListener('click', exportDataset);
       const rocExportJsonButton=document.getElementById('rocExportJsonButton');
       const rocExportCsvButton=document.getElementById('rocExportCsvButton');
+      const rocImportButton=document.getElementById('rocImportJsonButton');
+      const rocImportFile=document.getElementById('rocImportFile');
       if(rocExportJsonButton){
         rocExportJsonButton.addEventListener('click', exportRocAsJson);
       }
@@ -1462,6 +1560,29 @@ body {
         if(showCsvButton){
           rocExportCsvButton.addEventListener('click', exportRocAsCsv);
         }
+      }
+      if(rocImportButton && rocImportFile){
+        rocImportButton.addEventListener('click',()=>{
+          rocImportFile.value='';
+          rocImportFile.click();
+        });
+        rocImportFile.addEventListener('change',event=>{
+          const file=event.target.files?.[0];
+          if(file){
+            const reader=new FileReader();
+            reader.onload=e=>{
+              try{
+                const text=e.target?.result;
+                if(typeof text!=='string'){throw new Error('File read failed');}
+                const {data}=ROCUtils.parseRocDataFromText(text,file.name);
+                handleImportedRocData(data);
+              }catch(err){
+                alert('Failed to import ROC JSON: '+(err?.message||err));
+              }
+            };
+            reader.readAsText(file);
+          }
+        });
       }
 
       function sampleDistribution(prefix, components, nSamples) {
@@ -1473,7 +1594,7 @@ body {
           : 1;
 
         for (const comp of normalized) {
-          const def = DISTRIBUTIONS[comp.distribution];
+          const def = DISTRIBUTIONS_INTERNAL[comp.distribution];
           const w = allowMulti ? (comp.weight || 0) / totalWeight : 1;
           const nComp = Math.max(1, Math.round(w * nSamples));
           const params = def.mapper ? def.mapper(comp.parameters) : comp.parameters;
@@ -1562,11 +1683,20 @@ body {
       }
 
       function snapshotDistributions(){
-        const cloneComponentData=comp=>({
-          distribution:comp.distribution,
-          weight:comp.weight,
-          parameters:{...comp.parameters}
-        });
+        const cloneComponentData=comp=>{
+          if(!comp || typeof comp.distribution!=='string' || !comp.distribution.trim()){
+            throw new Error('Component is missing a valid distribution id for export.');
+          }
+          if(!DISTRIBUTIONS_INTERNAL[comp.distribution]){
+            console.error('Unknown distribution key during export:', comp.distribution);
+            throw new Error(`Unknown distribution key during export: ${comp.distribution}`);
+          }
+          return {
+            distribution:comp.distribution,
+            weight:comp.weight,
+            parameters:{...comp.parameters}
+          };
+        };
         return {
           positives:(state.posComponents||[]).map(cloneComponentData),
           negatives:(state.negComponents||[]).map(cloneComponentData)
@@ -1636,6 +1766,126 @@ body {
           samplesROC:samplesArray,
           samplesHist
         };
+      }
+
+      function applyImportedContinuousMetadata(curve){
+        if(!curve){return false;}
+        const meta=ROCUtils.extractContinuousRocMetadata(curve);
+        if(!meta){
+          state.samplesROC=[];
+          if(visibilityState.roc.sample){visibilityState.roc.sample={};}
+          refreshRocLegend();
+          renderLegendSelection();
+          return false;
+        }
+        state.samplesROC=Array.isArray(meta.samplesROC)?meta.samplesROC:[];
+        if(!visibilityState.roc.sample){visibilityState.roc.sample={};}
+        state.samplesROC.forEach((_,idx)=>{
+          const key=`sample_${idx}`;
+          if(visibilityState.roc.sample[key]===undefined){visibilityState.roc.sample[key]=true;}
+        });
+        refreshRocLegend();
+        renderLegendSelection();
+        let applied=false;
+        isRestoringImportedState=true;
+        try{
+          const coerceComponents=(arr)=>{
+            if(!Array.isArray(arr)){return null;}
+            const collection=[];
+            arr.forEach(entry=>{
+              const distKey=typeof entry.distribution==='string'?entry.distribution.trim():'';
+              if(!distKey){
+                console.warn('Skipping component with missing distribution key during import.', entry);
+                return;
+              }
+              if(!DISTRIBUTIONS_INTERNAL[distKey]){
+                console.warn('Skipping unknown distribution key during import:', distKey);
+                return;
+              }
+              if(typeof entry.weight!=='number' || Number.isNaN(entry.weight)){
+                console.warn('Skipping component with invalid weight during import.', entry);
+                return;
+              }
+              if(!entry.parameters || typeof entry.parameters!=='object'){
+                console.warn('Skipping component with invalid parameters during import.', entry);
+                return;
+              }
+              const cloned=cloneComponent({distribution:distKey,parameters:entry.parameters,weight:entry.weight});
+              collection.push(cloned);
+            });
+            return collection.length?collection:null;
+          };
+          if(meta.distributions){
+            const pos=meta.distributions.positives;
+            const neg=meta.distributions.negatives;
+            const posComponents=coerceComponents(pos);
+            const negComponents=coerceComponents(neg);
+            if(posComponents){
+              state.posComponents=posComponents;
+              applied=true;
+            }
+            if(negComponents){
+              state.negComponents=negComponents;
+              applied=true;
+            }
+          }
+          if(meta.samplingSettings){
+            if(meta.samplingSettings.prevalence!==undefined){
+              const p=Number(meta.samplingSettings.prevalence);
+              if(Number.isFinite(p)){
+                state.prevalence=clamp(p,0,1);
+                prevalenceSlider.value=state.prevalence;
+                prevalenceValEl.textContent=STRINGS.controls.prevalenceValue(state.prevalence);
+                applied=true;
+              }
+            }
+            if(meta.samplingSettings.sampleSize!==undefined){
+              const input=document.getElementById('sampleSizeInput');
+              const val=Number(meta.samplingSettings.sampleSize);
+              if(input && Number.isFinite(val) && val>0){
+                input.value=val;
+                applied=true;
+              }
+            }
+            if(meta.samplingSettings.autoResample!==undefined){
+              state.autoResample=Boolean(meta.samplingSettings.autoResample);
+              const autoToggle=document.getElementById('autoResampleToggle');
+              if(autoToggle){autoToggle.checked=state.autoResample;}
+              applied=true;
+            }
+          }
+          if(Array.isArray(meta.samplesROC)){
+            state.samplesROC=meta.samplesROC;
+            state.samplesROC.forEach((_,idx)=>{
+              const key=`sample_${idx}`;
+              if(!visibilityState.roc.sample){visibilityState.roc.sample={};}
+              if(visibilityState.roc.sample[key]===undefined){visibilityState.roc.sample[key]=true;}
+            });
+            refreshRocLegend();
+            applied=true;
+          } else {
+            state.samplesROC=[];
+            if(visibilityState.roc.sample){visibilityState.roc.sample={};}
+            refreshRocLegend();
+          }
+          if(meta.roc && meta.roc.name){
+            const name=String(meta.roc.name);
+            const nameInput=document.getElementById('rocExportName');
+            if(nameInput){
+              nameInput.value=name;
+            }
+            applied=true;
+          }
+          resetVisibilityState();
+          if(applied){
+            renderComponents('neg');
+            renderComponents('pos');
+            update();
+          }
+          return applied;
+        } finally {
+          isRestoringImportedState=false;
+        }
       }
 
       function getPreferredRocPoints(){
@@ -1749,9 +1999,29 @@ body {
         }
       }
 
+      function handleImportedRocData(curveMap){
+        if(!curveMap||typeof curveMap!=='object'){alert('Imported ROC JSON did not contain any curves.');return;}
+        const curveIds=Object.keys(curveMap);
+        if(!curveIds.length){alert('Imported ROC JSON did not contain any curves.');return;}
+        let applied=false;
+        for(const id of curveIds){
+          const curve=curveMap[id];
+          if(!curve||typeof curve!=='object'){continue;}
+          if(!applied && ROCUtils.extractContinuousRocMetadata(curve)){
+            const ok=applyImportedContinuousMetadata(curve);
+            applied=applied||ok;
+          }
+        }
+        if(!applied){
+          update();
+        }
+        alert(`Imported ${curveIds.length} ROC curve${curveIds.length>1?'s':''}.`);
+      }
+
       renderComponents('neg');
       renderComponents('pos');
       update();
+      window.applyContinuousRocMetadata=applyImportedContinuousMetadata;
     });
   </script>
 </body>

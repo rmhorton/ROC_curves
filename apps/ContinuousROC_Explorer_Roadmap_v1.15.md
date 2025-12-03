@@ -548,6 +548,1036 @@ Implement:
 
 ---
 
+# Version v1.15.5.1 — Add ROC File Import to the UI
+
+## A. Goals
+- Add **visible UI controls** to import ROC curve JSON files into the Continuous ROC Explorer.
+- Support importing one or more ROC curves from a local `.json` file.
+- Integrate with the existing ROC JSON parsing and metadata handling implemented in v1.15.4 and v1.15.5:
+  - Load ROC curves from file.
+  - For curves that contain `metadata.continuous_roc_explorer`, restore the UI state using the existing state-import logic.
+- Provide basic error handling and user feedback for invalid or malformed files.
+
+---
+
+## B. Implementation Plan
+
+1. **Add Import Control to the UI (continuous_ROC.html)**
+   - In the main controls area (where export and other high-level actions live), add:
+     - A visible button, e.g., `Import ROC JSON…`.
+     - A hidden file input:
+       ```html
+       <input id="roc-import-file" type="file" accept=".json,application/json" style="display:none;">
+       ```
+   - Wire the button's `onclick` to trigger `#roc-import-file.click()` so the user can choose a local JSON file.
+
+2. **Implement File Selection and Reading (continuous_ROC.html)**
+   - Add a `change` event listener to `#roc-import-file` that:
+     - Gets the selected file (first file only).
+     - Uses a `FileReader` to read the file contents as text.
+     - On `load`, attempts to parse the text as JSON.
+   - If JSON parsing fails:
+     - Show a user-friendly error (e.g., `alert("Error: Selected file is not valid JSON.")`).
+     - Reset the file input.
+
+3. **Hook into Existing ROC JSON Parsing / Import Logic (ROC_lib.js + continuous_ROC.html)**
+   - Identify the function(s) that currently:
+     - Parse canonical ROC JSON.
+     - Normalize/validate ROC structures.
+     - Handle `metadata.continuous_roc_explorer` to restore UI state (from v1.15.5).
+   - After successfully parsing the file as JSON:
+     - Pass the JSON object into the existing ROC parsing/normalization function.
+     - Ensure that if the file contains **multiple ROC curves**, all curves are added to the internal ROC collection as they would be if loaded by other means.
+
+4. **UI State Restoration from Imported Metadata**
+   - For each imported curve, check whether it contains `metadata.continuous_roc_explorer`.
+   - Choose the **first curve with valid `metadata.continuous_roc_explorer`** as the one that will drive UI state restoration.
+   - Call the existing state-import logic (from v1.15.5) to:
+     - Restore distributions, parameters, mixture weights, and sampling settings.
+     - Reset visibility to all-true.
+     - Trigger full redraw of score distributions and ROC plots.
+   - Other imported curves **without** metadata should still be added as ROC curves for display/comparison but should not attempt to overwrite UI configuration.
+
+5. **Error Handling for ROC-Level Issues**
+   - If the file structure is valid JSON but does **not** match the expected ROC JSON layout:
+     - Show a clear error message (e.g., `"The selected file does not contain valid ROC JSON."`).
+   - If no curves with `metadata.continuous_roc_explorer` are found:
+     - Load curves for display if possible, but skip UI state restoration.
+     - Optionally show a non-blocking info message (e.g., `"ROC curves loaded, but no state metadata found to restore settings."`).
+
+6. **Do Not Modify Unrelated Features**
+   - Do not change export behavior.
+   - Do not alter existing buttons or legends.
+   - Only add the minimal UI elements and logic needed to support file import.
+
+---
+
+## C. Codex Prompt
+```text
+Implement roadmap milestone v1.15.5.1 from `ContinuousROC_Explorer_Roadmap_v1.15.md`.
+
+Goal: Add a UI-based ROC JSON import mechanism that lets the user select a .json file from disk, parses it as ROC JSON, and integrates it with the existing ROC parsing and state-import logic.
+
+Files to modify:
+- continuous_ROC.html
+- ROC_lib.js
+(Do not modify other files.)
+
+Tasks:
+1. In continuous_ROC.html, add:
+   - A visible "Import ROC JSON…" button in the main controls area.
+   - A hidden <input type="file" id="roc-import-file" accept=".json,application/json"> element.
+   - Click handler so the button triggers the file input.
+2. Add a change handler for #roc-import-file that:
+   - Reads the selected file with FileReader.
+   - Parses the contents as JSON.
+   - On parse failure, shows an error and returns.
+3. Pass the parsed JSON into the existing ROC JSON parsing/normalization function in ROC_lib.js (or equivalent), so ROC curves are added just as if they were loaded by other internal mechanisms.
+4. For imported curves, if metadata.continuous_roc_explorer is present:
+   - Use the first such curve to drive the state-import logic from v1.15.5 (restore distributions, sampling settings, etc., then redraw).
+   - Load additional curves for display without overwriting UI configuration.
+5. Handle malformed or non-ROC JSON files gracefully with user-facing error messages.
+6. Do not modify export behavior or unrelated UI elements.
+
+Follow sections A and B of milestone v1.15.5.1 exactly.
+```
+---
+
+# Version v1.15.5.2 — Fix Incorrect Export of Distribution Families
+
+## A. Goals
+- Correct the export logic so that **each distribution component** (positive and negative) is saved with the correct `distribution` family name.
+- Fix the bug that causes **positive Beta distributions to be exported as Normal**.
+- Ensure all distribution metadata is preserved accurately:
+  - `distribution`
+  - `params`
+  - `weight`
+- Ensure restored UI state exactly matches the original distribution settings upon import.
+- Do not modify sampling, UI, or import behavior except where needed to support correct metadata.
+
+---
+
+## B. Implementation Plan
+
+1. **Locate current export code**
+   In `continuous_ROC.html` or `ROC_lib.js`, find where metadata for:
+   ```js
+   metadata.continuous_roc_explorer.posComponents
+   metadata.continuous_roc_explorer.negComponents
+   ```
+   is created.
+
+2. **Identify incorrect distribution assignment**
+   The bug arises because the exported component object is populated with:
+   ```js
+   distribution: "Normal"
+   ```
+   instead of:
+   ```js
+   distribution: state.posComponents[i].distribution
+   ```
+   This may come from:
+   - A hard-coded fallback.
+   - A mapping function that defaults to Normal.
+   - Parameter-based inference of distribution family.
+   - Shallow-copy of the wrong object.
+
+3. **Fix the export logic**
+   Update export logic so that for each component:
+   ```js
+   exportedComponent.distribution = originalComponent.distribution;
+   exportedComponent.params = clone(originalComponent.params);
+   exportedComponent.weight = originalComponent.weight;
+   ```
+   Ensure that **no inference is performed** based on parameter count.
+
+4. **Verify correct handling of jstat_extras distributions**
+   - Ensure that all distributions added in earlier milestones (including Beta, LogNormal, Gamma, etc.) are exported with their correct names.
+   - Ensure no transformation of the distribution name occurs.
+
+5. **Add defensive validation** (optional but recommended)
+   Before export, validate that:
+   ```js
+   typeof comp.distribution === "string"
+   comp.params is an object
+   ```
+   If validation fails, throw a clear error.
+
+6. **Do not modify import code**
+   Import logic is functioning correctly; once the exported distribution names are correct, re-import will work.
+
+7. **Do not modify sampling or ROC-generation code**
+   Only update export logic for distribution metadata.
+
+---
+
+## C. Codex Prompt
+```text
+Implement roadmap milestone v1.15.5.2 from `ContinuousROC_Explorer_Roadmap_v1.15.md`.
+
+Goal: Fix incorrect export of distribution families so that each component saves the correct `distribution` field (e.g., Beta rather than Normal).
+
+Files to modify:
+- continuous_ROC.html
+- ROC_lib.js
+(Only these files.)
+
+Tasks:
+1. Find where `metadata.continuous_roc_explorer.posComponents` and `.negComponents` are constructed.
+2. Replace any hard-coded or inferred distribution assignment with:
+   component.distribution = originalComponent.distribution;
+3. Ensure `params` and `weight` are copied directly from the original state component, without modification or inference.
+4. Remove any logic that infers a distribution family based on parameter count or shape.
+5. Add defensive validation: if a component lacks a valid `distribution` string, throw an error.
+6. Do NOT change sampling logic, import logic, or ROC computation.
+7. Ensure the export JSON preserves EXACT distribution identifiers used in the UI, including those from jstat_extras.
+
+Follow sections A and B of milestone v1.15.5.2 exactly.
+```
+---
+
+# Version v1.15.5.3 — Use Internal Distribution Keys for Export/Import
+
+## A. Goals
+- Ensure exported ROC metadata always uses **internal distribution keys** (the keys of `DISTRIBUTIONS`) rather than user-visible labels.
+- Guarantee imported JSON fully restores the correct distribution families independent of UI language or label customization.
+- Remove all dependencies on user-visible distribution names during export/import.
+- Preserve forward/backward compatibility by:
+  - exporting canonical internal keys,
+  - accepting only internal keys on import,
+  - mapping internal keys → display labels *only* in the UI.
+- Leave sampling, ROC computation, and UI rendering unchanged unless they depend on distribution identification.
+
+---
+
+## B. Implementation Plan
+
+1. **Update Export Logic** (continuous_ROC.html or ROC_lib.js)
+   - Locate where distribution components are serialized into:
+     ```js
+     metadata.continuous_roc_explorer.posComponents
+     metadata.continuous_roc_explorer.negComponents
+     ```
+   - Replace any usage of:
+     ```js
+     component.label
+     component.displayName
+     component.uiName
+     ```
+     with:
+     ```js
+     component.distribution   // INTERNAL KEY
+     ```
+   - Ensure parameters and weights are saved unchanged.
+
+2. **Add Defensive Export Validation**
+   - Before writing each component:
+     ```js
+     if (!DISTRIBUTIONS[component.distribution]) {
+       console.error("Export error: Unknown distribution key", component.distribution);
+     }
+     ```
+   - Do NOT substitute a fallback.
+   - Always export the internal key exactly.
+
+3. **Update Import Logic**
+   - When importing a component:
+     - Check that `src.distribution` exists in `DISTRIBUTIONS`.
+     - If it does, proceed normally.
+     - If it does not:
+       - Skip the component **or** (optional) display a warning.
+   - Ensure `cloneComponent()` uses:
+     ```js
+     src.distribution
+     ```
+     directly as the distribution identifier.
+
+4. **Remove any mapping based on visible labels**
+   - If any import logic attempts to match user-visible names (e.g., from the dropdown), remove or replace with internal-key matching.
+
+5. **Ensure internal-key → UI label mapping happens only during UI rendering**
+   - Distribution dropdowns should show:
+     ```js
+     DISTRIBUTIONS[key].label
+     ```
+   - But should store `key` in component state.
+
+6. **Do not modify unrelated logic**
+   - Do not alter sampling, ROC generation, visualization, or legends.
+   - Only modify code paths that read/write distributions during state export/import.
+
+---
+
+## C. Codex Prompt
+```text
+Implement roadmap milestone v1.15.5.3 from `ContinuousROC_Explorer_Roadmap_v1.15.md`.
+
+Goal: Ensure all distribution metadata in exported JSON uses INTERNAL distribution keys (the keys of `DISTRIBUTIONS`) and not user-visible labels. Update import logic so that distribution keys map directly back to DISTRIBUTIONS without inference. UI labels should only be used for display.
+
+Files to modify:
+- continuous_ROC.html
+- ROC_lib.js
+(Do not modify unrelated files.)
+
+Tasks:
+1. Update export logic so each component writes:
+   component.distribution   // internal key
+   instead of any label/translated/UI name.
+2. Verify that params and weight are exported unchanged.
+3. Add validation before export: if DISTRIBUTIONS[component.distribution] is missing, log an error.
+4. Update import logic to:
+   - Accept only internal keys,
+   - Ignore or warn about unrecognized keys,
+   - Pass the internal key directly into cloneComponent or the distribution-construction path.
+5. Remove all matching logic based on display labels.
+6. Leave sampling, ROC generation, and visualization unchanged.
+7. Do not modify unrelated code.
+
+Follow sections A and B of milestone v1.15.5.3 exactly.
+```
+---
+
+# Version v1.15.5.4 — Correct Import of Distribution Families (Internal-Key Alignment)
+
+## A. Goals
+- Fix the import logic so that **distribution families are restored correctly** using stable internal keys.
+- Ensure `DISTRIBUTIONS` is indexed **only by internal keys**, not by UI-visible labels.
+- Ensure state import uses **only** these internal keys to reconstruct components.
+- Guarantee that all distributions—including `betaMeanPrecision` and any added in `jstat_extras`—import correctly.
+- Eliminate fallback-to-Normal behavior caused by mismatched label→key assumptions.
+- Preserve full compatibility with saved JSON files created under v1.15.5.3.
+
+---
+
+## B. Implementation Plan
+
+### 1. **Refactor Construction of DISTRIBUTIONS (continuous_ROC.html)**
+- Locate where the `DISTRIBUTIONS` object is created.
+- Ensure that **keys** of `DISTRIBUTIONS` are the **internal distribution identifiers**, such as:
+  - `normal`
+  - `betaMeanPrecision`
+  - `beta`
+  - `gamma`
+  - others from `jstat_extras`
+- Ensure **values** contain:
+  - a `label` (localized UI string from `STRINGS`),
+  - parameter descriptors,
+  - generator functions.
+- Remove any code that assigns user-visible strings (e.g., "Beta (mean/precision)") as **keys**.
+
+### 2. **Update Distribution Dropdown Population**
+- When building `<option>` elements for the distribution selector:
+  ```html
+  <option value="<internalKey>">LocalizedLabel</option>
+  ```
+- Internally store only `<internalKey>`.
+- Display only the localized label.
+
+### 3. **Correct the Import Logic for Distribution Keys**
+- In the function that restores imported metadata (search for `applyImportedContinuousMetadata` or similar):
+  - Replace:
+    ```js
+    const distKey = entry.distribution || entry.family || entry.type;
+    ```
+    with:
+    ```js
+    const distKey = entry.distribution;  // MUST be the internal key
+    ```
+  - Check validity:
+    ```js
+    if (!DISTRIBUTIONS[distKey]) {
+       console.warn("Unknown distribution key during import:", distKey);
+       return;   // Skip this component
+    }
+    ```
+  - Do NOT attempt to interpret display labels.
+  - Do NOT fall back to Normal.
+
+### 4. **Update Component Construction (cloneComponent)**
+- Ensure `cloneComponent({ distribution: distKey, ... })` trusts the internal key.
+- Remove any logic reverting to `fallback` unless the key is literally missing.
+- Confirm that cloneComponent accesses:
+  ```js
+  DISTRIBUTIONS[distKey]
+  ```
+  based on internal keys.
+
+### 5. **Ensure Export Logic Already Uses Internal Keys**
+- Confirm that in v1.15.5.3, export writes:
+  ```js
+  distribution: component.distribution
+  ```
+  and not display labels.
+- If any remaining export sites use labels, update them to use internal keys.
+
+### 6. **Test with Provided JSON File**
+- Load the provided file:
+  `beta_beta_2_samples_1_15_5_3.json`
+- Confirm that both positive and negative distributions:
+  - restore to Beta (mean/precision),
+  - appear correctly in the UI,
+  - reconstruct all parameters and weights.
+
+### 7. **Leave All Unrelated Logic Unchanged**
+- Do not modify sampling, ROC generation, legends, or plotting.
+
+---
+
+## C. Codex Prompt
+```text
+Implement roadmap milestone v1.15.5.4 from `ContinuousROC_Explorer_Roadmap_v1.15.md`.
+
+Goal: Ensure distribution families import correctly by enforcing internal distribution keys for all import operations. Fix any mismatch between exported internal keys and DISTRIBUTIONS lookup.
+
+Files to modify:
+- continuous_ROC.html
+- ROC_lib.js
+(Do not modify unrelated files.)
+
+Tasks:
+1. Update the construction of the DISTRIBUTIONS object so that its keys are always internal distribution keys (e.g., normal, betaMeanPrecision, etc.). User-visible labels should appear only as values.
+2. Update the distribution dropdown builders so that each <option> has:
+   - value = internalKey
+   - textContent = localized label
+3. Update import logic:
+   - Replace any use of entry.family or entry.type when importing distributions.
+   - Accept only entry.distribution as the internal key.
+   - Validate internal key with: if (!DISTRIBUTIONS[distKey]) skip or warn.
+4. Update cloneComponent and component-restoration logic to trust the internal key directly.
+5. Remove any fallback-to-Normal behavior caused by label mismatch.
+6. Verify export logic continues to save internal keys only.
+7. Do not modify sampling or ROC generation.
+
+Follow sections A and B of milestone v1.15.5.4 exactly.
+```
+---
+
+# Version v1.15.5.5 — Unify Distribution Registry and Fix Import Logic
+
+## A. Goals
+- Fix the remaining import failure where valid internal keys such as `betaMeanPrecision` are rejected during ROC JSON import.
+- Unify the distribution family registry so that **only one authoritative source of distribution definitions exists**.
+- Remove or bypass outdated distribution validation inside `ROC_lib.js` that currently rejects valid keys.
+- Ensure ROC import always validates distribution keys against the UI’s canonical `DISTRIBUTIONS` table (the one containing internal keys such as `normal`, `beta`, `betaMeanPrecision`, etc.).
+- Maintain full backward compatibility with JSON files exported by versions ≥ v1.15.5.3.
+- Prevent all future divergence: UI distributions and ROC-lib distributions must never drift out of sync again.
+
+---
+
+## B. Implementation Plan
+
+### 1. Identify the legacy distribution validation in ROC_lib.js
+- Locate the block near line ~257 (based on the console message):
+  ```js
+  console.warn("Skipping unknown distribution key during metadata extraction:", distKey);
+  ```
+- This block checks `distKey` against a **separate** set of known distributions (in ROC_lib.js).
+- This registry does NOT include `betaMeanPrecision`, causing the import failure.
+
+### 2. Remove the distribution whitelist from ROC_lib.js
+- Delete or bypass any check resembling:
+  ```js
+  if (!someInternalTable[distKey]) return;
+  ```
+- Replace with unconditional acceptance:
+  ```js
+  callback({ distribution: distKey, params: entry.params, weight: entry.weight });
+  ```
+- ROC_lib.js **must not** maintain its own table of allowable distributions.
+- ROC_lib.js must treat distribution keys as opaque strings.
+
+### 3. Pass distribution metadata forward to continuous_ROC.html
+- Modify the extraction function so that it ALWAYS forwards:
+  ```js
+  { distribution: distKey, params: entry.params, weight: entry.weight }
+  ```
+- No validation occurs in ROC_lib.js.
+- No fallback to Normal.
+- No skipping of components.
+
+### 4. Validate distribution keys ONLY in continuous_ROC.html
+- In the existing logic (from v1.15.5.4), the authoritative validation is:
+  ```js
+  if (!DISTRIBUTIONS[distKey]) { warn and skip }
+  ```
+- Leave this as-is.
+- This ensures:
+  - UI config file controls valid distributions.
+  - Localization does not affect internal keys.
+  - Only one registry must be maintained.
+
+### 5. Ensure dropdown builder uses internal keys → labels mapping
+- Confirm that `<option value="key">label</option>` is used.
+- No changes needed if v1.15.5.3 and v1.15.5.4 were applied correctly.
+
+### 6. Test using the provided file `beta_beta_2_samples_1_15_5_3.json`
+- Import the JSON.
+- Validate that both:
+  - Positive component → Beta (mean/precision)
+  - Negative component → Beta (mean/precision)
+  now import correctly.
+
+### 7. Do not modify unrelated logic
+- Sampling, histogram generation, ROC computation, plotting, legends, or export logic should remain unchanged.
+
+---
+
+## C. Codex Prompt
+```text
+Implement roadmap milestone v1.15.5.5 from `ContinuousROC_Explorer_Roadmap_v1.15.md`.
+
+Goal: Unify the distribution registry so that ROC JSON import uses the UI’s canonical DISTRIBUTIONS table. Remove outdated distribution validation from ROC_lib.js that causes internal keys such as betaMeanPrecision to be rejected.
+
+Files to modify:
+- ROC_lib.js
+- continuous_ROC.html (only if needed to adjust the import pipeline; do not modify export logic)
+
+Tasks:
+1. In ROC_lib.js, locate distribution-validation logic near the code that logs:
+   "Skipping unknown distribution key during metadata extraction: ..."
+2. Remove or bypass this validation completely. ROC_lib.js must *not* maintain its own set of known distribution keys.
+3. Modify the metadata extraction so it always forwards:
+   { distribution: distKey, params: entry.params, weight: entry.weight }
+   without checking whether the key exists.
+4. Ensure continuous_ROC.html remains the sole authority that validates distribution keys against the UI’s DISTRIBUTIONS object.
+5. Do not add fallback-to-Normal behavior.
+6. Do not modify sampling logic, ROC computation, or export logic.
+7. Test by importing beta_beta_2_samples_1_15_5_3.json to ensure that betaMeanPrecision is now accepted and restored correctly.
+
+Follow sections A and B of milestone v1.15.5.5 exactly.
+```
+
+---
+
+# Version v1.15.5.6 — Prevent Dropdown Event Overwrite on Import
+
+## A. Goals
+- Fix the bug where the **positive distribution dropdown resets to “Normal”** after importing a saved ROC JSON file.
+- Ensure that restoring imported state **never triggers unwanted `change` events** on distribution-family dropdowns.
+- Ensure UI reconstruction does **not overwrite imported distribution selections**.
+- Remove unnecessary backward-compatibility code — the project does not require support for prior formats.
+- Leave negative distribution behavior unchanged.
+
+---
+
+## B. Implementation Plan
+
+### 1. Add a global flag to suppress UI event handlers during metadata restoration
+In `continuous_ROC.html`, before any import logic modifies selectors, define:
+```js
+let isRestoringImportedState = false;
+```
+
+### 2. Wrap the import-application code in this flag
+Where the UI applies imported state (inside the function that processes cleaned metadata), wrap the process:
+```js
+isRestoringImportedState = true;
+// apply imported distributions, parameters, weights, etc.
+isRestoringImportedState = false;
+```
+
+### 3. Modify positive distribution dropdown handler
+Find the handler registered on the positive-family `<select>` element:
+```js
+document.getElementById("positive-dist-family").addEventListener("change", onPositiveDistChange);
+```
+
+Inside `onPositiveDistChange`, **add this guard at the top**:
+```js
+if (isRestoringImportedState) return;
+```
+
+This ensures that setting:
+```js
+positiveDistSelector.value = importedKey;
+```
+does **not** fire logic that rebuilds the distribution using default settings.
+
+### 4. Prevent dropdown rebuild code from resetting value during import
+If the UI rebuilds the positive distribution selector (e.g., repopulates `<option>` elements), add:
+```js
+if (isRestoringImportedState) preserve existing value;
+```
+Implementation:
+- Store the current value:
+  ```js
+  const current = positiveDistSelector.value;
+  ```
+- Rebuild options
+- If `isRestoringImportedState === true`, restore:
+  ```js
+  positiveDistSelector.value = current;
+  ```
+- **Do not** trigger `.dispatchEvent(new Event("change"))` during restoration.
+
+### 5. Apply the same guard to any code that reinitializes sliders/parameter widgets
+If UI parameter widgets are reconstructed from scratch (e.g., for Beta mean/precision sliders), add:
+```js
+if (isRestoringImportedState) skipDefaultInitialization;
+```
+
+### 6. Remove legacy backward-compatibility conditions
+Since the project does not require backward support:
+- Remove branches handling `meta.distributions.negative` (singular).
+- Remove legacy parameter branching, keeping only:
+  ```js
+  params: item.params
+  ```
+- Ensure distribution metadata is always read from:
+  ```js
+  meta.distributions.positive
+  meta.distributions.negatives
+  ```
+
+### 7. Testing procedure
+1. Start a fresh session.
+2. Create a positive Beta(mean/precision) distribution with any parameters.
+3. Create a negative Beta(mean/precision) distribution.
+4. Export JSON.
+5. Reload the app.
+6. Import the JSON.
+
+Expected behavior:
+- **Both** positive and negative distributions appear as Beta(mean/precision).
+- All parameters and weights load correctly.
+- No dropdown resets to Normal.
+- Console shows no warnings.
+
+---
+
+## C. Codex Prompt
+```text
+Implement roadmap milestone v1.15.5.6 from `ContinuousROC_Explorer_Roadmap_v1.15.md`.
+
+Goal: Prevent the positive distribution dropdown from overwriting imported distributions by firing its change handler or being rebuilt incorrectly.
+
+Files to modify:
+- continuous_ROC.html
+(Do not modify ROC_lib.js for this milestone.)
+
+Tasks:
+1. Add a global flag:
+   let isRestoringImportedState = false;
+2. Surround the entire metadata-application code for imports with:
+   isRestoringImportedState = true;
+   ...restore UI and internal state...
+   isRestoringImportedState = false;
+3. In the positive distribution "change" handler, add at the top:
+   if (isRestoringImportedState) return;
+4. If the code reconstructs the positive distribution dropdown or its parameter widgets, modify that code so that:
+   - When isRestoringImportedState === true, it preserves the current value;
+   - It does NOT trigger a change event;
+5. Remove any outdated backward-compatibility logic involving singular "negative" keys or legacy parameter names.
+6. Ensure that after importing JSON, neither positive nor negative distributions are overwritten.
+7. Do not modify unrelated rendering or sampling code.
+
+Follow sections A and B of milestone v1.15.5.6 exactly.
+```
+
+# Version v1.15.5.7 — Clean Up Legacy Import Logic (No Backward Compatibility Required)
+
+## A. Goals
+- Remove all backward-compatibility paths in the metadata import pipeline.
+- Eliminate support for obsolete field names, obsolete array structures, and legacy parameter formats.
+- Simplify and modernize the JSON import structure to match the **current canonical export format only**.
+- Ensure the importer is deterministic, minimal, and fully consistent with the exporter.
+- Reduce maintenance burden by removing conditional logic for formats that will never appear in future files.
+- Leave ROC computation, sampling, plotting, legends, and UI logic unchanged.
+
+---
+
+## B. Implementation Plan
+
+### 1. Remove support for obsolete distribution keys and field names
+In `ROC_lib.js` and `continuous_ROC.html`, delete branches that handle any of the following legacy fields:
+- `meta.distributions.negative` (singular)
+- `item.parameters` (legacy name; use only `params`)
+- `meta.samplesROC` formats older than v1.15.5.4
+- Any field representing distributions outside the canonical format:
+  ```json
+  {
+    "distributions": {
+      "positive": [...],
+      "negatives": [...]
+    }
+  }
+  ```
+
+### 2. Replace coerceDist with strict parsing
+In `ROCUtils.extractContinuousRocMetadata`, replace:
+```js
+const params = (item.params && ...) ? item.params : (item.parameters && ...) ? item.parameters : {};
+```
+with:
+```js
+const params = (item.params && typeof item.params === "object") ? item.params : {};
+```
+
+Remove support for:
+- `item.parameters`
+- null/undefined fallback formats
+
+### 3. Enforce a strict distribution metadata structure
+The importer should only accept distribution components in this exact format:
+```json
+{
+  "distribution": "internalKey",
+  "params": { ... },
+  "weight": 0.123
+}
+```
+Any deviation should be ignored or warned about.
+
+Update `coerceDist` accordingly:
+```js
+if (!item.distribution || typeof item.distribution !== "string") return null;
+if (!item.params || typeof item.params !== "object") return null;
+if (typeof item.weight !== "number") return null;
+```
+
+### 4. Remove normalization of samplesROC for row-based samples
+Since v1.15.5.4 introduced the canonical column-based sample ROC format, eliminate the conversion logic for older row-based exports.
+
+Delete:
+```js
+normalizeSamplesRocArray(...)
+```
+Replace with:
+```js
+cleaned.samplesROC = meta.samplesROC; // assume canonical export
+```
+
+### 5. Remove support for older `meta.roc`, `meta.sampling` fallback formats
+Only accept the fields exactly as exported by current versions:
+- `meta.roc`
+- `meta.sampling`
+
+No value-shifting, aliasing, or renaming should occur.
+
+### 6. Update documentation within the code
+Add a short inline comment:
+```js
+// Import logic expects canonical metadata only (no backward compatibility).
+```
+
+### 7. Test the new strict importer
+1. Export a file using current app version.
+2. Reload app.
+3. Import the exported file.
+4. Confirm that:
+   - Positive and negative distributions restore without modification.
+   - All parameters and weights restore correctly.
+   - Sample ROC curves restore as expected.
+   - No console warnings occur (unless the file structure is invalid).
+
+
+---
+
+## C. Codex Prompt
+```text
+Implement roadmap milestone v1.15.5.7 from `ContinuousROC_Explorer_Roadmap_v1.15.md`.
+
+Goal: Simplify and modernize the JSON import pipeline by removing all backward-compatibility support. The importer should now only recognize the canonical export format used by current versions of the Continuous ROC Explorer.
+
+Files to modify:
+- ROC_lib.js
+- continuous_ROC.html
+
+Tasks:
+1. In ROCUtils.extractContinuousRocMetadata, remove all support for legacy fields, including:
+   - singular "negative"
+   - legacy "parameters" field
+   - row-based samplesROC formats
+2. Enforce strict parsing rules for distribution entries:
+   - distribution (string, required)
+   - params (object, required)
+   - weight (number, required)
+3. Replace coerceDist logic with the stricter version defined in the roadmap.
+4. Remove normalizeSamplesRocArray or any backward-conversion logic for sample ROC.
+5. Ensure the importer only accepts the canonical structure:
+   meta.distributions.positive
+   meta.distributions.negatives
+   meta.roc
+   meta.sampling
+   meta.samplesROC (canonical column format)
+6. Remove any aliasing, fallback, or compatibility code paths throughout the import pipeline.
+7. Add inline comments noting that the importer now assumes canonical format only.
+
+Follow sections A and B of milestone v1.15.5.7 exactly.
+```
+
+---
+
+
+# Version v1.15.5.8 — Align Import Schema With Canonical Export
+
+## A. Goals
+- Make the import pipeline match the **canonical export schema** now used in v1.15.5.7 and later.
+- Ensure distributions import correctly for both positives and negatives.
+- Replace old singular/plural mismatches (`positive` vs. `positives`).
+- Replace obsolete parameter key (`params`) with the canonical `parameters`.
+- Align sampling metadata (`samplingSettings` instead of `sampling`).
+- Eliminate all remaining structural mismatches so JSON round-trips work reliably.
+
+---
+
+## B. Implementation Plan
+
+### 1. Update distribution extraction in `ROC_lib.js`
+Modify `ROCUtils.extractContinuousRocMetadata` so it reads **only** the canonical keys used in current exports:
+
+- `meta.distributions.positives`
+- `meta.distributions.negatives`
+
+Replace older code such as:
+```js
+positive: coerceDist(meta.distributions.positive)
+negatives: coerceDist(meta.distributions.negatives || meta.distributions.negative)
+```
+with:
+```js
+const src = meta.distributions;
+cleaned.distributions = {
+  positives: coerceDist(src.positives),
+  negatives: coerceDist(src.negatives)
+};
+```
+
+### 2. Fix `coerceDist` to match canonical component format
+Canonical component format is:
+```json
+{
+  "distribution": "<internalKey>",
+  "weight": <number>,
+  "parameters": { ... }
+}
+```
+
+Implement strict parsing:
+```js
+const distribution = (typeof item.distribution === "string") ? item.distribution.trim() : "";
+if (!distribution) return null;
+
+const weight = (typeof item.weight === "number") ? item.weight : null;
+if (weight === null) return null;
+
+const parameters = (item.parameters && typeof item.parameters === "object")
+  ? item.parameters
+  : {};
+
+return { distribution, weight, parameters };
+```
+
+Remove all support for:
+- `item.params`
+- `item.parameters` as a fallback (it is now canonical)
+- singular `negative`
+
+### 3. Import sampling metadata using canonical field name
+Replace:
+```js
+if (meta.sampling) cleaned.sampling = { ... }
+```
+with:
+```js
+if (meta.samplingSettings && typeof meta.samplingSettings === "object") {
+  cleaned.samplingSettings = { ...meta.samplingSettings };
+}
+```
+
+### 4. Update `applyImportedContinuousMetadata` (in `continuous_ROC.html`)
+Ensure it reads:
+```js
+meta.distributions.positives
+meta.distributions.negatives
+```
+and applies those directly to internal state:
+```js
+state.posComponents = meta.distributions.positives.map(cloneComponent);
+state.negComponents = meta.distributions.negatives.map(cloneComponent);
+```
+where `cloneComponent` must map:
+```js
+{
+  distribution: entry.distribution,
+  weight: entry.weight,
+  parameters: { ...entry.parameters }
+}
+```
+into a properly structured UI component object.
+
+### 5. Update UI restore logic for sampling
+Restore sampling settings using:
+```js
+if (meta.samplingSettings) applySamplingSettings(meta.samplingSettings);
+```
+Remove all references to `meta.sampling`.
+
+### 6. Ensure consistency across exporter and importer
+Confirm:
+- Exporter writes `positives/negatives` arrays
+- Exporter uses `parameters`, not `params`
+- Exporter writes `samplingSettings`
+
+After re-aligning importer, both sides must match exactly.
+
+### 7. Test with the new gamma/gamma JSON (`GG_2_samp.json`)
+Expected:
+- Positive distribution restored as Gamma
+- Negative distribution restored as Gamma
+- Both sets of parameters (`k`, `theta`) restored
+- No unintended resets to Normal
+- No missing keys in console
+
+---
+
+## C. Codex Prompt
+```text
+Implement roadmap milestone v1.15.5.8 from `ContinuousROC_Explorer_Roadmap_v1.15.md`.
+
+Goal: Align the import schema with the canonical export format (positives/negatives arrays, parameters key, samplingSettings). Fix distribution import so that the JSON exported by the current app version imports cleanly.
+
+Files to modify:
+- ROC_lib.js
+- continuous_ROC.html
+
+Tasks:
+1. In ROC_lib.js, update ROCUtils.extractContinuousRocMetadata:
+   - Read distributions only from meta.distributions.positives and meta.distributions.negatives.
+   - Remove legacy singular (positive/negative) handling.
+   - Replace coerceDist with strict parsing:
+       distribution (string, required)
+       weight (number, required)
+       parameters (object, required)
+   - Remove support for item.params; use only item.parameters.
+2. Update sampling import: read meta.samplingSettings instead of meta.sampling.
+3. Ensure returned object structure is:
+   cleaned.distributions = { positives: [...], negatives: [...] }
+   cleaned.samplingSettings = { ... }
+   cleaned.roc = { ... }
+   cleaned.samplesROC = [ ... ]
+4. In continuous_ROC.html, update applyImportedContinuousMetadata:
+   - Use meta.distributions.positives and meta.distributions.negatives exclusively.
+   - Clone each component using distribution, weight, parameters.
+   - Apply samplingSettings instead of sampling.
+5. Remove any remaining compatibility logic for old JSON formats.
+6. Test by importing the provided GG_2_samp.json file.
+
+Follow sections A and B of milestone v1.15.5.8 exactly.
+```
+---
+
+# Version v1.15.5.8 — Align Import Schema With Canonical Export
+
+## A. Goals
+- Ensure imported continuous ROC curves correctly restore sample ROC curves using the canonical export schema.
+- Support only the canonical field names:
+  - `distributions.positives`
+  - `distributions.negatives`
+  - `samplingSettings`
+  - `samplesROC`
+- Correctly populate `state.samplesROC`.
+- Update the ROC plot renderer and legend logic to display sample ROC curves.
+- Remove all legacy or backward-compatible code paths.
+
+## B. Implementation Plan
+
+### 1. Update importer → state assignment
+After extracting metadata via `ROCUtils.extractContinuousRocMetadata`, ensure:
+```js
+state.samplesROC = metadata.samplesROC ?? [];
+```
+This must occur at the same stage where distributions and samplingSettings are restored.
+
+### 2. Update ROC plot rendering in `drawRocPlot()`
+Add logic to display each sample ROC curve:
+- Use `metadata.samplesROC` array.
+- For each sample:
+  - Plot as a polyline using `fpr`, `tpr`, `thr` arrays.
+  - Use thinner stroke width (e.g. 1px).
+  - Color: `CONFIG.COLORS.sample` or fallback to a default.
+- Ensure sample curves render **beneath** the main continuous ROC.
+
+### 3. Add sample curves to interactive legend
+Extend the legend creation logic:
+- Add entries: `Sample ROC 1`, `Sample ROC 2`, ...
+- Each entry toggles visibility via:
+```js
+visibilityState.roc.sample[k]
+```
+- Default visibility: `true` for all samples on import.
+
+### 4. Initialize `visibilityState.roc.sample` properly
+During import:
+```js
+visibilityState.roc.sample = {};
+state.samplesROC.forEach((_, i) => {
+  visibilityState.roc.sample[i] = true;
+});
+```
+
+### 5. Strict canonical import schema
+Remove all support for:
+- `meta.samples`
+- `meta.sampleRoc`
+- `meta.samples_roc`
+- old naming such as `meta.sampling`
+
+Only accept:
+- `meta.samplesROC`
+- `meta.samplingSettings`
+
+### 6. Testing
+Use the file `BB_2_samp.json`:
+- Continuous curve must load.
+- Sample curves must appear automatically.
+- Sample curves must be toggleable via legend.
+- No console errors.
+
+---
+
+## C. Codex Prompt
+```
+Implement roadmap milestone v1.15.5.8 from `ContinuousROC_Explorer_Roadmap_v1.15.md`.
+
+Files to modify:
+  • continuous_ROC.html
+  • ROC_lib.js
+
+Tasks:
+1. Update import logic:
+   - After extracting metadata, set:
+       state.samplesROC = metadata.samplesROC ?? [];
+   - Use only canonical keys:
+       distributions.positives
+       distributions.negatives
+       samplingSettings
+       samplesROC
+   - Remove support for legacy field names.
+
+2. In continuous_ROC.html, update applyImportedContinuousMetadata:
+   - Assign sample ROC curves to state.samplesROC.
+   - Initialize visibilityState.roc.sample for each sample.
+
+3. Update drawRocPlot():
+   - Render each sample ROC curve as a polyline using fpr/tpr/thr.
+   - Use thin stroke and color from CONFIG.COLORS.sample.
+   - Ensure curves are appended behind the main continuous ROC curve.
+
+4. Update legend rendering code:
+   - Add entries “Sample ROC 1”, “Sample ROC 2”, ...
+   - Each toggles visibilityState.roc.sample[k], and triggers redraw.
+
+5. Test using BB_2_samp.json:
+   - Continuous ROC loads.
+   - Sample ROC curves display.
+   - Sample curves respond to legend toggles.
+
+Follow the roadmap instructions precisely and do not alter unrelated code.
+```
+
+---
+
 # Version v1.15.6 — Integrate All Distributions from `jstat_extra.js`
 
 ## A. Goals

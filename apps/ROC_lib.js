@@ -165,71 +165,57 @@
     return `rgba(${r},${g},${b},${alpha})`;
   };
 
-  function normalizeSampleRoc(entry){
-    const coerceArray = (arr)=>{
-      if(!Array.isArray(arr)) return null;
-      const out = arr.map(v=>Number(v)).filter(v=>Number.isFinite(v));
-      return out.length === arr.length ? out : null;
-    };
-    // Accept already-normalized object form
-    if(entry && typeof entry === 'object' && !Array.isArray(entry)){
-      const fpr = coerceArray(entry.fpr);
-      const tpr = coerceArray(entry.tpr);
-      if(!fpr || !tpr || !fpr.length || fpr.length !== tpr.length){
-        return null;
-      }
-      let thr = null;
-      if(entry.threshold){
-        const maybe = coerceArray(entry.threshold);
-        if(maybe && maybe.length === fpr.length){
-          thr = maybe;
-        }
-      } else if(entry.thr){
-        const maybe = coerceArray(entry.thr);
-        if(maybe && maybe.length === fpr.length){
-          thr = maybe;
-        }
-      }
-      return thr ? {fpr, tpr, thr} : {fpr, tpr};
+  ROCUtils.extractContinuousRocMetadata = function(curve){
+    const meta = curve?.metadata?.continuous_roc_explorer;
+    if(!meta || typeof meta !== 'object'){
+      return null;
     }
-    // Accept array-of-points legacy form
-    if(Array.isArray(entry)){
-      const fpr = [];
-      const tpr = [];
-      const thr = [];
-      entry.forEach(pt=>{
-        const f = Number(pt?.fpr);
-        const t = Number(pt?.tpr);
-        const h = pt?.thr;
-        if(Number.isFinite(f) && Number.isFinite(t)){
-          fpr.push(f);
-          tpr.push(t);
-          thr.push(Number.isFinite(Number(h)) ? Number(h) : null);
-        }
-      });
-      if(!fpr.length || fpr.length !== tpr.length){
-        return null;
-      }
-      const hasThr = thr.some(v=>v !== null);
-      if(hasThr && thr.length === fpr.length){
-        return {fpr, tpr, thr};
-      }
-      return {fpr, tpr};
+    // Import logic expects canonical metadata only (no backward compatibility).
+    const cleaned = {};
+    if(meta.distributions && typeof meta.distributions === 'object'){
+      const coerceDist = (arr)=>{
+        if(!Array.isArray(arr)) return [];
+        return arr.map(item=>{
+          if(!item || typeof item !== 'object') return null;
+          if(typeof item.distribution !== 'string') return null;
+          const distribution = item.distribution.trim();
+          if(!distribution) return null;
+          if(!item.parameters || typeof item.parameters !== 'object') return null;
+          if(typeof item.weight !== 'number') return null;
+          return {distribution, parameters: item.parameters, weight: item.weight};
+        }).filter(Boolean);
+      };
+      cleaned.distributions = {
+        positives: coerceDist(meta.distributions.positives),
+        negatives: coerceDist(meta.distributions.negatives)
+      };
     }
-    return null;
-  }
-
-  function normalizeSamplesRocArray(samples){
-    if(!Array.isArray(samples)) return [];
-    const normalized = [];
-    samples.forEach(entry=>{
-      const norm = normalizeSampleRoc(entry);
-      if(norm){
-        normalized.push(norm);
+    if(meta.samplingSettings && typeof meta.samplingSettings === 'object'){
+      cleaned.samplingSettings = {...meta.samplingSettings};
+    }
+    if(meta.roc && typeof meta.roc === 'object'){
+      cleaned.roc = {...meta.roc};
+    }
+    if(Array.isArray(meta.samplesROC)){
+      const samples = meta.samplesROC
+        .map(entry=>{
+          if(!entry || typeof entry !== 'object') return null;
+          const fpr = Array.isArray(entry.fpr) ? entry.fpr.slice() : null;
+          const tpr = Array.isArray(entry.tpr) ? entry.tpr.slice() : null;
+          if(!fpr || !tpr || fpr.length !== tpr.length || !fpr.length) return null;
+          if(entry.thr !== undefined){
+            if(!Array.isArray(entry.thr) || entry.thr.length !== fpr.length) return null;
+            return {fpr, tpr, thr: entry.thr.slice()};
+          }
+          return {fpr, tpr};
+        })
+        .filter(Boolean);
+      if(samples.length){
+        cleaned.samplesROC = samples;
       }
-    });
-    return normalized;
-  }
+    }
+    return Object.keys(cleaned).length ? cleaned : null;
+  };
 
   ROCUtils.toCanonicalRocObject = function(input, options = {}){
     if(!isPlainObject(input)){
@@ -309,17 +295,7 @@
       Object.keys(input.metadata).forEach(key=>{
         metadata[key] = input.metadata[key];
       });
-      if(metadata.continuous_roc_explorer && Array.isArray(metadata.continuous_roc_explorer.samplesROC)){
-        const cleaned = normalizeSamplesRocArray(metadata.continuous_roc_explorer.samplesROC);
-        if(cleaned.length){
-          metadata.continuous_roc_explorer = {
-            ...metadata.continuous_roc_explorer,
-            samplesROC: cleaned
-          };
-        } else {
-          delete metadata.continuous_roc_explorer.samplesROC;
-        }
-      }
+      // Metadata is assumed to already be canonical; no backward conversions.
       canonical.metadata = metadata;
     }
 
