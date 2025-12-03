@@ -384,6 +384,14 @@ const COLORS = {
     hue: "#7d3cff",
     opacity: 0.18,
     strokeOpacity: 1
+  },
+  positiveCurveFill: {
+    hue: "#1f77b4",
+    opacity: 0.08
+  },
+  negativeCurveFill: {
+    hue: "#d62728",
+    opacity: 0.08
   }
 };
 

@@ -3594,6 +3594,10 @@ Steps:
 Do not modify unrelated logic.
 ```
 
+
+The fills for the positive and negative PDF curves arre completely opaque; they need to be semi-transparent. The DEFAULT_COLOR_CONFIG secifies an opacit of 0.08 for these fills; why are you not using that?
+
+
 ---
 
 # Version v1.15.16 — Complete Sampling Settings Import/Export
@@ -3807,3 +3811,5 @@ The DeLong confidence bands do not reliably cover the samples, though the bootst
 * All the sample ROC curves should be shown or hidden from a single legend element.
 
 * Sampled curves do not correctly survive export/import. Only one sampled curve is imported, and the confidence bands seem to be around that curve.
+
+* Color configuration should be part of the general configuration system.

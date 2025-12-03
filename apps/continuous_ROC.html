@@ -133,8 +133,8 @@ body {
     th,td{border:1px solid #d7d7e8;padding:4px 10px;text-align:center}
     .chart-title{font-size:16px;font-weight:600;fill:#202038}
     .axis-label{font-size:13px;fill:#4a4a66}
-    .pdf-line-positive{stroke:#1f77b4;stroke-width:2.4;fill:none}
-    .pdf-line-negative{stroke:#ff7f0e;stroke-width:2.4;fill:none}
+    .pdf-line-positive{stroke-width:2.4;}
+    .pdf-line-negative{stroke-width:2.4;}
     .area-tp{fill:rgba(54,184,84,0.28);stroke:none}
     .area-fn{fill:rgba(220,67,67,0.30);stroke:none}
     .area-tn{fill:rgba(54,184,84,0.28);stroke:none;opacity:0.75}
@@ -284,32 +284,49 @@ body {
       }
 
       const DEFAULT_COLOR_CONFIG={
-        positive:{hue:'#1f77b4',histogramOpacity:0.4,rugOpacity:0.75,pdfOpacity:1},
-        negative:{hue:'#d62728',histogramOpacity:0.4,rugOpacity:0.75,pdfOpacity:1},
-        sample:{hue:'#7d3cff',opacity:0.7}
+        positive:{hue:'#1f77b4',histogramOpacity:0.4,rugOpacity:0.75,pdfOpacity:1,rocOpacity:1},
+        negative:{hue:'#d62728',histogramOpacity:0.4,rugOpacity:0.75,pdfOpacity:1,rocOpacity:1},
+        sample:{hue:'#7d3cff',opacity:0.7},
+        empirical:{hue:'#7d3cff',opacity:1},
+        randomRoc:{hue:'#30307c',opacity:1},
+        confidenceBand:{hue:'#7d3cff',opacity:0.18,strokeOpacity:1},
+        positiveCurveFill:{hue:'#1f77b4',opacity:0.08},
+        negativeCurveFill:{hue:'#d62728',opacity:0.08}
       };
 
       function resolveColorConfig(source){
         const result={
           positive:{...DEFAULT_COLOR_CONFIG.positive},
           negative:{...DEFAULT_COLOR_CONFIG.negative},
-          sample:{...DEFAULT_COLOR_CONFIG.sample}
+          sample:{...DEFAULT_COLOR_CONFIG.sample},
+          empirical:{...DEFAULT_COLOR_CONFIG.empirical},
+          randomRoc:{...DEFAULT_COLOR_CONFIG.randomRoc},
+          confidenceBand:{...DEFAULT_COLOR_CONFIG.confidenceBand},
+          positiveCurveFill:{...DEFAULT_COLOR_CONFIG.positiveCurveFill},
+          negativeCurveFill:{...DEFAULT_COLOR_CONFIG.negativeCurveFill}
         };
         ['positive','negative'].forEach(key=>{
           const entry=source?.[key];
           if(!entry){return;}
           if(typeof entry.hue==='string' && entry.hue.trim()){result[key].hue=entry.hue;}
-          ['histogramOpacity','rugOpacity','pdfOpacity'].forEach(field=>{
+          ['histogramOpacity','rugOpacity','pdfOpacity','rocOpacity'].forEach(field=>{
             const val=Number(entry[field]);
             if(Number.isFinite(val)){result[key][field]=val;}
           });
         });
-        if(source?.sample){
-          const entry=source.sample;
-          if(typeof entry.hue==='string' && entry.hue.trim()){result.sample.hue=entry.hue;}
-          const val=Number(entry.opacity);
-          if(Number.isFinite(val)){result.sample.opacity=val;}
-        }
+        ['sample','empirical','randomRoc','confidenceBand','positiveCurveFill','negativeCurveFill'].forEach(key=>{
+          const entry=source?.[key];
+          if(!entry){return;}
+          if(typeof entry.hue==='string' && entry.hue.trim()){result[key].hue=entry.hue;}
+          if(entry.opacity!==undefined){
+            const val=Number(entry.opacity);
+            if(Number.isFinite(val)){result[key].opacity=val;}
+          }
+          if(entry.strokeOpacity!==undefined){
+            const val=Number(entry.strokeOpacity);
+            if(Number.isFinite(val)){result[key].strokeOpacity=val;}
+          }
+        });
         return result;
       }
 
@@ -333,8 +350,8 @@ body {
 .rug-neg line{stroke:${getColor('negative', '#d62728')};opacity:${colors?.negative?.rugOpacity??0.75};}
 .legend-pos{background:${getColor('positive', '#1f77b4')};opacity:${colors?.positive?.histogramOpacity??0.4};}
 .legend-neg{background:${getColor('negative', '#d62728')};opacity:${colors?.negative?.histogramOpacity??0.4};}
-.pdf-line-positive{stroke:${getColor('positive', '#1f77b4')};opacity:${colors?.positive?.pdfOpacity??1};}
-.pdf-line-negative{stroke:${getColor('negative', '#d62728')};opacity:${colors?.negative?.pdfOpacity??1};}
+.pdf-line-positive{stroke:${getColor('positive', '#1f77b4')};fill:${getColor('positiveCurveFill','#1f77b4')};opacity:${colors?.positive?.pdfOpacity??1};}
+.pdf-line-negative{stroke:${getColor('negative', '#d62728')};fill:${getColor('negativeCurveFill','#d62728')};opacity:${colors?.negative?.pdfOpacity??1};}
 `;
         const styleEl=document.createElement('style');
         styleEl.setAttribute('data-role','color-theme');
@@ -344,9 +361,11 @@ body {
 
       const COLOR_CONFIG=resolveColorConfig(CONFIG.COLORS);
       applyColorStyles(COLOR_CONFIG);
-      const COLOR_HELPERS={
+const COLOR_HELPERS={
         posPdf:getColor('positive', '#1f77b4'),
         negPdf:getColor('negative', '#d62728'),
+        posPdfFill:getColor('positiveCurveFill', '#1f77b4'),
+        negPdfFill:getColor('negativeCurveFill', '#d62728'),
         posHist:getColor('positive', '#1f77b4'),
         negHist:getColor('negative', '#d62728'),
         posRug:getColor('positive', '#1f77b4'),
@@ -361,8 +380,8 @@ body {
       const scoreLegendContainer=document.getElementById('scoreLegend');
       const rocLegendContainer=document.getElementById('rocLegend');
       const scoreLegendItems=[
-        {key:'posPDF',label:'Positive PDF',color:COLOR_HELPERS.posPdf},
-        {key:'negPDF',label:'Negative PDF',color:COLOR_HELPERS.negPdf},
+        {key:'posPDF',label:'Positive PDF',color:COLOR_HELPERS.posPdfFill},
+        {key:'negPDF',label:'Negative PDF',color:COLOR_HELPERS.negPdfFill},
         {key:'posHist',label:'Positive histogram',color:COLOR_HELPERS.posHist},
         {key:'negHist',label:'Negative histogram',color:COLOR_HELPERS.negHist},
         {key:'empiricalPoints',label:'Empirical points',color:COLOR_HELPERS.empirical}
@@ -654,8 +673,8 @@ body {
       const areaFNPath=distAreaGroup.append('path').attr('class','area-fn');
       const areaTPPath=distAreaGroup.append('path').attr('class','area-tp');
 
-      const distPosLinePath=distContent.append('path').attr('class','pdf-line-positive');
-      const distNegLinePath=distContent.append('path').attr('class','pdf-line-negative');
+      const distPosLinePath=distContent.append('path').attr('class','pdf-line-positive').attr('fill',COLOR_HELPERS.posPdfFill).attr('stroke',COLOR_HELPERS.posPdf);
+      const distNegLinePath=distContent.append('path').attr('class','pdf-line-negative').attr('fill',COLOR_HELPERS.negPdfFill).attr('stroke',COLOR_HELPERS.negPdf);
       const thresholdLine=distContent.append('line').attr('class','threshold-line');
       const thresholdHandle=distContent.append('circle').attr('class','threshold-handle').attr('r',6);
 
@@ -1463,12 +1482,20 @@ body {
         distYAxisGroup.call(d3.axisLeft(distYScale));
 
         if(visibilityState.score.posPDF){
-          distPosLinePath.style('display',null).datum(dataPoints).attr('d',distPosLineGenerator);
+          distPosLinePath
+            .style('display',null)
+            .attr('fill',COLOR_HELPERS.posPdfFill)
+            .attr('stroke',COLOR_HELPERS.posPdf)
+            .datum(dataPoints).attr('d',distPosLineGenerator);
         } else {
           distPosLinePath.style('display','none').attr('d',null);
         }
         if(visibilityState.score.negPDF){
-          distNegLinePath.style('display',null).datum(dataPoints).attr('d',distNegLineGenerator);
+          distNegLinePath
+            .style('display',null)
+            .attr('fill',COLOR_HELPERS.negPdfFill)
+            .attr('stroke',COLOR_HELPERS.negPdf)
+            .datum(dataPoints).attr('d',distNegLineGenerator);
         } else {
           distNegLinePath.style('display','none').attr('d',null);
         }
