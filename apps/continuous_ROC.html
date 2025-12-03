@@ -5,10 +5,13 @@
   <title>Continuous ROC Explorer</title>
   <script src="https://cdn.jsdelivr.net/npm/jstat@latest/dist/jstat.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <script src="jstat_extra.js"></script>
   <script src="continuous_ROC_config.js"></script>
   <script src="ROC_lib.js"></script>
   <style>
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:18px;background:#fcfcff;color:#21213a}
+    body.busy{cursor:progress!important}
+    body.busy *{cursor:progress!important}
     h2{margin:0 0 6px 0;font-size:24px;font-weight:650;color:#1e1e31}
     p.description{margin:0 0 18px 0;font-size:14px;color:#515172}
     .controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:18px;margin-bottom:22px}
@@ -1203,6 +1206,9 @@ body {
 
       function sanitizePDF(value){return Number.isFinite(value)&&value>=0?value:0;}
       function clamp(val,min,max){return Math.min(Math.max(val,min),max);}
+      function setBusy(flag){
+        document.body.classList.toggle('busy',Boolean(flag));
+      }
 
       function buildDistribution(prefix){
         const allowMulti=FEATURES.allowMultiComponents;
@@ -1230,6 +1236,8 @@ body {
       }
 
       function update(){
+        setBusy(true);
+        try{
         const pos=buildDistribution('pos');
         const neg=buildDistribution('neg');
         refreshStudentTInfo();
@@ -1507,6 +1515,9 @@ body {
         const headers=STRINGS.metrics.prevalenceHeader;
         document.getElementById('metricsPrev').innerHTML=`<table><tr><th>${headers[0]}</th><th>${headers[1]}</th><th>${headers[2]}</th></tr><tr><td>${ppv.toFixed(3)}</td><td>${npv.toFixed(3)}</td><td>${accuracy.toFixed(3)}</td></tr></table>`;
         renderLegendSelection();
+        } finally {
+          setBusy(false);
+        }
       }
 
       function handleDrag(event){

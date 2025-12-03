@@ -247,6 +247,73 @@ const DISTRIBUTIONS = {
       if(min >= max){max = min + 1;}
       return [min, max];
     }
+  },
+  expPower: {
+    label: "Exponential Power",
+    supportsMulti: true,
+    parameters: [
+      { id: "mu", label: "μ (location)", type: "number", value: 0, step: 0.1 },
+      { id: "sigma", label: "σ (std dev)", type: "number", value: 1, step: 0.1, min: 0.01 },
+      { id: "beta", label: "β (shape)", type: "number", value: 2, step: 0.1, min: 0.1 }
+    ],
+    pdf: (params, x) => jStat.expPower.pdf(x, params.mu, Math.max(params.sigma, 1e-6), Math.max(params.beta, 0.1)),
+    cdf: (params, x) => jStat.expPower.cdf(x, params.mu, Math.max(params.sigma, 1e-6), Math.max(params.beta, 0.1)),
+    domain: (params) => {
+      const mu = Number(params.mu) || 0;
+      const sigma = Math.max(Number(params.sigma) || 1, 1e-3);
+      return [mu - 10 * sigma, mu + 10 * sigma];
+    }
+  },
+  sep2: {
+    label: "Skew Exp Power (SEP2)",
+    supportsMulti: true,
+    parameters: [
+      { id: "mu", label: "μ (location)", type: "number", value: 0, step: 0.1 },
+      { id: "sigma", label: "σ (scale)", type: "number", value: 1, step: 0.1, min: 0.01 },
+      { id: "alpha", label: "α (skew)", type: "number", value: 1, step: 0.1, min: -10, max: 10 },
+      { id: "psi", label: "ψ (tail)", type: "number", value: 1, step: 0.1, min: 0.1 }
+    ],
+    pdf: (params, x) => jStat.sep2.pdf(x, params.mu, Math.max(params.sigma, 1e-6), params.alpha, Math.max(params.psi, 0.1)),
+    cdf: (params, x) => jStat.sep2.cdf(x, params.mu, Math.max(params.sigma, 1e-6), params.alpha, Math.max(params.psi, 0.1)),
+    domain: (params) => {
+      const mu = Number(params.mu) || 0;
+      const sigma = Math.max(Number(params.sigma) || 1, 1e-3);
+      return [mu - 12 * sigma, mu + 12 * sigma];
+    }
+  },
+  sep2_gamlss: {
+    label: "GAMLSS SEP2",
+    supportsMulti: true,
+    parameters: [
+      { id: "mu", label: "μ (location)", type: "number", value: 0, step: 0.1 },
+      { id: "sigma", label: "σ (scale)", type: "number", value: 1, step: 0.1, min: 0.01 },
+      { id: "nu", label: "ν (skew)", type: "number", value: 1, step: 0.1 },
+      { id: "tau", label: "τ (tail)", type: "number", value: 2, step: 0.1, min: 0.1 }
+    ],
+    pdf: (params, x) => jStat.sep2_gamlss.pdf(x, params.mu, Math.max(params.sigma, 1e-6), params.nu, Math.max(params.tau, 0.1)),
+    cdf: (params, x) => jStat.sep2_gamlss.cdf(x, params.mu, Math.max(params.sigma, 1e-6), params.nu, Math.max(params.tau, 0.1)),
+    domain: (params) => {
+      const mu = Number(params.mu) || 0;
+      const sigma = Math.max(Number(params.sigma) || 1, 1e-3);
+      return [mu - 12 * sigma, mu + 12 * sigma];
+    }
+  },
+  sep_hutson: {
+    label: "Hutson SEP",
+    supportsMulti: true,
+    parameters: [
+      { id: "theta", label: "θ (location)", type: "number", value: 0, step: 0.1 },
+      { id: "sigma", label: "σ (scale)", type: "number", value: 1, step: 0.1, min: 0.01 },
+      { id: "alpha", label: "α (skew 0-1)", type: "number", value: 0.5, step: 0.01, min: 0.001, max: 0.999 },
+      { id: "beta", label: "β (tail -1..1)", type: "number", value: 0, step: 0.1, min: -1, max: 1 }
+    ],
+    pdf: (params, x) => jStat.sep_hutson.pdf(x, params.theta, Math.max(params.sigma, 1e-6), params.alpha, params.beta),
+    cdf: (params, x) => jStat.sep_hutson.cdf(x, params.theta, Math.max(params.sigma, 1e-6), params.alpha, params.beta),
+    domain: (params) => {
+      const theta = Number(params.theta) || 0;
+      const sigma = Math.max(Number(params.sigma) || 1, 1e-3);
+      return [theta - 14 * sigma, theta + 14 * sigma];
+    }
   }
 };
 
@@ -259,7 +326,11 @@ const DISTRIBUTION_ORDER = [
   "chisq",
   "studentT",
   "weibull",
-  "uniform"
+  "uniform",
+  "expPower",
+  "sep2",
+  "sep2_gamlss",
+  "sep_hutson"
 ];
 
 const DEFAULT_OPTIONS = {
