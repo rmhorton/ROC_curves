@@ -48,7 +48,7 @@
     .rug-neg line{stroke:#1f77b4;stroke-width:1.2;opacity:0.75}
     .roc-empirical{stroke:#7d3cff;stroke-width:2;fill:none;stroke-dasharray:5 4}
     .legend-bar{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;font-size:12px;color:#30304a}
-    #rocLegend{display:flex;flex-wrap:wrap;gap:6px 12px;max-width:540px}
+    #rocLegend{display:flex;flex-wrap:wrap;gap:6px 12px;max-width:540px;align-items:flex-start}
     #rocLegend .legend-item{flex:0 0 auto;white-space:nowrap;display:flex;align-items:center;min-width:120px}
     .legend-item{display:flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid #dcdcee;border-radius:8px;cursor:pointer;user-select:none;background:#f9f9ff;transition:background 0.15s,border-color 0.15s,opacity 0.15s}
     .legend-item:hover{background:#f0f0ff}
@@ -247,6 +247,7 @@ body {
         roc:{
           theoretical:true,
           empirical:DEFAULT_OPTIONS.showEmpiricalRoc??false,
+          confidenceBand:true,
           sample:{}
         }
       };
@@ -344,7 +345,8 @@ body {
       ];
       const baseRocLegendItems=[
         {key:'theoretical',label:'Theoretical ROC',color:COLOR_HELPERS.roc},
-        {key:'empirical',label:'Empirical ROC',color:COLOR_HELPERS.empirical}
+        {key:'empirical',label:'Empirical ROC',color:COLOR_HELPERS.empirical},
+        {key:'confidenceBand',label:'Confidence band',color:COLOR_HELPERS.sample}
       ];
 
       function buildLegend(container, items, sectionKey){
@@ -411,6 +413,7 @@ body {
             Object.keys(visibilityState.roc.sample).forEach(key=>{
               visibilityState.roc.sample[key]=true;
             });
+            visibilityState.roc.confidenceBand=true;
           }
         });
         renderLegendSelection();
@@ -486,6 +489,7 @@ body {
         simulatedDataActive:false,
         samplesROC:[],
         samplesHist:null,
+        confBand:null,
         numSamples:20
       };
 
@@ -712,6 +716,9 @@ body {
         .text(STRINGS.plots.rocYAxis);
 
       const rocSampleGroup=rocContent.append('g').attr('class','roc-samples').attr('clip-path','url(#rocClip)');
+      const confBandArea=rocContent.append('path').attr('class','roc-conf-band').attr('clip-path','url(#rocClip)');
+      const confBandUpper=rocContent.append('path').attr('class','roc-conf-band-upper').attr('clip-path','url(#rocClip)');
+      const confBandLower=rocContent.append('path').attr('class','roc-conf-band-lower').attr('clip-path','url(#rocClip)');
       const rocLinePath=rocContent.append('path').attr('class','roc-line').attr('clip-path','url(#rocClip)');
       const empiricalRocPath=rocContent.append('path').attr('class','roc-empirical').style('opacity',0).attr('clip-path','url(#rocClip)');
       rocContent.append('path').attr('class','roc-random')
@@ -981,10 +988,49 @@ body {
           visibilityState.roc.sample={};
           state.samplesROC.forEach((_,idx)=>{visibilityState.roc.sample[idx]=true;});
           refreshRocLegend();
+          computeConfidenceBand();
         } finally {
           setBusy(false);
         }
         update();
+      }
+
+      function computeConfidenceBand(){
+        const samples=state.samplesROC||[];
+        if(!samples.length){state.confBand=null;return;}
+        const fprGrid=d3.range(0,1.000001,0.01);
+        const quantile=(arr,p)=>{
+          if(!arr.length){return null;}
+          const sorted=[...arr].sort((a,b)=>a-b);
+          return d3.quantileSorted(sorted,p);
+        };
+        const interpolate=(fprArr,tprArr,x)=>{
+          const n=fprArr.length;
+          if(!n){return null;}
+          if(x<=fprArr[0]){return tprArr[0];}
+          if(x>=fprArr[n-1]){return tprArr[n-1];}
+          const idx=d3.bisectLeft(fprArr,x);
+          const x0=fprArr[idx-1],x1=fprArr[idx];
+          const y0=tprArr[idx-1],y1=tprArr[idx];
+          if(x1===x0){return y0;}
+          const t=(x-x0)/(x1-x0);
+          return y0+(y1-y0)*t;
+        };
+        const lower=[];
+        const upper=[];
+        fprGrid.forEach(fprVal=>{
+          const values=[];
+          samples.forEach(sample=>{
+            const fpr=Array.isArray(sample.fpr)?sample.fpr:null;
+            const tpr=Array.isArray(sample.tpr)?sample.tpr:null;
+            if(!fpr||!tpr||fpr.length!==tpr.length||!fpr.length){return;}
+            const v=interpolate(fpr,tpr,fprVal);
+            if(Number.isFinite(v)){values.push(v);}
+          });
+          lower.push(quantile(values,0.025));
+          upper.push(quantile(values,0.975));
+        });
+        state.confBand={fpr:fprGrid,lower,upper};
       }
       function parseEmpiricalCsv(text, filename){
         let parsed;
@@ -1541,6 +1587,46 @@ body {
           })
           .lower();
 
+        const hasBand=state.confBand && Array.isArray(state.confBand.fpr) && Array.isArray(state.confBand.lower) && Array.isArray(state.confBand.upper);
+        if(hasBand && visibilityState.roc.confidenceBand!==false){
+          const bandData=state.confBand.fpr.map((fprVal,idx)=>({
+            fpr:fprVal,
+            lower:state.confBand.lower[idx],
+            upper:state.confBand.upper[idx]
+          })).filter(d=>Number.isFinite(d.lower)&&Number.isFinite(d.upper));
+          const bandAreaGen=d3.area().curve(d3.curveMonotoneX)
+            .x(d=>rocXScale(d.fpr))
+            .y0(d=>rocYScale(d.lower))
+            .y1(d=>rocYScale(d.upper));
+          const bandLineGen=d3.line().curve(d3.curveMonotoneX)
+            .x(d=>rocXScale(d.fpr))
+            .y(d=>rocYScale(d.lower));
+          confBandArea
+            .attr('d',bandAreaGen(bandData))
+            .attr('fill',COLOR_HELPERS.sample)
+            .attr('opacity',0.18)
+            .style('display',null)
+            .lower();
+          confBandLower
+            .attr('d',bandLineGen(bandData))
+            .attr('stroke',COLOR_HELPERS.sample)
+            .attr('stroke-width',1)
+            .attr('fill','none')
+            .style('display',null)
+            .lower();
+          confBandUpper
+            .attr('d',d3.line().curve(d3.curveMonotoneX).x(d=>rocXScale(d.fpr)).y(d=>rocYScale(d.upper))(bandData))
+            .attr('stroke',COLOR_HELPERS.sample)
+            .attr('stroke-width',1)
+            .attr('fill','none')
+            .style('display',null)
+            .lower();
+        } else {
+          confBandArea.style('display','none');
+          confBandLower.style('display','none');
+          confBandUpper.style('display','none');
+        }
+
         if(visibilityState.roc.theoretical && rocSorted.length>=2){
           rocLinePath.style('display',null).datum(rocSorted).attr('d',rocLineGenerator);
         } else {
@@ -1882,6 +1968,7 @@ body {
         state.samplesROC.forEach((_,idx)=>{
           visibilityState.roc.sample[idx]=true;
         });
+        computeConfidenceBand();
         refreshRocLegend();
         renderLegendSelection();
         let applied=false;

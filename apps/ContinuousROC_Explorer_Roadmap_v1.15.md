@@ -2154,36 +2154,125 @@ Follow the roadmap instructions precisely without altering unrelated code.
 # Version v1.15.8 — Confidence Band Computation (95% Pointwise)
 
 ## A. Goals
-- Using the sampled ROC curves from v1.15.7, compute a **95% pointwise confidence band** over a fixed FPR grid:
-  - At each FPR grid point, take the 2.5th and 97.5th percentiles of TPR across all samples.
+- Compute **95% pointwise confidence bands** from sampled ROC curves.
+- Use a fixed FPR grid (e.g., 0, 0.01, …, 1).
+- Interpolate all sampled ROC curves onto this grid.
+- Compute 2.5th and 97.5th percentiles of TPR at each grid point.
 - Render:
-  - Upper and lower band boundary curves.
-  - Shaded region between them.
-- Control the confidence band visibility via the existing ROC legend entry:
-  - Hiding the band hides **both** the shading and the boundary curves.
+  - Upper boundary curve
+  - Lower boundary curve
+  - Filled region between bounds
+- Add a single **interactive legend entry** controlling both the boundary curves and the shading.
+- Ensure all band graphics remain clipped to the ROC plot area.
+
+---
 
 ## B. Implementation Plan
-1. **Define an FPR grid**
-   - Choose a grid of FPR values between 0 and 1 (e.g., 0, 0.01, ..., 1).
 
-2. **Interpolate sample ROC curves onto the FPR grid**
-   - For each sample ROC (sequence of FPR/TPR points):
-     - Interpolate TPR values at each FPR grid point (e.g., via linear interpolation between known points).
-   - Collect these interpolated TPR values in a 2D structure (grid point × sample index).
+### 1. Define a fixed FPR grid
+- In `continuous_ROC.html`, before computing the band, construct:
+  ```js
+  const fprGrid = d3.range(0, 1.000001, 0.01);
+  ```
+- Store it in a local variable; no need for global state.
 
-3. **Compute quantiles**
-   - For each FPR grid point, compute 2.5th and 97.5th percentiles across sample TPR values.
-   - Store results as arrays representing the lower and upper confidence band boundary curves.
+### 2. Interpolate each sampled ROC curve onto the grid
+For each `state.samplesROC[i]`:
+- Extract arrays: `fpr[]` and `tpr[]`.
+- For each grid point `fprGrid[k]`, compute the interpolated TPR:
+  - If `fprGrid[k]` matches a sample FPR exactly, use that TPR.
+  - Else find the interval `[fpr[j], fpr[j+1]]` containing `fprGrid[k]`.
+  - Use linear interpolation:
+    ```js
+    const alpha = (fprGrid[k] - fpr[j]) / (fpr[j+1] - fpr[j]);
+    const tprInterp = tpr[j] + alpha * (tpr[j+1] - tpr[j]);
+    ```
+- If the grid point lies beyond the last FPR, extrapolate flat using the nearest endpoint.
+- Collect all interpolated TPRs into a 2D structure: `tprGrid[sampleIndex][k]`.
 
-4. **Render confidence band**
-   - In the ROC drawing logic:
-     - If `visibilityState.rocPlot.confidenceBand` is true and band data exists:
-       - Draw the lower and upper boundary curves.
-       - Draw a filled polygon between them to represent the band.
+### 3. Compute lower and upper quantile curves
+- For each grid point `k`:
+  ```js
+  const arr = tprGrid.map(row => row[k]);
+  const lower = d3.quantile(arr, 0.025);
+  const upper = d3.quantile(arr, 0.975);
+  ```
+- Store results in arrays:
+  ```js
+  state.confBand = {
+    fpr: fprGrid,
+    lower: lowerArray,
+    upper: upperArray
+  };
+  ```
 
-5. **Integration with legend**
-   - Ensure the ROC legend entry for "Confidence band" toggles both shading and boundary curves.
+### 4. Render the confidence band in drawRocPlot()
+- Create SVG paths for boundary curves:
+  ```js
+  rocSvg.append('path')
+    .attr('class', 'roc-conf-lower');
 
-6. **Testing**
-   - With modest numbers of samples (e.g., 50–100), verify that the band behaves intuitively as distributions change.
-   - Confirm that toggling visibility for the band in the legend hides/shows both the shading and
+  rocSvg.append('path')
+    .attr('class', 'roc-conf-upper');
+  ```
+- Create a polygon (or a D3 area generator) for the shading:
+  ```js
+  const area = d3.area()
+    .x(d => xScale(d.fpr))
+    .y0(d => yScale(d.lower))
+    .y1(d => yScale(d.upper));
+  ```
+- Draw only when `visibilityState.rocPlot.confidenceBand` is `true`.
+- Apply the existing ROC clipPath (`url(#rocClip)`).
+
+### 5. Integrate with legend
+- Add one legend entry: **“Confidence band”**.
+- Legend click handler toggles:
+  ```js
+  visibilityState.rocPlot.confidenceBand
+  ```
+- This toggles *both* boundary curves and the shaded region.
+
+### 6. Testing
+- Generate 50–100 samples.
+- Verify the band appears smooth and stable.
+- Confirm legend toggle hides both boundaries and shading.
+- Confirm ROC plot dimensions remain fixed.
+- Confirm zoom/resize behavior stays unchanged.
+
+---
+
+## C. Codex Prompt
+```
+Implement milestone v1.15.8 from `ContinuousROC_Explorer_Roadmap_v1.15.md`.
+
+Goal: Compute and render 95% pointwise confidence bands using sampled ROC curves.
+
+Files to modify:
+  • continuous_ROC.html
+  • ROC_lib.js (only if minor helpers are needed)
+
+Steps:
+1. In continuous_ROC.html, in the sampling display logic, after computing state.samplesROC:
+   - Construct a fixed FPR grid using d3.range(0, 1.000001, 0.01).
+   - For each sample ROC, interpolate TPR values at these FPR grid points using linear interpolation.
+   - Build arrays `lower[]` and `upper[]` using d3.quantile for the 2.5% and 97.5% quantiles.
+   - Store in:
+       state.confBand = { fpr: fprGrid, lower: [...], upper: [...] };
+
+2. In drawRocPlot():
+   - Add paths for upper and lower boundary curves.
+   - Add a shaded region using a d3.area() generator.
+   - Clip all band graphics with the existing ROC clipPath.
+   - Wrap all rendering in a conditional based on:
+       visibilityState.rocPlot.confidenceBand
+
+3. Add a new legend entry labeled “Confidence band”.
+   - On click, toggle visibilityState.rocPlot.confidenceBand.
+   - Ensure both boundary curves and shading are hidden/shown together.
+
+4. Do not modify sampling logic or distribution logic.
+5. Test using 50–100 samples to verify band shape and toggling behavior.
+
+Follow all steps precisely while maintaining the code style and structure.
+```
