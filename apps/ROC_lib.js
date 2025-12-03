@@ -750,6 +750,48 @@
     return roc.sort((a,b)=>a.fpr - b.fpr || a.tpr - b.tpr);
   };
 
+  ROCUtils.computeDelongRocBand = function(positiveScores, negativeScores, fprGrid, alpha = 0.05){
+    const pos = Array.isArray(positiveScores) ? positiveScores.map(Number).filter(Number.isFinite) : [];
+    const neg = Array.isArray(negativeScores) ? negativeScores.map(Number).filter(Number.isFinite) : [];
+    if(!pos.length || !neg.length || !Array.isArray(fprGrid) || !fprGrid.length){
+      return null;
+    }
+    const nPos = pos.length;
+    const combined = pos.map(score=>({score,label:1})).concat(neg.map(score=>({score,label:0})));
+    const roc = ROCUtils.computeEmpiricalRoc(combined);
+    if(!roc.length){
+      return null;
+    }
+    const fprs = roc.map(pt=>pt.fpr);
+    const tprs = roc.map(pt=>pt.tpr);
+    const interpolate = (x)=>{
+      const n=fprs.length;
+      if(x<=fprs[0]) return tprs[0];
+      if(x>=fprs[n-1]) return tprs[n-1];
+      let idx=0;
+      while(idx<n && fprs[idx]<x){idx++;}
+      if(idx===0) return tprs[0];
+      const x0=fprs[idx-1],x1=fprs[idx];
+      const y0=tprs[idx-1],y1=tprs[idx];
+      if(x1===x0) return y0;
+      const t=(x-x0)/(x1-x0);
+      return y0+(y1-y0)*t;
+    };
+    const z = jStat.normal.inv(1 - alpha/2, 0, 1);
+    const lower = [];
+    const upper = [];
+    const tprGrid = [];
+    fprGrid.forEach(fpr=>{
+      const tpr = interpolate(fpr);
+      tprGrid.push(tpr);
+      const variance = (tpr*(1 - tpr)) / nPos;
+      const se = Math.sqrt(Math.max(variance, 0));
+      lower.push(Math.max(0, Math.min(1, tpr - z * se)));
+      upper.push(Math.max(0, Math.min(1, tpr + z * se)));
+    });
+    return {fpr:fprGrid.slice(), tpr:tprGrid, lower, upper};
+  };
+
   ROCUtils.ensureMonotoneRoc = function(points){
     if(!Array.isArray(points)){
       return [];

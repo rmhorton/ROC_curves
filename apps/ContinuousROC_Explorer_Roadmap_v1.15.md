@@ -2276,3 +2276,131 @@ Steps:
 
 Follow all steps precisely while maintaining the code style and structure.
 ```
+
+---
+
+# Version v1.15.9 — DeLong Analytic ROC Confidence Bands (Prototype)
+
+## A. Goals
+- Add an **analytic, nonparametric DeLong-based method** to compute confidence information for ROC curves.
+- Use raw score arrays (positives and negatives) to compute DeLong-style **pointwise ROC confidence bands**.
+- Provide an alternative to bootstrap bands (v1.15.8). User can choose either method.
+- Integrate DeLong bands into the existing ROC rendering pipeline with shared band-drawing logic.
+- Provide a UI control to select band source: None / Bootstrap / DeLong.
+- Maintain full compatibility with legend-based visibility toggling.
+
+---
+
+## B. Implementation Plan
+
+### 1. Add DeLong computation function in ROC_lib.js
+Create:
+```js
+ROCUtils.computeDelongRocBand = function(positiveScores, negativeScores, fprGrid, alpha) {
+  // Returns { fpr: fprGrid, tpr: [...], lower: [...], upper: [...] }
+};
+```
+Steps inside the function:
+1. Compute empirical ROC from raw positive and negative score arrays.
+2. Construct DeLong influence functions for positives and negatives.
+3. Compute variance of TPR at each FPR in the grid using DeLong’s U-statistic formulas.
+4. Compute 95% pointwise normal-theory CI:
+   - lower = tpr − z * se
+   - upper = tpr + z * se
+5. Clamp lower/upper to [0,1].
+6. Return full band object.
+
+### 2. Compute DeLong band in continuous_ROC.html
+- After obtaining empirical samples (`getProcessedEmpiricalSamples()`):
+```js
+state.delongBand = ROCUtils.computeDelongRocBand(emp.positives, emp.negatives, fprGrid, 0.05);
+```
+- Only compute if both arrays are nonempty.
+
+### 3. Refactor ROC band renderer (shared drawing logic)
+Create helper:
+```js
+function drawRocBand(band, cssPrefix) { ... }
+```
+This function:
+- Draws filled band area (`d3.area()`), clipped to #rocClip.
+- Draws upper and lower confidence boundary paths.
+- Applies cssPrefix-specific classes.
+
+Use:
+```js
+drawRocBand(state.confBand, 'bootstrap');
+drawRocBand(state.delongBand, 'delong');
+```
+Render only the band corresponding to the selected mode.
+
+### 4. Add UI selector for band type
+Add a simple control (radio or dropdown):
+- None
+- Bootstrap
+- DeLong
+Bind to:
+```js
+state.rocBandMode
+```
+Integrate into existing redraw pipeline.
+
+### 5. Legend integration
+- Maintain a **single** legend entry labeled “Confidence band”.
+- This entry toggles the visibility of the currently selected band’s components:
+  - shading polygon
+  - upper/lower boundary paths
+
+### 6. Testing
+- Use moderate sample sizes to confirm smoothness.
+- Confirm Bootstrap mode still works.
+- Confirm DeLong computations are fast.
+- Check that legend toggle hides/shows band correctly.
+
+---
+
+## C. Codex Prompt
+```
+Implement milestone v1.15.9 from `ContinuousROC_Explorer_Roadmap_v1.15.md`.
+
+Goal: Add an analytic DeLong-based ROC confidence band as an alternative to the existing bootstrap band.
+
+Modify only:
+  • ROC_lib.js
+  • continuous_ROC.html
+
+Steps:
+1. In ROC_lib.js, add a new function:
+     ROCUtils.computeDelongRocBand(positiveScores, negativeScores, fprGrid, alpha)
+   It must:
+   - Compute empirical ROC from raw scores.
+   - Compute DeLong influence values.
+   - Estimate variance of TPR for each FPR in fprGrid.
+   - Compute pointwise CI using normal approximation.
+   - Return { fpr, tpr, lower, upper }.
+
+2. In continuous_ROC.html:
+   - After computing empirical samples, compute:
+       state.delongBand = ROCUtils.computeDelongRocBand(emp.positives, emp.negatives, fprGrid, 0.05)
+     when both arrays are nonempty.
+
+3. Create shared band renderer:
+   - Add drawRocBand(band, cssPrefix) to handle area + boundaries.
+   - Apply existing #rocClip clipping.
+   - Use:
+       drawRocBand(state.confBand, 'bootstrap');
+       drawRocBand(state.delongBand, 'delong');
+
+4. Add a UI control for selecting:
+   • None
+   • Bootstrap
+   • DeLong
+   Bind its value to state.rocBandMode and render the correct band in drawRocPlot().
+
+5. Keep a single legend entry “Confidence band”.
+   It must hide/show the shading and boundaries for whichever band mode is active.
+
+6. Test correctness and performance using realistic score arrays.
+
+Follow the roadmap instructions exactly. Do not modify unrelated code.
+```

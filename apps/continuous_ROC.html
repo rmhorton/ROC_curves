@@ -47,6 +47,7 @@
     .rug-pos line{stroke:#d62728;stroke-width:1.2;opacity:0.75}
     .rug-neg line{stroke:#1f77b4;stroke-width:1.2;opacity:0.75}
     .roc-empirical{stroke:#7d3cff;stroke-width:2;fill:none;stroke-dasharray:5 4}
+    .roc-bands path{vector-effect:non-scaling-stroke}
     .legend-bar{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;font-size:12px;color:#30304a}
     #rocLegend{display:flex;flex-wrap:wrap;gap:6px 12px;max-width:540px;align-items:flex-start}
     #rocLegend .legend-item{flex:0 0 auto;white-space:nowrap;display:flex;align-items:center;min-width:120px}
@@ -217,17 +218,25 @@ body {
         <label><input type="checkbox" id="autoResampleToggle">Auto-resample on parameter change</label>
       </div>
     </div>
-    <div id="rocPanel" class="ctrl">
-      <h3>ROC Curves</h3>
-      <div class="component-row">
-        <label for="rocExportName">Curve name:</label>
-        <input type="text" id="rocExportName" value="exported_curve">
+      <div id="rocPanel" class="ctrl">
+        <h3>ROC Curves</h3>
+        <div class="component-row">
+          <label for="rocExportName">Curve name:</label>
+          <input type="text" id="rocExportName" value="exported_curve">
+        </div>
+        <div class="component-row">
+          <label for="rocBandMode">Confidence band:</label>
+          <select id="rocBandMode">
+            <option value="none">None</option>
+            <option value="bootstrap">Bootstrap</option>
+            <option value="delong">DeLong</option>
+          </select>
+        </div>
+        <button id="rocExportJsonButton" style="margin-top:10px;">Export ROC (JSON)</button>
+        <button id="rocExportCsvButton" style="margin-top:10px;">Export ROC (CSV – human readable)</button>
+        <button id="rocImportJsonButton" style="margin-top:10px;">Import ROC JSON…</button>
+        <input type="file" id="rocImportFile" accept=".json,application/json" style="display:none">
       </div>
-      <button id="rocExportJsonButton" style="margin-top:10px;">Export ROC (JSON)</button>
-      <button id="rocExportCsvButton" style="margin-top:10px;">Export ROC (CSV – human readable)</button>
-      <button id="rocImportJsonButton" style="margin-top:10px;">Import ROC JSON…</button>
-      <input type="file" id="rocImportFile" accept=".json,application/json" style="display:none">
-    </div>
   </div>
 
   <script>
@@ -490,7 +499,9 @@ body {
         samplesROC:[],
         samplesHist:null,
         confBand:null,
-        numSamples:20
+        delongBand:null,
+        numSamples:20,
+        rocBandMode:'bootstrap'
       };
 
       thresholdValEl.textContent=STRINGS.controls.thresholdValue(state.threshold);
@@ -502,6 +513,7 @@ body {
       const resampleButton=document.getElementById('resampleButton');
       const numSamplesInput=document.getElementById('numSamplesInput');
       const sampleSizeInput=document.getElementById('sampleSizeInput');
+      const rocBandModeSelect=document.getElementById('rocBandMode');
       autoResampleToggle.checked=state.autoResample;
       autoResampleToggle.addEventListener('change',event=>{
         state.autoResample=event.target.checked;
@@ -526,6 +538,14 @@ body {
       if(sampleSizeInput){
         sampleSizeInput.addEventListener('input',()=>{
           regenerateSampleRocs(true);
+        });
+      }
+      if(rocBandModeSelect){
+        rocBandModeSelect.value=state.rocBandMode;
+        rocBandModeSelect.addEventListener('change',event=>{
+          const value=event.target.value;
+          state.rocBandMode=value;
+          update();
         });
       }
 
@@ -715,10 +735,8 @@ body {
         .attr('text-anchor','middle')
         .text(STRINGS.plots.rocYAxis);
 
+      const rocBandGroup=rocContent.append('g').attr('class','roc-bands').attr('clip-path','url(#rocClip)');
       const rocSampleGroup=rocContent.append('g').attr('class','roc-samples').attr('clip-path','url(#rocClip)');
-      const confBandArea=rocContent.append('path').attr('class','roc-conf-band').attr('clip-path','url(#rocClip)');
-      const confBandUpper=rocContent.append('path').attr('class','roc-conf-band-upper').attr('clip-path','url(#rocClip)');
-      const confBandLower=rocContent.append('path').attr('class','roc-conf-band-lower').attr('clip-path','url(#rocClip)');
       const rocLinePath=rocContent.append('path').attr('class','roc-line').attr('clip-path','url(#rocClip)');
       const empiricalRocPath=rocContent.append('path').attr('class','roc-empirical').style('opacity',0).attr('clip-path','url(#rocClip)');
       rocContent.append('path').attr('class','roc-random')
@@ -995,7 +1013,7 @@ body {
         update();
       }
 
-      function computeConfidenceBand(){
+     function computeConfidenceBand(){
         const samples=state.samplesROC||[];
         if(!samples.length){state.confBand=null;return;}
         const fprGrid=d3.range(0,1.000001,0.01);
@@ -1352,6 +1370,13 @@ body {
 
         const empiricalSamples=getProcessedEmpiricalSamples();
         const hasEmpiricalSamples=empiricalSamples.positives.length>0||empiricalSamples.negatives.length>0;
+        const fprGrid=d3.range(0,1.000001,0.01);
+        if(hasEmpiricalSamples){
+          const delong=ROCUtils.computeDelongRocBand(empiricalSamples.positives,empiricalSamples.negatives,fprGrid,0.05);
+          state.delongBand=delong;
+        } else {
+          state.delongBand=null;
+        }
         const hasSampleHist=state.samplesHist && Array.isArray(state.samplesHist.positives) && Array.isArray(state.samplesHist.negatives);
         const empiricalPointList=hasEmpiricalSamples?getProcessedEmpiricalPoints():[];
 
@@ -1588,44 +1613,47 @@ body {
           .lower();
 
         const hasBand=state.confBand && Array.isArray(state.confBand.fpr) && Array.isArray(state.confBand.lower) && Array.isArray(state.confBand.upper);
-        if(hasBand && visibilityState.roc.confidenceBand!==false){
-          const bandData=state.confBand.fpr.map((fprVal,idx)=>({
+        const drawRocBand=(band,prefix,color)=>{
+          const visible=visibilityState.roc.confidenceBand!==false && state.rocBandMode===prefix && band && Array.isArray(band.fpr) && Array.isArray(band.lower) && Array.isArray(band.upper);
+          const bandData=visible?band.fpr.map((fprVal,idx)=>({
             fpr:fprVal,
-            lower:state.confBand.lower[idx],
-            upper:state.confBand.upper[idx]
-          })).filter(d=>Number.isFinite(d.lower)&&Number.isFinite(d.upper));
-          const bandAreaGen=d3.area().curve(d3.curveMonotoneX)
+            lower:band.lower[idx],
+            upper:band.upper[idx]
+          })).filter(d=>Number.isFinite(d.lower)&&Number.isFinite(d.upper)):[];
+          const areaGen=d3.area().curve(d3.curveMonotoneX)
             .x(d=>rocXScale(d.fpr))
             .y0(d=>rocYScale(d.lower))
             .y1(d=>rocYScale(d.upper));
-          const bandLineGen=d3.line().curve(d3.curveMonotoneX)
+          const lowerLine=d3.line().curve(d3.curveMonotoneX)
             .x(d=>rocXScale(d.fpr))
             .y(d=>rocYScale(d.lower));
-          confBandArea
-            .attr('d',bandAreaGen(bandData))
-            .attr('fill',COLOR_HELPERS.sample)
-            .attr('opacity',0.18)
-            .style('display',null)
-            .lower();
-          confBandLower
-            .attr('d',bandLineGen(bandData))
-            .attr('stroke',COLOR_HELPERS.sample)
+          const upperLine=d3.line().curve(d3.curveMonotoneX)
+            .x(d=>rocXScale(d.fpr))
+            .y(d=>rocYScale(d.upper));
+          const areaSel=rocBandGroup.selectAll(`path.band-${prefix}-area`).data(bandData.length?[bandData]:[]);
+          areaSel.exit().remove();
+          areaSel.enter().append('path').attr('class',`band-${prefix}-area`).merge(areaSel)
+            .attr('d',d=>areaGen(d))
+            .attr('fill',color)
+            .attr('opacity',0.18);
+          const lowerSel=rocBandGroup.selectAll(`path.band-${prefix}-lower`).data(bandData.length?[bandData]:[]);
+          lowerSel.exit().remove();
+          lowerSel.enter().append('path').attr('class',`band-${prefix}-lower`).merge(lowerSel)
+            .attr('d',d=>lowerLine(d))
+            .attr('stroke',color)
             .attr('stroke-width',1)
-            .attr('fill','none')
-            .style('display',null)
-            .lower();
-          confBandUpper
-            .attr('d',d3.line().curve(d3.curveMonotoneX).x(d=>rocXScale(d.fpr)).y(d=>rocYScale(d.upper))(bandData))
-            .attr('stroke',COLOR_HELPERS.sample)
+            .attr('fill','none');
+          const upperSel=rocBandGroup.selectAll(`path.band-${prefix}-upper`).data(bandData.length?[bandData]:[]);
+          upperSel.exit().remove();
+          upperSel.enter().append('path').attr('class',`band-${prefix}-upper`).merge(upperSel)
+            .attr('d',d=>upperLine(d))
+            .attr('stroke',color)
             .attr('stroke-width',1)
-            .attr('fill','none')
-            .style('display',null)
-            .lower();
-        } else {
-          confBandArea.style('display','none');
-          confBandLower.style('display','none');
-          confBandUpper.style('display','none');
-        }
+            .attr('fill','none');
+        };
+
+        drawRocBand(state.confBand,'bootstrap',COLOR_HELPERS.sample);
+        drawRocBand(state.delongBand,'delong',COLOR_HELPERS.sample);
 
         if(visibilityState.roc.theoretical && rocSorted.length>=2){
           rocLinePath.style('display',null).datum(rocSorted).attr('d',rocLineGenerator);
