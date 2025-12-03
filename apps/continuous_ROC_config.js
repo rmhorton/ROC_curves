@@ -358,13 +358,32 @@ const COLORS = {
     hue: "#1f77b4",
     histogramOpacity: 0.4,
     rugOpacity: 0.75,
-    pdfOpacity: 1
+    pdfOpacity: 1,
+    rocOpacity: 1
   },
   negative: {
     hue: "#d62728",
     histogramOpacity: 0.4,
     rugOpacity: 0.75,
-    pdfOpacity: 1
+    pdfOpacity: 1,
+    rocOpacity: 1
+  },
+  empirical: {
+    hue: "#7d3cff",
+    opacity: 1
+  },
+  sample: {
+    hue: "#7d3cff",
+    opacity: 0.7
+  },
+  randomRoc: {
+    hue: "#30307c",
+    opacity: 1
+  },
+  confidenceBand: {
+    hue: "#7d3cff",
+    opacity: 0.18,
+    strokeOpacity: 1
   }
 };
 

@@ -3750,8 +3750,60 @@ Do not modify unrelated logic.
 ---
 
 
-# To Do:
+# NOTES:
 
 * I skipped the animation milestones (v1.15.10 and v1.15.11).
-* skipped 12
+* skipped v1.15.12 - Global Busy Indicator & Async Operation Wrapper
 * implemented 1.15.13
+
+I need to re-think animation support:
+- sampling variation
+- parameter scans
+
+
+# ISSUES
+
+
+Exponential Power distribution:
+- sampling is extremely slow, or at least quirky. Samples do not seem to change for this distribution.
+
+Skey Exp Power
+- Does not seem to re-sample.
+
+GAMLSS SEP2
+- Does not seem to re-sample.
+
+Hutson SEP
+- Does not seem to re-sample. (invalid array length)
+
+---
+
+
+
+Weibull-Weibull distribution: samples do not match continuous curve for extreme values. See file WW_test.json.
+
+Exponential Power distribution:
+- sampling is extremely slow, or at least quirky. Samples do not seem to change for this distribution.
+
+Skey Exp Power
+- Does not seem to re-sample.
+
+GAMLSS SEP2
+- Does not seem to re-sample.
+
+Hutson SEP
+- Does not seem to re-sample. (invalid array length)
+
+What happened to the ability to import an empirical dataset?
+
+The DeLong confidence bands do not reliably cover the samples, though the bootstrap bands do. Are the DeLong bands computed from the whole sample set or from a single sample?
+
+# TO DO
+
+* The "Empirical Dataset" control box should be renamed "Empirical Samples". The 'dataset name' inout and 'export dataset csv' button should be moved to the bottom of that box.
+
+* Change the "Remove component" button label to just "X". Make it gray instead of red.
+
+* All the sample ROC curves should be shown or hidden from a single legend element.
+
+* Sampled curves do not correctly survive export/import. Only one sampled curve is imported, and the confidence bands seem to be around that curve.

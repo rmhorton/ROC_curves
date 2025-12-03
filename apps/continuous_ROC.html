@@ -36,8 +36,8 @@
     .parameter-slider{flex:1}
     .component-info{font-size:12px;color:#4e4e70;margin:4px 0 0 110px}
     .empirical-group rect{stroke:none}
-    .hist-pos-bar{fill:rgba(255,0,0,0.4)}
-    .hist-neg-bar{fill:rgba(0,0,255,0.4)}
+    .hist-pos-bar{}
+    .hist-neg-bar{}
     #empiricalPanel{display:flex;flex-direction:column;gap:10px;font-size:13px;color:#30304a}
     #dataImportDropZone{border:1px dashed #8a8ac5;border-radius:10px;padding:10px;text-align:center;background:#f5f5fd;cursor:pointer;transition:background 0.2s,border-color 0.2s}
     #dataImportDropZone.dragover{background:#e7e7fb;border-color:#5c5cb8}
@@ -45,9 +45,9 @@
     .data-import-options{display:flex;flex-direction:column;gap:6px}
     .data-import-options label{display:flex;align-items:center;gap:6px;font-size:12px;color:#3a3a5a}
     .plot-with-legend{position:relative}
-    .rug-pos line{stroke:#d62728;stroke-width:1.2;opacity:0.75}
-    .rug-neg line{stroke:#1f77b4;stroke-width:1.2;opacity:0.75}
-    .roc-empirical{stroke:#7d3cff;stroke-width:2;fill:none;stroke-dasharray:5 4}
+    .rug-pos line{stroke-width:1.2;opacity:0.75}
+    .rug-neg line{stroke-width:1.2;opacity:0.75}
+    .roc-empirical{stroke-width:2;fill:none;stroke-dasharray:5 4}
     .roc-bands path{vector-effect:non-scaling-stroke}
     .legend-bar{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;font-size:12px;color:#30304a}
     #rocLegend{display:flex;flex-wrap:wrap;gap:6px 12px;max-width:540px;align-items:flex-start}
@@ -313,18 +313,28 @@ body {
         return result;
       }
 
+      function getColor(key, fallback='#000'){
+        const entry=COLOR_CONFIG?.[key];
+        if(!entry){return fallback;}
+        if(entry.hue){
+          const opacity=entry.opacity!==undefined?entry.opacity:1;
+          return ROCUtils.hexOpacityToRgba(entry.hue,opacity);
+        }
+        return fallback;
+      }
+
       function applyColorStyles(colors){
         const toRgba=ROCUtils.hexOpacityToRgba;
         document.querySelectorAll('style[data-role="color-theme"]').forEach(node=>node.remove());
         const css=`
-.hist-pos-bar{fill:${toRgba(colors.positive.hue,colors.positive.histogramOpacity)};}
-.hist-neg-bar{fill:${toRgba(colors.negative.hue,colors.negative.histogramOpacity)};}
-.rug-pos line{stroke:${toRgba(colors.positive.hue,colors.positive.rugOpacity)};opacity:1;}
-.rug-neg line{stroke:${toRgba(colors.negative.hue,colors.negative.rugOpacity)};opacity:1;}
-.legend-pos{background:${toRgba(colors.positive.hue,colors.positive.histogramOpacity)};}
-.legend-neg{background:${toRgba(colors.negative.hue,colors.negative.histogramOpacity)};}
-.pdf-line-positive{stroke:${toRgba(colors.positive.hue,colors.positive.pdfOpacity)};}
-.pdf-line-negative{stroke:${toRgba(colors.negative.hue,colors.negative.pdfOpacity)};}
+.hist-pos-bar{fill:${getColor('positive', '#1f77b4')};opacity:${colors?.positive?.histogramOpacity??0.4};}
+.hist-neg-bar{fill:${getColor('negative', '#d62728')};opacity:${colors?.negative?.histogramOpacity??0.4};}
+.rug-pos line{stroke:${getColor('positive', '#1f77b4')};opacity:${colors?.positive?.rugOpacity??0.75};}
+.rug-neg line{stroke:${getColor('negative', '#d62728')};opacity:${colors?.negative?.rugOpacity??0.75};}
+.legend-pos{background:${getColor('positive', '#1f77b4')};opacity:${colors?.positive?.histogramOpacity??0.4};}
+.legend-neg{background:${getColor('negative', '#d62728')};opacity:${colors?.negative?.histogramOpacity??0.4};}
+.pdf-line-positive{stroke:${getColor('positive', '#1f77b4')};opacity:${colors?.positive?.pdfOpacity??1};}
+.pdf-line-negative{stroke:${getColor('negative', '#d62728')};opacity:${colors?.negative?.pdfOpacity??1};}
 `;
         const styleEl=document.createElement('style');
         styleEl.setAttribute('data-role','color-theme');
@@ -335,15 +345,17 @@ body {
       const COLOR_CONFIG=resolveColorConfig(CONFIG.COLORS);
       applyColorStyles(COLOR_CONFIG);
       const COLOR_HELPERS={
-        posPdf:ROCUtils.hexOpacityToRgba(COLOR_CONFIG.positive.hue,COLOR_CONFIG.positive.pdfOpacity),
-        negPdf:ROCUtils.hexOpacityToRgba(COLOR_CONFIG.negative.hue,COLOR_CONFIG.negative.pdfOpacity),
-        posHist:ROCUtils.hexOpacityToRgba(COLOR_CONFIG.positive.hue,COLOR_CONFIG.positive.histogramOpacity),
-        negHist:ROCUtils.hexOpacityToRgba(COLOR_CONFIG.negative.hue,COLOR_CONFIG.negative.histogramOpacity),
-        posRug:ROCUtils.hexOpacityToRgba(COLOR_CONFIG.positive.hue,COLOR_CONFIG.positive.rugOpacity),
-        negRug:ROCUtils.hexOpacityToRgba(COLOR_CONFIG.negative.hue,COLOR_CONFIG.negative.rugOpacity),
-        empirical:'#7d3cff',
-        roc:'#30307c',
-        sample:ROCUtils.hexOpacityToRgba(COLOR_CONFIG.sample.hue,COLOR_CONFIG.sample.opacity)
+        posPdf:getColor('positive', '#1f77b4'),
+        negPdf:getColor('negative', '#d62728'),
+        posHist:getColor('positive', '#1f77b4'),
+        negHist:getColor('negative', '#d62728'),
+        posRug:getColor('positive', '#1f77b4'),
+        negRug:getColor('negative', '#d62728'),
+        empirical:getColor('empirical', '#7d3cff'),
+        roc:getColor('randomRoc', '#30307c'),
+        sample:getColor('sample', '#7d3cff'),
+        confBandFill:()=>ROCUtils.hexOpacityToRgba(COLOR_CONFIG.confidenceBand?.hue||'#7d3cff',COLOR_CONFIG.confidenceBand?.opacity??0.18),
+        confBandStroke:getColor('confidenceBand', '#7d3cff')
       };
 
       const scoreLegendContainer=document.getElementById('scoreLegend');
