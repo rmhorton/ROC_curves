@@ -302,9 +302,9 @@
     if(isPlainObject(input.metadata)){
       const metadata = {};
       Object.keys(input.metadata).forEach(key=>{
+        if(key === 'samplesROC'){return;}
         metadata[key] = input.metadata[key];
       });
-      // Metadata is assumed to already be canonical; no backward conversions.
       canonical.metadata = metadata;
     }
 

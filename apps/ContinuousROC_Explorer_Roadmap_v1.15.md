@@ -4214,7 +4214,183 @@ Steps:
 Do not modify unrelated code.
 ```
 
+# Version v1.15.12.7.2 — Canonical Export/Import Alignment for Theoretical, Estimated, and Sample ROC Curves
 
+---
+
+## A. Goals
+
+This micro-milestone corrects all remaining misalignment issues between:
+- **Continuous ROC Explorer** (exporter)
+- **ROC_lib.js** (canonical ROC reader)
+- **ROC Utility** and other downstream apps
+
+Specifically:
+- Ensure **theoretical**, **estimated**, and **sample** ROC curves export and import in a **canonical, ROC_lib-compatible format**.
+- Prevent sample curves from being treated as standalone ROC curves.
+- Ensure **DeLong** and **bootstrap** confidence bands are exported with full metadata and imported correctly.
+- Ensure **Continuous ROC Explorer** draws the estimated curve + bands after import.
+- Ensure **ROC Utility** shows:
+  - Theoretical curve
+  - Estimated curve (with bands)
+  - *No stray sample curves*
+
+---
+
+## B. Implementation Plan
+
+### 1. **Canonical top-level structure**
+All exported ROC files must use:
+```json
+{
+    "<Name> (theoretical)": { ... },
+    "<Name> (estimated)"  : { ... }
+}
+```
+
+### 2. **Theoretical curve export**
+Export the theoretical ROC curve under:
+```
+"<ModelName> (theoretical)": {
+    type: "ROC",
+    name: "<ModelName> (theoretical)",
+    fpr: [...],
+    tpr: [...],
+    bands: [],
+    metadata: {
+        continuous_roc_explorer: {...}
+    }
+}
+```
+
+### 3. **Estimated curve export**
+Export the estimated curve under:
+```
+"<ModelName> (estimated)": {
+    type: "ROC",
+    name: "<ModelName> (estimated)",
+    fpr: [...],
+    tpr: [...],
+    auc: <numeric>,
+    bands: [
+        {
+            method: "delong" OR "bootstrap",
+            level: 0.95,
+            n_samples: <count>,
+            fpr: [...],
+            lower: [...],
+            upper: [...]
+        }
+    ]
+}
+```
+
+### 4. **Sample curves must NOT appear as ROC curves**
+Inside exported JSON:
+- **Do not** export each sample as a separate ROC curve.
+- Export them only under metadata:
+```
+metadata: {
+    continuous_roc_explorer: {
+        samplesROC: [ {fpr:[...], tpr:[...]}, ... ]
+    }
+}
+```
+
+### 5. **Import: treat theoretical + estimated as real curves**
+Update importer so that:
+- curves matching `"(theoretical)"` → become the continuous curve
+- curves matching `"(estimated)"`   → show as estimated curve
+- importer recognizes `.bands[]` and draws them
+- importer restores distributions/parameters from metadata
+
+### 6. **Do NOT render sample curves on import**
+Samples remain available in metadata, but they are not drawn, and they do not get legend entries.
+
+### 7. **Rendering fixes in Continuous ROC Explorer**
+- After import, call the same rendering functions as after sampling.
+- Ensure the estimated curve draws correctly.
+- Ensure DeLong and bootstrap bands both draw correctly.
+- Ensure legend entries exist only for:
+  - Theoretical ROC
+  - Estimated ROC
+  - Confidence Band (single switch)
+
+### 8. **ROC_lib.js adjustments**
+Update `ROCUtils.normalizeRocJson` so that:
+- It recognizes `(theoretical)` and `(estimated)` suffixes.
+- It loads `.bands` arrays correctly.
+- It ignores `samplesROC` inside metadata.
+
+### 9. **ROC Utility expected behavior**
+After this fix, ROC Utility will display ONLY:
+- `<Name> (theoretical)`
+- `<Name> (estimated)` + bands
+
+No sample curves.
+No missing theoretical curve.
+Bands work.
+
+---
+
+## C. Codex Patch Prompt
+
+```
+Implement roadmap milestone v1.15.12.7.2 as defined in
+`ContinuousROC_Explorer_Roadmap_v1.15.md`.
+
+Modify ONLY:
+  • continuous_ROC.html
+  • ROC_lib.js
+  • (optional) continuous_ROC_config.js if needed for naming conventions
+
+Goals:
+  • Export three canonical objects:
+        1. "<Name> (theoretical)"
+        2. "<Name> (estimated)"
+        3. NO standalone sample curves
+  • Export estimated curve with full band metadata:
+        method, level, n_samples, fpr[], lower[], upper[]
+  • Export sample ROC curves ONLY inside metadata.samplesROC
+  • Import theoretical and estimated curves properly
+  • Ignore sample curves on import
+  • Ensure bands render correctly after import
+  • Ensure ROC_utility shows only theoretical + estimated curves
+
+Steps:
+ 1. Update the export function in continuous_ROC.html:
+      • Create top-level keys "<Model> (theoretical)" and "<Model> (estimated)".
+      • Move sample curves into metadata.samplesROC.
+      • Attach bootstrap or delong band as:
+            bands: [{ method, level, n_samples, fpr, lower, upper }]
+
+ 2. Update computeEstimatedCurveFromSamples so it produces the band object
+      in the exact schema above.
+
+ 3. Update import logic:
+      • Identify curves ending with "(theoretical)" and "(estimated)".
+      • Load theoretical curve into continuous model.
+      • Load estimated curve as the plotted estimated curve.
+      • Load bands and render them.
+      • Do NOT create ROC objects for sample curves.
+
+ 4. Update legend-building code:
+      • Only two curve legend entries.
+      • One confidence-band toggle.
+
+ 5. Update ROC_lib.js:
+      • Modify normalizeRocJson and toCanonicalRocObject so that
+        bands with method/level/n_samples pass through untouched.
+      • Ignore metadata.samplesROC.
+
+Do not modify unrelated code.
+```
+
+The "theoretical" curve in the exported JSON file appears to be one ot the sampe curves, not the theoretical continuous ROC curve.
+
+When an ROC curve file is loaded into the continuous_ROC app, the sample curves are displayed. However, they cannot be hidden by the "Sample ROC Curves" legend item.
+
+---
 
 
 
