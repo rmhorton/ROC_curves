@@ -59,6 +59,9 @@
     .sim-options{display:flex;flex-direction:column;gap:6px;margin-top:10px;font-size:12px;color:#3a3a5a}
     .sim-options label{display:flex;align-items:center;gap:6px}
     .add-component-btn{margin-top:0;padding:6px 10px}
+    #busyOverlay{position:fixed;inset:0;background:rgba(255,255,255,0.65);display:none;align-items:center;justify-content:center;z-index:9999}
+    #busySpinner{width:48px;height:48px;border:5px solid rgba(0,0,0,0.1);border-top-color:#4a4a90;border-radius:50%;animation:spin 1s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
     /*
     .plots{display:flex;flex-wrap:wrap;gap:20px;margin-bottom:50px}
     .plot-block{flex:1;min-width:360px}
@@ -241,6 +244,7 @@ body {
         <input type="file" id="rocImportFile" accept=".json,application/json" style="display:none">
       </div>
   </div>
+  <div id="busyOverlay"><div id="busySpinner"></div></div>
 
   <script>
     window.addEventListener('DOMContentLoaded',()=>{
@@ -260,6 +264,7 @@ body {
           theoretical:true,
           empirical:DEFAULT_OPTIONS.showEmpiricalRoc??false,
           confidenceBand:true,
+          estimated:true,
           sample:{}
         }
       };
@@ -291,7 +296,8 @@ body {
         randomRoc:{hue:'#30307c',opacity:1},
         confidenceBand:{hue:'#7d3cff',opacity:0.18,strokeOpacity:1},
         positiveCurveFill:{hue:'#1f77b4',opacity:0.08},
-        negativeCurveFill:{hue:'#d62728',opacity:0.08}
+        negativeCurveFill:{hue:'#d62728',opacity:0.08},
+        estimatedCurve:{hue:'#17becf',opacity:1}
       };
 
       function resolveColorConfig(source){
@@ -303,7 +309,8 @@ body {
           randomRoc:{...DEFAULT_COLOR_CONFIG.randomRoc},
           confidenceBand:{...DEFAULT_COLOR_CONFIG.confidenceBand},
           positiveCurveFill:{...DEFAULT_COLOR_CONFIG.positiveCurveFill},
-          negativeCurveFill:{...DEFAULT_COLOR_CONFIG.negativeCurveFill}
+          negativeCurveFill:{...DEFAULT_COLOR_CONFIG.negativeCurveFill},
+          estimatedCurve:{...DEFAULT_COLOR_CONFIG.estimatedCurve}
         };
         ['positive','negative'].forEach(key=>{
           const entry=source?.[key];
@@ -373,6 +380,7 @@ const COLOR_HELPERS={
         empirical:getColor('empirical', '#7d3cff'),
         roc:getColor('randomRoc', '#30307c'),
         sample:getColor('sample', '#7d3cff'),
+        estimated:getColor('estimatedCurve', '#17becf'),
         confBandFill:()=>ROCUtils.hexOpacityToRgba(COLOR_CONFIG.confidenceBand?.hue||'#7d3cff',COLOR_CONFIG.confidenceBand?.opacity??0.18),
         confBandStroke:getColor('confidenceBand', '#7d3cff')
       };
@@ -389,7 +397,9 @@ const COLOR_HELPERS={
       const baseRocLegendItems=[
         {key:'theoretical',label:'Theoretical ROC',color:COLOR_HELPERS.roc},
         {key:'empirical',label:'Empirical ROC',color:COLOR_HELPERS.empirical},
-        {key:'confidenceBand',label:'Confidence band',color:COLOR_HELPERS.sample}
+        {key:'confidenceBand',label:'Confidence band',color:COLOR_HELPERS.sample},
+        {key:'estimated',label:'Estimated ROC',color:COLOR_HELPERS.estimated},
+        {key:'sampleCurves',label:'Sample ROC Curves',color:COLOR_HELPERS.sample}
       ];
 
       function buildLegend(container, items, sectionKey){
@@ -409,10 +419,15 @@ const COLOR_HELPERS={
           el.appendChild(label);
           el.addEventListener('click',()=>{
             const section=visibilityState[sectionKey]||{};
-            if(sectionKey==='roc' && typeof item.key==='number'){
+            if(sectionKey==='roc' && (typeof item.key==='number' || item.key==='sampleCurves')){
               section.sample=section.sample||{};
-              const current=section.sample[item.key];
-              section.sample[item.key]=!current;
+              if(item.key==='sampleCurves'){
+                const current=section.sample.sampleCurves;
+                section.sample.sampleCurves=!current;
+              } else {
+                const current=section.sample[item.key];
+                section.sample[item.key]=!current;
+              }
             } else {
               const current=section[item.key];
               section[item.key]=!current;
@@ -439,6 +454,13 @@ const COLOR_HELPERS={
                 visibilityState.roc.sample[numericKey]=true;
                 active=true;
               }
+            } else if(key==='sampleCurves'){
+              active=visibilityState.roc.sample?.sampleCurves;
+              if(active===undefined){
+                if(!visibilityState.roc.sample){visibilityState.roc.sample={};}
+                visibilityState.roc.sample.sampleCurves=true;
+                active=true;
+              }
             }
           }
           el.classList.toggle('inactive',!active);
@@ -457,6 +479,7 @@ const COLOR_HELPERS={
               visibilityState.roc.sample[key]=true;
             });
             visibilityState.roc.confidenceBand=true;
+            visibilityState.roc.sample.sampleCurves=true;
           }
         });
         renderLegendSelection();
@@ -534,8 +557,10 @@ const COLOR_HELPERS={
         samplesHist:null,
         confBand:null,
         delongBand:null,
+        estimatedCurve:null,
         numSamples:20,
-        rocBandMode:'bootstrap'
+        rocBandMode:'none',
+        busy:false
       };
 
       thresholdValEl.textContent=STRINGS.controls.thresholdValue(state.threshold);
@@ -556,22 +581,24 @@ const COLOR_HELPERS={
           regenerateSampleRocs();
         }
       });
-      resampleButton.addEventListener('click',()=>{
+      resampleButton.addEventListener('click',async ()=>{
         resampleFromState(true);
-        regenerateSampleRocs(true);
+        await regenerateSampleRocs(true);
       });
       if(numSamplesInput){
         numSamplesInput.value=state.numSamples;
-        numSamplesInput.addEventListener('input',event=>{
+        numSamplesInput.addEventListener('input',async event=>{
           const val=Math.max(1,Math.round(Number(event.target.value)||1));
           state.numSamples=val;
           event.target.value=String(val);
-          regenerateSampleRocs(true);
         });
       }
       if(sampleSizeInput){
         sampleSizeInput.addEventListener('input',()=>{
-          regenerateSampleRocs(true);
+          // avoid resampling on every keystroke
+        });
+        sampleSizeInput.addEventListener('change',async ()=>{
+          await regenerateSampleRocs(true);
         });
       }
       if(rocBandModeSelect){
@@ -644,12 +671,7 @@ const COLOR_HELPERS={
 
       buildLegend(scoreLegendContainer,scoreLegendItems,'score');
       function refreshRocLegend(){
-      const sampleItems=(state.samplesROC||[]).map((_,idx)=>({
-          key:idx,
-          label:`Sample ROC ${idx+1}`,
-          color:COLOR_HELPERS.sample
-        }));
-        buildLegend(rocLegendContainer,[...baseRocLegendItems,...sampleItems],'roc');
+        buildLegend(rocLegendContainer,[...baseRocLegendItems],'roc');
       }
       refreshRocLegend();
       renderLegendSelection();
@@ -769,8 +791,9 @@ const COLOR_HELPERS={
         .attr('text-anchor','middle')
         .text(STRINGS.plots.rocYAxis);
 
-      const rocBandGroup=rocContent.append('g').attr('class','roc-bands').attr('clip-path','url(#rocClip)');
+      const rocBandGroup=rocContent.append('g').attr('class','roc-bands roc-ci-band').attr('clip-path','url(#rocClip)');
       const rocSampleGroup=rocContent.append('g').attr('class','roc-samples').attr('clip-path','url(#rocClip)');
+      const estimatedRocPath=rocContent.append('path').attr('class','roc-estimated').attr('clip-path','url(#rocClip)');
       const rocLinePath=rocContent.append('path').attr('class','roc-line').attr('clip-path','url(#rocClip)');
       const empiricalRocPath=rocContent.append('path').attr('class','roc-empirical').style('opacity',0).attr('clip-path','url(#rocClip)');
       rocContent.append('path').attr('class','roc-random')
@@ -1081,22 +1104,25 @@ const COLOR_HELPERS={
         applySimulatedData(posSamples,negSamples);
       }
 
-      function maybeAutoResample(){
+      async function maybeAutoResample(){
         if(state.autoResample && currentEmpiricalDataset.source==='simulated'){
           resampleFromState();
-          regenerateSampleRocs();
+          await regenerateSampleRocs();
         }
       }
-      function regenerateSampleRocs(force=false){
+      async function regenerateSampleRocs(force=false){
         if(!force && !state.autoResample){return;}
-        const numSamples=Math.max(1,Number(state.numSamples)||1);
-        const {nPos,nNeg}=getSampleCounts();
-        const curves=[];
-        setBusy(true);
-        try{
+        await withBusy(async ()=>{
+          const numSamples=Math.max(1,Number(state.numSamples)||1);
+          const {nPos,nNeg}=getSampleCounts();
+          const curves=[];
+          let lastPosSamples=null;
+          let lastNegSamples=null;
           for(let i=0;i<numSamples;i++){
             const posSamples=sampleDistribution('pos',state.posComponents,nPos);
             const negSamples=sampleDistribution('neg',state.negComponents,nNeg);
+            lastPosSamples=posSamples;
+            lastNegSamples=negSamples;
             const points=[
               ...posSamples.map(score=>({score,label:1})),
               ...negSamples.map(score=>({score,label:0}))
@@ -1108,52 +1134,68 @@ const COLOR_HELPERS={
             }
           }
           state.samplesROC=curves;
+          if(lastPosSamples||lastNegSamples){
+            state.samplesHist=computeSampleHistogramsFromSample(lastPosSamples||[],lastNegSamples||[]);
+            if(state.rocBandMode==='delong'){
+              const fprGrid=d3.range(0,1.000001,0.01);
+              state.delongBand=ROCUtils.computeDelongTPRBand(lastPosSamples||[],lastNegSamples||[],fprGrid,1.96);
+            }
+          } else {
+            state.samplesHist=null;
+            state.delongBand=null;
+          }
+          state.estimatedCurve=computeEstimatedCurveFromSamples(state.samplesROC,state.confBand,state.delongBand,state.rocBandMode);
           visibilityState.roc.sample={};
           state.samplesROC.forEach((_,idx)=>{visibilityState.roc.sample[idx]=true;});
           refreshRocLegend();
-          computeConfidenceBand();
-        } finally {
-          setBusy(false);
-        }
-        update();
+          if(state.rocBandMode==='bootstrap'){
+            await computeConfidenceBand();
+          } else {
+            state.confBand=null;
+          }
+          update();
+        });
       }
 
-     function computeConfidenceBand(){
+      async function computeConfidenceBand(){
         const samples=state.samplesROC||[];
         if(!samples.length){state.confBand=null;return;}
-        const fprGrid=d3.range(0,1.000001,0.01);
-        const quantile=(arr,p)=>{
-          if(!arr.length){return null;}
-          const sorted=[...arr].sort((a,b)=>a-b);
-          return d3.quantileSorted(sorted,p);
-        };
-        const interpolate=(fprArr,tprArr,x)=>{
-          const n=fprArr.length;
-          if(!n){return null;}
-          if(x<=fprArr[0]){return tprArr[0];}
-          if(x>=fprArr[n-1]){return tprArr[n-1];}
-          const idx=d3.bisectLeft(fprArr,x);
-          const x0=fprArr[idx-1],x1=fprArr[idx];
-          const y0=tprArr[idx-1],y1=tprArr[idx];
-          if(x1===x0){return y0;}
-          const t=(x-x0)/(x1-x0);
-          return y0+(y1-y0)*t;
-        };
-        const lower=[];
-        const upper=[];
-        fprGrid.forEach(fprVal=>{
-          const values=[];
-          samples.forEach(sample=>{
-            const fpr=Array.isArray(sample.fpr)?sample.fpr:null;
-            const tpr=Array.isArray(sample.tpr)?sample.tpr:null;
-            if(!fpr||!tpr||fpr.length!==tpr.length||!fpr.length){return;}
-            const v=interpolate(fpr,tpr,fprVal);
-            if(Number.isFinite(v)){values.push(v);}
+        if(state.rocBandMode!=='bootstrap'){state.confBand=null;return;}
+        await withBusy(async ()=>{
+          const fprGrid=d3.range(0,1.000001,0.01);
+          const quantile=(arr,p)=>{
+            if(!arr.length){return null;}
+            const sorted=[...arr].sort((a,b)=>a-b);
+            return d3.quantileSorted(sorted,p);
+          };
+          const interpolate=(fprArr,tprArr,x)=>{
+            const n=fprArr.length;
+            if(!n){return null;}
+            if(x<=fprArr[0]){return tprArr[0];}
+            if(x>=fprArr[n-1]){return tprArr[n-1];}
+            const idx=d3.bisectLeft(fprArr,x);
+            const x0=fprArr[idx-1],x1=fprArr[idx];
+            const y0=tprArr[idx-1],y1=tprArr[idx];
+            if(x1===x0){return y0;}
+            const t=(x-x0)/(x1-x0);
+            return y0+(y1-y0)*t;
+          };
+          const lower=[];
+          const upper=[];
+          fprGrid.forEach(fprVal=>{
+            const values=[];
+            samples.forEach(sample=>{
+              const fpr=Array.isArray(sample.fpr)?sample.fpr:null;
+              const tpr=Array.isArray(sample.tpr)?sample.tpr:null;
+              if(!fpr||!tpr||fpr.length!==tpr.length||!fpr.length){return;}
+              const v=interpolate(fpr,tpr,fprVal);
+              if(Number.isFinite(v)){values.push(v);}
+            });
+            lower.push(quantile(values,0.025));
+            upper.push(quantile(values,0.975));
           });
-          lower.push(quantile(values,0.025));
-          upper.push(quantile(values,0.975));
+          state.confBand={fpr:fprGrid,lower,upper};
         });
-        state.confBand={fpr:fprGrid,lower,upper};
       }
       function parseEmpiricalCsv(text, filename){
         let parsed;
@@ -1344,8 +1386,42 @@ const COLOR_HELPERS={
 
       function sanitizePDF(value){return Number.isFinite(value)&&value>=0?value:0;}
       function clamp(val,min,max){return Math.min(Math.max(val,min),max);}
+      function disableUiDuringBusy(disabled){
+        const controls=document.querySelectorAll('input,button,select,textarea');
+        controls.forEach(el=>{
+          if(disabled){
+            el.setAttribute('data-prev-disabled',el.disabled);
+            el.disabled=true;
+          } else {
+            const prev=el.getAttribute('data-prev-disabled');
+            if(prev==="true"){el.disabled=true;}else{el.disabled=false;}
+            el.removeAttribute('data-prev-disabled');
+          }
+        });
+      }
+
       function setBusy(flag){
-        document.body.classList.toggle('busy',Boolean(flag));
+        state.busy=Boolean(flag);
+        if(state.busy){
+          console.debug('[Busy] Activating spinner');
+        } else {
+          console.debug('[Busy] Deactivating spinner');
+        }
+        document.body.classList.toggle('busy',state.busy);
+        const overlay=document.getElementById('busyOverlay');
+        if(overlay){overlay.style.display=state.busy?'flex':'none';}
+        disableUiDuringBusy(state.busy);
+      }
+
+      async function withBusy(fn){
+        setBusy(true);
+        // Allow DOM to paint spinner before heavy work (use animation frame)
+        await new Promise(requestAnimationFrame);
+        try{
+          return await fn();
+        }finally{
+          setBusy(false);
+        }
       }
 
       function buildDistribution(prefix){
@@ -1374,8 +1450,6 @@ const COLOR_HELPERS={
       }
 
       function update(){
-        setBusy(true);
-        try{
         const pos=buildDistribution('pos');
         const neg=buildDistribution('neg');
         refreshStudentTInfo();
@@ -1383,10 +1457,7 @@ const COLOR_HELPERS={
         const empiricalSamples=getProcessedEmpiricalSamples();
         const hasEmpiricalSamples=empiricalSamples.positives.length>0||empiricalSamples.negatives.length>0;
         const fprGrid=d3.range(0,1.000001,0.01);
-        if(hasEmpiricalSamples){
-          const delong=ROCUtils.computeDelongRocBand(empiricalSamples.positives,empiricalSamples.negatives,fprGrid,0.05);
-          state.delongBand=delong;
-        } else {
+        if(!(hasEmpiricalSamples && state.rocBandMode==='delong')){
           state.delongBand=null;
         }
         const hasSampleHist=state.samplesHist && Array.isArray(state.samplesHist.positives) && Array.isArray(state.samplesHist.negatives);
@@ -1626,15 +1697,32 @@ const COLOR_HELPERS={
           .attr('stroke',COLOR_HELPERS.sample)
           .attr('stroke-width',1)
           .attr('fill','none')
-          .style('display',d=>{
-            const visible=visibilityState.roc.sample?.[d.key];
+          .style('display',()=>{
+            const visible=visibilityState.roc.sample?.sampleCurves;
             return visible===false?'none':null;
           })
           .lower();
 
+        if(state.estimatedCurve && visibilityState.roc.estimated!==false){
+          const estPoints=(state.estimatedCurve.fpr||[]).map((fprVal,idx)=>({fpr:fprVal,tpr:state.estimatedCurve.tpr[idx]})).filter(pt=>Number.isFinite(pt.fpr)&&Number.isFinite(pt.tpr));
+          if(estPoints.length>=2){
+            estimatedRocPath
+              .style('display',null)
+              .datum(estPoints)
+              .attr('d',rocLineGenerator)
+              .attr('stroke',COLOR_HELPERS.estimated)
+              .attr('stroke-width',2)
+              .attr('fill','none');
+          } else {
+            estimatedRocPath.style('display','none').attr('d',null);
+          }
+        } else {
+          estimatedRocPath.style('display','none').attr('d',null);
+        }
+
         const hasBand=state.confBand && Array.isArray(state.confBand.fpr) && Array.isArray(state.confBand.lower) && Array.isArray(state.confBand.upper);
         const drawRocBand=(band,prefix,color)=>{
-          const visible=visibilityState.roc.confidenceBand!==false && state.rocBandMode===prefix && band && Array.isArray(band.fpr) && Array.isArray(band.lower) && Array.isArray(band.upper);
+          const visible=visibilityState.roc.confidenceBand!==false && visibilityState.roc.estimated!==false && state.rocBandMode===prefix && band && Array.isArray(band.fpr) && Array.isArray(band.lower) && Array.isArray(band.upper);
           const bandData=visible?band.fpr.map((fprVal,idx)=>({
             fpr:fprVal,
             lower:band.lower[idx],
@@ -1672,8 +1760,16 @@ const COLOR_HELPERS={
             .attr('fill','none');
         };
 
-        drawRocBand(state.confBand,'bootstrap',COLOR_HELPERS.sample);
-        drawRocBand(state.delongBand,'delong',COLOR_HELPERS.sample);
+        if(state.rocBandMode==='bootstrap'){
+          drawRocBand(state.confBand,'bootstrap',COLOR_HELPERS.sample);
+          drawRocBand(null,'delong',COLOR_HELPERS.sample);
+        } else if(state.rocBandMode==='delong'){
+          drawRocBand(null,'bootstrap',COLOR_HELPERS.sample);
+          drawRocBand(state.delongBand,'delong',COLOR_HELPERS.sample);
+        } else {
+          drawRocBand(null,'bootstrap',COLOR_HELPERS.sample);
+          drawRocBand(null,'delong',COLOR_HELPERS.sample);
+        }
 
         if(visibilityState.roc.theoretical && rocSorted.length>=2){
           rocLinePath.style('display',null).datum(rocSorted).attr('d',rocLineGenerator);
@@ -1711,9 +1807,6 @@ const COLOR_HELPERS={
         const headers=STRINGS.metrics.prevalenceHeader;
         document.getElementById('metricsPrev').innerHTML=`<table><tr><th>${headers[0]}</th><th>${headers[1]}</th><th>${headers[2]}</th></tr><tr><td>${ppv.toFixed(3)}</td><td>${npv.toFixed(3)}</td><td>${accuracy.toFixed(3)}</td></tr></table>`;
         renderLegendSelection();
-        } finally {
-          setBusy(false);
-        }
       }
 
       function handleDrag(event){
@@ -1952,6 +2045,69 @@ const COLOR_HELPERS={
         const posBins=positives.length?toDensity(binGenerator(positives),positives.length):[];
         const negBins=negatives.length?toDensity(binGenerator(negatives),negatives.length):[];
         return {positives:posBins,negatives:negBins,domain:[minX,maxX],binCount};
+      }
+
+      function computeSampleHistogramsFromSample(posScores,negScores){
+        const positives=Array.isArray(posScores)?posScores.map(Number).filter(Number.isFinite):[];
+        const negatives=Array.isArray(negScores)?negScores.map(Number).filter(Number.isFinite):[];
+        if(!positives.length && !negatives.length){
+          return {positives:[],negatives:[],domain:[0,1],binCount:0};
+        }
+        const minX=Math.min(...positives,...negatives);
+        const maxX=Math.max(...positives,...negatives);
+        const total=Math.max(positives.length+negatives.length,1);
+        const binCount=Math.min(40,Math.max(10,Math.round(Math.sqrt(total))));
+        const binGenerator=(d3.histogram?d3.histogram():d3.bin()).domain([minX,maxX]).thresholds(binCount);
+        const toDensity=(bins,totalCount)=>bins.map(bin=>{
+          const width=(bin.x1??bin.x0)-(bin.x0??bin.x1);
+          const density=(totalCount>0 && width>0)?bin.length/(totalCount*width):0;
+          return {x0:bin.x0,x1:bin.x1,density};
+        });
+        const posBins=positives.length?toDensity(binGenerator(positives),positives.length):[];
+        const negBins=negatives.length?toDensity(binGenerator(negatives),negatives.length):[];
+        return {positives:posBins,negatives:negBins,domain:[minX,maxX],binCount};
+      }
+
+      function computeEstimatedCurveFromSamples(samples, bootstrapBand, delongBand, mode){
+        if(!Array.isArray(samples) || !samples.length){return null;}
+        const fprGrid=d3.range(0,1.000001,0.01);
+        const interpolate=(fprArr,tprArr,x)=>{
+          const n=fprArr.length;
+          if(!n){return null;}
+          if(x<=fprArr[0]){return tprArr[0];}
+          if(x>=fprArr[n-1]){return tprArr[n-1];}
+          const idx=d3.bisectLeft(fprArr,x);
+          const x0=fprArr[idx-1],x1=fprArr[idx];
+          const y0=tprArr[idx-1],y1=tprArr[idx];
+          if(x1===x0){return y0;}
+          const t=(x-x0)/(x1-x0);
+          return y0+(y1-y0)*t;
+        };
+        const tpr=[];
+        fprGrid.forEach(fpr=>{
+          const vals=[];
+          samples.forEach(sample=>{
+            const fprArr=sample.fpr;
+            const tprArr=sample.tpr;
+            if(!Array.isArray(fprArr)||!Array.isArray(tprArr)||fprArr.length!==tprArr.length||!fprArr.length){return;}
+            const v=interpolate(fprArr,tprArr,fpr);
+            if(Number.isFinite(v)){vals.push(v);}
+          });
+          if(vals.length){
+            const mean=vals.reduce((a,b)=>a+b,0)/vals.length;
+            tpr.push(mean);
+          } else {
+            tpr.push(0);
+          }
+        });
+        const points=fprGrid.map((f,i)=>({fpr:f,tpr:tpr[i]}));
+        const bands=[];
+        if(mode==='bootstrap' && bootstrapBand){
+          bands.push({...bootstrapBand,level:0.95,method:'bootstrap',n_samples:samples.length});
+        } else if(mode==='delong' && delongBand){
+          bands.push({...delongBand,level:0.95,method:'delong',n_samples:samples.length});
+        }
+        return {fpr:fprGrid,tpr,bands,auc:ROCUtils.computeAuc(points)};
       }
 
       function pointsToRocArrays(points){
@@ -2199,6 +2355,20 @@ const COLOR_HELPERS={
         try{
           const {canonicalCurve}=buildCanonicalExportCurve(curveName);
           const canonicalMap={[curveName]:canonicalCurve};
+          if(state.estimatedCurve){
+            const estName=`${curveName} (estimated)`;
+            const estCurve={
+              type:'ROC',
+              name:estName,
+              fpr:state.estimatedCurve.fpr||[],
+              tpr:state.estimatedCurve.tpr||[]
+            };
+            if(state.estimatedCurve.bands){
+              estCurve.bands=state.estimatedCurve.bands;
+            }
+            estCurve.auc=ROCUtils.computeAuc(state.estimatedCurve.fpr.map((fpr,i)=>({fpr,tpr:state.estimatedCurve.tpr[i]})));
+            canonicalMap[estName]=estCurve;
+          }
           const blob=ROCUtils.toRocJsonBlob(canonicalMap,`${curveName}.json`);
           downloadBlob(blob,`${curveName}.json`);
           if(statusEl){
@@ -2237,16 +2407,39 @@ const COLOR_HELPERS={
         const curveIds=Object.keys(curveMap);
         if(!curveIds.length){alert('Imported ROC JSON did not contain any curves.');return;}
         let applied=false;
+        let estimatedApplied=false;
         for(const id of curveIds){
           const curve=curveMap[id];
           if(!curve||typeof curve!=='object'){continue;}
+          if(typeof curve.name==='string' && curve.name.endsWith(' (estimated)')){
+            state.estimatedCurve={
+              fpr:Array.isArray(curve.fpr)?curve.fpr:[],
+              tpr:Array.isArray(curve.tpr)?curve.tpr:[],
+              bands:Array.isArray(curve.bands)?curve.bands:null
+            };
+            if(state.estimatedCurve.bands && state.estimatedCurve.bands.length){
+              const band=state.estimatedCurve.bands[0];
+              if(band.method==='bootstrap'){state.confBand=band;state.rocBandMode='bootstrap';}
+              if(band.method==='delong'){state.delongBand=band;state.rocBandMode='delong';}
+            }
+            visibilityState.roc.estimated=true;
+            estimatedApplied=true;
+            continue;
+          }
           if(!applied && ROCUtils.extractContinuousRocMetadata(curve)){
             const ok=applyImportedContinuousMetadata(curve);
             applied=applied||ok;
           }
         }
-        if(!applied){
+        refreshRocLegend();
+        renderLegendSelection();
+        if(!applied && !estimatedApplied){
           update();
+        } else {
+          update();
+        }
+        if(!applied){
+          // already updated
         }
         alert(`Imported ${curveIds.length} ROC curve${curveIds.length>1?'s':''}.`);
       }

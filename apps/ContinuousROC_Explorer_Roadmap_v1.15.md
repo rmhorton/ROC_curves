@@ -2575,7 +2575,7 @@ Shows applied computation of analytic ROC confidence intervals.
 
 
 
-# Version v1.15.10 — ROC Sample Animation (Playback Only)
+# Version v1.15.10 — ROC Sample Animation (Playback Only)  ** SKIPPED **
 
 ## A. Goals
 - Add **animated playback** of sampled ROC curves directly inside the existing ROC plot SVG.
@@ -2747,7 +2747,7 @@ Do not modify unrelated code.
 ---
 
 
-# Version v1.15.11 — Export ROC Sample Animation as APNG
+# Version v1.15.11 — Export ROC Sample Animation as APNG ** SKIPPED **
 
 ## A. Goals
 - Add **APNG export** for the sampled ROC curve animation created in v1.15.10.
@@ -2933,42 +2933,42 @@ Do not modify unrelated logic.
 
 ---
 
-# Version v1.15.12 — Global Busy Indicator & Async Operation Wrapper
+# Version v1.15.12 — Global Busy Indicator & Async Operation Wrapper (No Animation Dependencies)
 
 ## A. Goals
-- Add a **global busy indicator system** to the Continuous ROC Explorer.
-- Ensure that *any long-running computation* automatically triggers:
-  - A visual busy indicator (spinner overlay)
-  - A global `state.busy = true` flag
-  - Temporary disabling of UI inputs that should not be used while busy
-- Ensure the indicator automatically hides when work is complete.
-- Wrap all long-running tasks, including:
-  - Sampling (v1.15.7)
-  - Confidence band computation (v1.15.8)
-  - DeLong analytic band computation (v1.15.9)
-  - Animation export (v1.15.11)
-  - Future sampling settings export/import
-- Provide a simple, reusable wrapper:
+- Add a **global busy indicator** to the Continuous ROC Explorer.
+- Ensure *any long-running computation* automatically triggers:
+  - A visual overlay spinner
+  - A `state.busy = true` flag
+  - Temporary disabling of UI controls
+- Hide the indicator automatically when the operation completes.
+- Provide a reusable wrapper:
   ```js
   await withBusy(async () => {
-      // long-running code
+      // long-running work
   });
   ```
-- Do NOT modify the logic of long-running operations; only wrap them.
-- Busy indicator must work in all browsers that support the app.
+- Apply wrapping to current expensive operations:
+  - Continuous sampling (v1.15.7)
+  - Confidence band computation (v1.15.8)
+  - DeLong analytic computation (v1.15.9)
+  - Large-file JSON import parsing
+- **Exclude animation-related features**, as those milestones were deferred.
 
 ---
 
 ## B. Implementation Plan
 
 ### 1. Add busy indicator HTML
-Insert directly under `<body>` in `continuous_ROC.html`:
+Insert immediately inside `<body>` of `continuous_ROC.html`:
 ```html
 <div id="busyOverlay" style="display:none;">
   <div id="busySpinner"></div>
 </div>
 ```
-Add inline CSS or to existing `<style>` block:
+
+### Add CSS styling
+Add to the existing `<style>` block:
 ```css
 #busyOverlay {
   position: fixed;
@@ -2993,14 +2993,18 @@ Add inline CSS or to existing `<style>` block:
 @keyframes spin { 100% { transform: rotate(360deg); } }
 ```
 
-### 2. Add global busy state
-Add inside the top-level `state` object in `continuous_ROC.html`:
+---
+
+### 2. Add global busy flag
+Inside the main `state` object in `continuous_ROC.html`:
 ```js
 state.busy = false;
 ```
 
+---
+
 ### 3. Add withBusy() wrapper
-Place this near other utility functions in `continuous_ROC.html`:
+Place near other utility helpers:
 ```js
 async function withBusy(fn) {
   try {
@@ -3016,22 +3020,24 @@ async function withBusy(fn) {
 }
 ```
 
-### 4. Disable UI during busy
-Add a helper:
+---
+
+### 4. Add disableUiDuringBusy()
 ```js
 function disableUiDuringBusy(disabled) {
   const controls = document.querySelectorAll('input, button, select');
   controls.forEach(el => {
-    if(el.id !== 'busyOverlay') el.disabled = disabled;
+    if (el.id !== 'busyOverlay') el.disabled = disabled;
   });
 }
 ```
 
-### 5. Wrap all long-running operations
-Modify all calls that perform expensive work:
+---
+
+### 5. Wrap all long-running operations (no animations)
 
 #### Sampling
-Replace:
+Replace any call to:
 ```js
 generateSamples();
 ```
@@ -3042,37 +3048,33 @@ await withBusy(async () => {
 });
 ```
 
-#### Confidence bands (bootstrap)
-Wrap the sampling-band computation in the same manner.
+#### Confidence bands
+Wrap bootstrap/pointwise CI computation in the same way.
 
-#### DeLong analytic band computation
-Wrap the call to `computeDelongRocBand`.
-
-#### APNG export
-Replace:
-```js
-exportRocAnimationAPNG();
-```
-with:
+#### DeLong computation
+e.g.:
 ```js
 await withBusy(async () => {
-  await exportRocAnimationAPNG();
+  computeDelongRocBand(...);
 });
 ```
 
-#### JSON import parsing (if large)
-Wrap the import process, not the file picker.
+#### Heavy JSON import
+Wrap the *processing* of imported data (not the file chooser):
+```js
+await withBusy(async () => {
+  await processImportedCurve(jsonData);
+});
+```
 
-### 6. Ensure animation playback is not blocked
-Animation playback (`stepAnimation()`) must **not** be wrapped in busy logic.
-Busy indicator is only for *non-interactive*, long-run computations.
+---
 
-### 7. Testing Scenarios
-- Sampling 100 samples → busy indicator should appear.
-- Exporting 100-frame APNG → spinner appears.
-- Computing bootstrap band or DeLong band → spinner appears.
-- UI buttons disabled during busy, re-enabled after.
-- Animation playback continues to function normally.
+### 6. Testing
+- Sampling ≥ 50 replicates triggers busy overlay.
+- Confidence band computation displays overlay.
+- DeLong analytic computation displays overlay.
+- Large curve JSON import displays overlay briefly.
+- UI controls disabled during busy; restored after.
 
 ---
 
@@ -3080,247 +3082,1140 @@ Busy indicator is only for *non-interactive*, long-run computations.
 ```
 Implement milestone v1.15.12 from `ContinuousROC_Explorer_Roadmap_v1.15.md`.
 
-Goal: Add a global busy indicator with an overlay spinner and a reusable async wrapper.
+Goal: Add a global busy indicator and async wrapper, without referencing any animation features.
 
 Modify only:
   • continuous_ROC.html
 
 Steps:
-1. Add #busyOverlay and #busySpinner HTML elements at the top of <body>.
-2. Add CSS for overlay, spinner, and animation.
-3. Add state.busy = false to the global state.
-4. Add withBusy(fn) helper and disableUiDuringBusy(disabled) helper.
-5. Wrap long-running operations using:
-      await withBusy(async () => { ... });
-   Specifically wrap:
+1. Insert #busyOverlay and #busySpinner markup inside <body>.
+2. Add CSS for the overlay and spinner.
+3. Add state.busy = false to global state.
+4. Add withBusy(fn) helper and disableUiDuringBusy(disabled).
+5. Wrap long-running operations using withBusy():
    - sample generation
-   - sample-band computations
-   - DeLong band computations
-   - APNG animation export
-   - large JSON import operations
-6. Disable UI controls during busy and restore afterwards.
-7. Do not wrap animation playback; it must remain interactive.
-
-Do not modify unrelated code.
+   - confidence band computation
+   - DeLong band computation
+   - large JSON import handlers
+6. Ensure UI controls disable and re-enable appropriately.
+7. Do NOT modify or reference any animation code.
+8. Do not change unrelated functions or structures.
 ```
 
----
-
-
-# Version v1.15.13 — Dynamic Parameter UI for All Distribution Families
+# Version v1.15.12.1 — Fix Busy Spinner Visibility & Default Band Mode
 
 ## A. Goals
-- Replace the current **hard-coded parameter input UI** with a fully **dynamic, schema-driven** system.
-- Automatically generate parameter controls from the `DISTRIBUTIONS` object in `ROC_lib.js`.
-- Ensure new distributions added in the future (e.g., from jstat_extras) automatically:
-  - appear in the dropdown
-  - show correct parameter inputs
-  - save/restore correctly via internal keys
-- Support default values, min/max checks (if provided), and type constraints.
-- Ensure that sampling, distribution rendering, and import/export all use the new system.
+- Make the **busy spinner actually visible** during long-running operations by ensuring the browser has a chance to repaint before heavy work starts.
+- Set **"None" as the default confidence band mode**, so confidence bands are not computed unless explicitly requested.
+- **Avoid forcing resampling on every keystroke** in the sample-size input; updating the sample size should not immediately trigger a full resample for each typed character.
+- Keep the global busy indicator design from v1.15.12, but correct its wiring and usage.
 
 ---
 
 ## B. Implementation Plan
 
-### 1. Extend DISTRIBUTIONS schema (in ROC_lib.js)
-Each distribution entry must include a `params` descriptor, e.g.:
+### 1. Make `rocBandMode` default to "none"
+In the initial `state` object in `continuous_ROC.html`, change the default band mode:
 ```js
-normal: {
-  label: "Normal (μ, σ)",
-  key: "normal",
-  params: [
-    { name: "mean", label: "μ", default: 0, type: "number" },
-    { name: "sd", label: "σ", default: 1, type: "number", min: 0 }
-  ],
-  // ... existing functions
+const state = {
+  // ... other fields ...
+  rocBandMode: 'none',
+  busy: false
+};
+```
+
+Ensure the `<select id="rocBandMode">` is initialized from `state.rocBandMode` (this should already be in place from prior milestones).
+
+### 2. Guard confidence-band computation by `rocBandMode`
+Wherever confidence bands are computed (e.g., inside `regenerateSampleRocs` or a band-related helper):
+- Only compute bootstrap bands if `state.rocBandMode === 'bootstrap'`.
+- Only compute DeLong bands if `state.rocBandMode === 'delong'`.
+- If `state.rocBandMode === 'none'`:
+  - Skip band computation entirely.
+  - Clear existing band data (`state.confBand`, `state.delongBand`) if needed.
+
+Example pattern:
+```js
+if (state.rocBandMode === 'bootstrap') {
+  computeBootstrapBand();
+} else if (state.rocBandMode === 'delong') {
+  computeDelongBand();
+} else {
+  state.confBand = null;
+  state.delongBand = null;
 }
 ```
-If any distribution is missing a `params` array, create one based on how the distribution’s pdf/cdf functions currently accept parameters.
 
-*No changes to existing distribution functionality.*
+### 3. Refactor `regenerateSampleRocs` to use `withBusy`
+Change `regenerateSampleRocs` into an `async` function that wraps heavy work with `withBusy` so the spinner can paint before the sampling loop runs.
 
----
-
-### 2. Modify the HTML generation for parameter inputs (continuous_ROC.html)
-Remove the current hard-coded `<input>` elements for distribution parameters.
-
-Replace them with a dynamic container:
-```html
-<div id="distParamContainer"></div>
-```
-
----
-
-### 3. Add generateParameterUI() helper
-Add in continuous_ROC.html:
+Example transformation:
 ```js
-function generateParameterUI(distKey, target, currentValues = {}) {
-  const def = DISTRIBUTIONS[distKey];
-  if(!def || !def.params) return;
+async function regenerateSampleRocs(force = false) {
+  if (!force && !state.autoResample) return;
 
-  const container = document.getElementById(target);
-  container.innerHTML = "";
+  await withBusy(async () => {
+    const numSamples = Math.max(1, Number(state.numSamples) || 1);
+    const { nPos, nNeg } = getSampleCounts();
+    const curves = [];
 
-  def.params.forEach(p => {
-    const row = document.createElement("div");
-    row.className = "paramRow";
+    for (let i = 0; i < numSamples; i++) {
+      const posSamples = sampleDistribution('pos', state.posComponents, nPos);
+      const negSamples = sampleDistribution('neg', state.negComponents, nNeg);
+      const points = [
+        ...posSamples.map(score => ({ score, label: 1 })),
+        ...negSamples.map(score => ({ score, label: 0 }))
+      ];
+      const rocPoints = ROCUtils.computeEmpiricalRoc(points);
+      const mapped = pointsToRocArrays(rocPoints);
+      if (mapped) curves.push(mapped);
+    }
 
-    const label = document.createElement("label");
-    label.textContent = p.label || p.name;
-    row.appendChild(label);
+    state.samplesROC = curves;
+    // (Re)initialize sample visibility and legend
+    visibilityState.roc.sample = {};
+    state.samplesROC.forEach((_, idx) => { visibilityState.roc.sample[idx] = true; });
+    refreshRocLegend();
 
-    const input = document.createElement("input");
-    input.type = p.type || "number";
-    input.min = p.min ?? "";
-    input.max = p.max ?? "";
-    input.step = p.step ?? "any";
-    input.value = currentValues[p.name] ?? p.default;
-    input.dataset.paramName = p.name;
+    // Band computation guarded by rocBandMode
+    if (state.rocBandMode === 'bootstrap') {
+      computeBootstrapBand();
+    } else if (state.rocBandMode === 'delong') {
+      computeDelongBand();
+    } else {
+      state.confBand = null;
+      state.delongBand = null;
+    }
 
-    input.oninput = () => updateParamsFromUI(distKey, target);
-
-    row.appendChild(input);
-    container.appendChild(row);
+    update();
   });
 }
 ```
 
-This creates one row per parameter in the schema.
+Any existing callers that do `await regenerateSampleRocs(true)` will now allow the spinner to become visible.
 
----
-
-### 4. Add updateParamsFromUI() helper
+### 4. Stop resampling on every keystroke in the sample-size input
+Locate the event listener on the sample-size input (e.g., `#sampleSizeInput` or similar). It likely looks roughly like:
 ```js
-function updateParamsFromUI(distKey, target) {
-  const def = DISTRIBUTIONS[distKey];
-  const container = document.getElementById(target);
-  const inputs = container.querySelectorAll("input[data-param-name]");
+sampleSizeInput.addEventListener('input', async () => {
+  state.numSamples = Number(sampleSizeInput.value) || 0;
+  await regenerateSampleRocs(true);
+});
+```
 
-  const result = {};
-  inputs.forEach(inp => {
-    const name = inp.dataset.paramName;
-    const val = Number(inp.value);
-    result[name] = val;
+Change this behavior so that:
+- `input` events **only update `state.numSamples`**.
+- Resampling is triggered explicitly by:
+  - a "New Sample" button, **or**
+  - a `change` event (on blur / Enter), if you prefer.
+
+Example:
+```js
+if (sampleSizeInput) {
+  sampleSizeInput.addEventListener('input', () => {
+    state.numSamples = Number(sampleSizeInput.value) || 0;
   });
 
-  // store into state
-  if(target === "posDistParamContainer") state.positive.params = result;
-  if(target === "negDistParamContainer") state.negative.params = result;
-
-  regenerateIfNeeded();
+  // Optional: only resample when the user commits the change
+  sampleSizeInput.addEventListener('change', async () => {
+    await regenerateSampleRocs(true);
+  });
 }
 ```
 
----
+If you already have a "New Sample" or "Resample" button, you can instead:
+- Keep the `input` handler for state updates only.
+- Attach `await regenerateSampleRocs(true);` to the explicit **button** click handler.
 
-### 5. Hook up distribution dropdown changes
-Where positive/negative distribution selection is handled:
-```js
-onPosDistChange = (newKey) => {
-  state.positive.dist = newKey;
-  generateParameterUI(newKey, "posDistParamContainer", state.positive.params);
-  regenerateIfNeeded();
-};
+### 5. Ensure `withBusy` is used only for non-interactive heavy tasks
+- Do **not** wrap purely UI interactions that are fast.
+- Do wrap:
+  - sampling (via `regenerateSampleRocs`)
+  - confidence band computation
+  - DeLong band computation
+  - large JSON import processing
 
-onNegDistChange = (newKey) => {
-  state.negative.dist = newKey;
-  generateParameterUI(newKey, "negDistParamContainer", state.negative.params);
-  regenerateIfNeeded();
-};
-```
+`withBusy` already yields a frame via `requestAnimationFrame`, so once it wraps the heavy code, the spinner overlay will be visible.
 
-This ensures the correct UI is built instantly.
-
----
-
-### 6. Update import logic
-When importing metadata:
-- distribution key comes directly from JSON → OK
-- parameters → pass into `generateParameterUI()` so the UI reflects imported values
-
-E.g.:
-```js
-generateParameterUI(state.positive.dist,
-                    "posDistParamContainer",
-                    importedMeta.distributions.positive[0].params);
-```
-
-Same for the negative side.
-
----
-
-### 7. Update export logic
-Ensure export uses:
-```js
-params: state.positive.params
-```
-not UI scraping.
-
-State now contains the authoritative parameter set.
-
----
-
-### 8. Remove all legacy, hard-coded parameter HTML
-All `<input id="posDistMean">`, etc., should be removed.
-
-Make sure CSS styling for `.paramRow` is added:
-```css
-.paramRow {
-  margin: 4px 0;
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
-```
-
----
-
-### 9. Testing
-- Switch between dozens of distribution families → correct parameters appear
-- Save & import → UI regenerates correctly
-- Sampling and ROC generation still use correct parameters
-- jstat_extras distributions behave correctly
-- Animations and APNG export unaffected
+### 6. Testing
+- Set band mode to **None** and type into the sample-size field:
+  - No band computations should run.
+  - No resampling on each keystroke.
+- Trigger sampling explicitly (button or `change` event):
+  - Busy spinner should appear while samples are generated.
+- Switch band mode to **Bootstrap** or **DeLong** and trigger sampling:
+  - Spinner should remain visible while both sampling and band computation run.
 
 ---
 
 ## C. Codex Prompt
 ```
-Implement milestone v1.15.13 from `ContinuousROC_Explorer_Roadmap_v1.15.md`.
+Implement milestone v1.15.12.1 from `ContinuousROC_Explorer_Roadmap_v1.15.md`.
 
-Goal: Replace hard-coded distribution parameter UI with a dynamic, schema-driven system.
+Title: Fix Busy Spinner Visibility & Default Band Mode.
 
-Modify:
+Modify only:
   • continuous_ROC.html
-  • ROC_lib.js (add/complete params arrays inside DISTRIBUTIONS entries)
+
+Goals:
+  • Make the global busy spinner visible during long-running operations.
+  • Set the default confidence band mode to "none".
+  • Avoid forcing resampling on every keystroke in the sample-size input.
 
 Steps:
-1. Add a <div id="distParamContainer"> placeholder (and separate containers for positive and negative if needed).
-2. Extend each DISTRIBUTIONS entry in ROC_lib.js with a params array: name, label, default, type, min/max.
-3. Add generateParameterUI(distKey, target, currentValues) helper to build inputs dynamically.
-4. Add updateParamsFromUI() to push values into state.
-5. On distribution dropdown change, call generateParameterUI() and refresh the ROC via regenerateIfNeeded().
-6. Modify import logic so that imported params are passed into generateParameterUI().
-7. Modify export logic so state.positive.params and state.negative.params are exported.
-8. Remove all legacy hard-coded parameter <input> elements.
-9. Add minimal CSS (.paramRow) for layout.
-10. Test distribution switching, import/export, sampling, and ROC generation.
+1. In the global state initialization, change:
+     rocBandMode: 'bootstrap'
+   to:
+     rocBandMode: 'none'
+
+2. In the code that computes confidence bands, guard computation by state.rocBandMode:
+   • If 'bootstrap' → compute bootstrap band.
+   • If 'delong' → compute DeLong band.
+   • If 'none' → skip band computation and clear any existing band objects if necessary.
+
+3. Refactor regenerateSampleRocs to be async and to wrap its heavy work in withBusy(async () => { ... }).
+   • Inside the withBusy block, perform sampling loops, rebuild state.samplesROC, update visibilityState/legend, compute bands conditioned on rocBandMode, and call update().
+
+4. Update the sample-size input handlers:
+   • On 'input': only update state.numSamples from the field value; do not call regenerateSampleRocs.
+   • On 'change' (or via an existing explicit "New Sample" button): call await regenerateSampleRocs(true).
+
+5. Do not wrap trivial UI changes in withBusy. Use withBusy only for heavy computations: sampling, band computations, and large JSON import processing.
+
+6. Test:
+   • With band mode 'none', typing into sample size should not resample or show the spinner.
+   • Triggering sampling explicitly should show the spinner and disable controls until done.
+   • Band modes 'bootstrap' and 'delong' should still work, with spinner visible during heavy work.
+
+Do not modify unrelated logic.
+```
+
+Uncaught SyntaxError: await is only valid in async functions, async generators and modules continuous_ROC.html:1433:11
+
+---
+
+# Version v1.15.12.2 — Sample-Based Histograms from Last Sample
+
+## A. Goals
+- When samples are generated in the **Sampling engine**, the **Score Distributions** plot should show histograms derived from **a single sampled dataset**.
+- If multiple samples are generated, the histograms should use the **last sample**.
+- The histogram data should:
+  - Be stored in `state.samplesHist` in the same shape used by the existing score-plot code.
+  - Integrate with the existing `hasSampleHist` / legend logic so that the interactive legend can show/hide them.
+- Imported ROC curves with `samplesHist` metadata should continue to work as before.
+
+---
+
+## B. Implementation Plan
+
+### 1. Add a helper to compute histograms from a single sample
+The helper remains the same, but all wording now refers to using the **last** sample, not the last.
+
+### 2. Capture the last sample’s scores in `regenerateSampleRocs`
+During the sampling loop, overwrite temporary variables on every iteration so the **last** sample replaces earlier ones:
+
+```js
+let lastPosSamples = null;
+let lastNegSamples = null;
+
+for (let i = 0; i < numSamples; i++) {
+  const posSamples = sampleDistribution('pos', state.posComponents, nPos);
+  const negSamples = sampleDistribution('neg', state.negComponents, nNeg);
+
+  // Always keep the most recent sample
+  lastPosSamples = posSamples;
+  lastNegSamples = negSamples;
+
+  const points = [
+    ...posSamples.map(score => ({ score, label: 1 })),
+    ...negSamples.map(score => ({ score, label: 0 }))
+  ];
+  const rocPoints = ROCUtils.computeEmpiricalRoc(points);
+  const mapped = pointsToRocArrays(rocPoints);
+  if (mapped) curves.push(mapped);
+}
+```
+
+After the loop:
+```js
+if (lastPosSamples && lastNegSamples) {
+  state.samplesHist = computeSampleHistogramsFromSample(lastPosSamples, lastNegSamples);
+} else {
+  state.samplesHist = null;
+}
+```
+
+### 3. Preserve imported `samplesHist` behavior
+Import logic stays unchanged—imported histograms override local ones.
+
+### 4. Verify integration
+- `state.samplesHist` now reflects the most recently generated (last) sample.
+- The Score Distributions plot shows this histogram.
+- Legend controls remain fully functional.
+
+### 5. Testing
+1. Generate multiple samples.
+2. Confirm the histogram matches the **last** sample’s distribution.
+3. Hide/show via legend.
+4. Import metadata with `samplesHist` and confirm correct behavior.
+
+## C. Codex Prompt Codex Prompt
+```
+Implement milestone v1.15.12.2 from `ContinuousROC_Explorer_Roadmap_v1.15.md`.
+
+Title: Sample-Based Histograms from First Sample.
+
+Modify only:
+  • continuous_ROC.html
+
+Goals:
+  • After generating samples, populate state.samplesHist from a SINGLE sample (the last one) so that the Score Distributions plot can show histograms.
+  • Preserve the behavior for imported ROC curves that already provide samplesHist in metadata.
+
+Steps:
+1. Add a helper function computeSampleHistogramsFromSample(posScores, negScores) near computeEmpiricalHistograms:
+   - Accept arrays of positive and negative scores.
+   - Compute a domain [minX, maxX] from these scores.
+   - Construct histogram bins (10–40 bins, like computeEmpiricalHistograms).
+   - Store density per bin and return an object {positives, negatives, domain, binCount}.
+
+2. In regenerateSampleRocs:
+   - Track the LAST sample’s pos/neg scores in local variables (lastPosSamples, lastNegSamples).
+   - After the sampling loop, if lastPosSamples/lastNegSamples exist, call computeSampleHistogramsFromSample and assign the result to state.samplesHist.
+   - If no samples are generated, set state.samplesHist = null.
+   - Keep the existing samplesROC logic and band-mode branching; only extend it with samplesHist support.
+
+3. Do NOT modify applyImportedContinuousMetadata or the existing score-distribution drawing logic.
+   - Imported curves with samplesHist should continue to work as before.
+
+4. Test:
+   - Generate samples and confirm histograms appear on the Score Distributions plot using the last sample.
+   - Use the legend to hide/show histograms.
+   - Import a ROC JSON with samplesHist and confirm imported hist behavior remains correct.
+
+Do not change unrelated logic.
+
+---
+
+
+# Version v1.15.12.3 — Implement True DeLong Analytic ROC Confidence Bands
+
+## A. Goals
+Implement a **mathematically correct DeLong nonparametric analytic confidence band** for ROC curves. This replaces the existing placeholder band (which incorrectly uses a binomial TPR variance formula) with a full U-statistic–based estimator.
+
+A correct DeLong implementation will:
+- Use **pairwise sample comparisons** between positive and negative scores.
+- Compute **influence functions** for both classes.
+- Build **positive-side** and **negative-side** covariance matrices.
+- Compute the **AUC covariance structure**.
+- Produce **variance and covariance of TPR across thresholds**.
+- Construct **pointwise analytic bands**:
+  ```
+  TPR(fpr) ± z * sqrt(Var[TPR(fpr)])
+  ```
+- Integrate cleanly with the existing ROC rendering pipeline.
+- Control visibility via the ROC legend entry.
+
+**Simultaneous (uniform) bands** are NOT included in this milestone; a separate milestone may build on this analytic foundation.
+
+---
+
+## B. Implementation Plan
+
+### 1. Add a new DeLong implementation module inside `ROC_lib.js`
+Insert a new function (near other ROCUtils helpers):
+```js
+ROCUtils.computeDelongTPRBand = function(posScores, negScores, fprGrid, z=1.96) {
+  // 1. U-statistic pairwise comparison matrix
+  // 2. Positive and negative influence vectors
+  // 3. Covariance estimation (S+, S−)
+  // 4. ROC curve computation
+  // 5. Variance of TPR at each FPR grid point
+  // 6. Compute analytic CI bands
+  // 7. Return { lower: [...], upper: [...], fpr: fprGrid }
+};
+```
+
+#### Step 1. Pairwise comparison matrix
+For each positive score `Xp[i]` and negative score `Xn[j]`:
+```js
+if (Xp[i] > Xn[j]) Vij = 1;
+else if (Xp[i] === Xn[j]) Vij = 0.5;
+else Vij = 0;
+```
+Store a `P × N` matrix of these comparisons.
+
+#### Step 2. Influence functions
+Positive-side influence vector (length P):
+```js
+Vpos[i] = mean_j(Vij);
+```
+Negative-side influence vector (length N):
+```js
+Vneg[j] = mean_i(Vij);
+```
+
+#### Step 3. Covariance components
+```js
+Spos = variance(Vpos);
+Sneg = variance(Vneg);
+```
+These represent the class-specific components of the AUC covariance.
+
+#### Step 4. Compute empirical ROC
+Call an existing helper:
+```js
+const roc = ROCUtils.computeEmpiricalRoc(points);
+```
+Interpolate the empirical TPR values to align with `fprGrid`.
+
+#### Step 5. TPR variance across thresholds
+DeLong gives:
+```
+Var(AUC) = Spos / P + Sneg / N
+```
+But for **TPR at a threshold**, use class-conditional variances:
+```
+Var(TPR) = Var( I{Xp > threshold} ) / P  +  Var( I{Xn > threshold} ) / N
+```
+where these binary indicator variances are computed directly from data.
+
+This yields **pointwise DeLong intervals** at each FPR grid location.
+
+#### Step 6. Build CI bands
+For each grid point:
+```js
+se = Math.sqrt(VarTPR);
+lower[k] = Math.max(0, tpr[k] - z * se);
+upper[k] = Math.min(1, tpr[k] + z * se);
+```
+Return arrays matching `fprGrid`.
+
+---
+
+### 2. Update the ROC plotting logic (in `continuous_ROC.html`)
+Where ROC bands are drawn:
+- Add logic so that when:
+  ```js
+  state.rocBandMode === 'delong'
+  ```
+  the renderer uses:
+  ```js
+  state.delongBand.lower, state.delongBand.upper, state.delongBand.fpr
+  ```
+- Ensure the **confidence-band legend entry** toggles both shaded region and boundary lines.
+- Remove all references to the old placeholder band.
+
+---
+
+### 3. Update sampling → band-computation logic
+Where sampling completes:
+```js
+if (state.rocBandMode === 'delong') {
+  const pos = /* last sample positive scores */;
+  const neg = /* last sample negative scores */;
+  const grid = computeFprGrid();
+  state.delongBand = ROCUtils.computeDelongTPRBand(pos, neg, grid);
+}
+```
+Ensure bootstrap and “none” modes function unchanged.
+
+---
+
+### 4. Integrate with import/export
+Export:
+```js
+metadata.roc.delongBand = state.delongBand;
+```
+Import:
+```js
+state.delongBand = meta.roc.delongBand || null;
+```
+Do **not** compute the band automatically on import.
+
+---
+
+### 5. Remove old placeholder DeLong code
+Delete the previous function that used:
+```js
+variance = tpr * (1 - tpr) / nPos
+```
+so that only the correct implementation remains.
+
+---
+
+## C. Codex Prompt
+```
+Implement milestone v1.15.12.3 from `ContinuousROC_Explorer_Roadmap_v1.15.md`.
+
+Goal: Replace the existing placeholder "DeLong" band with a mathematically correct
+U-statistic–based DeLong analytic ROC confidence band.
+
+Modify only:
+  • ROC_lib.js
+  • continuous_ROC.html
+
+Steps:
+1. In ROC_lib.js, add a new function:
+      ROCUtils.computeDelongTPRBand(posScores, negScores, fprGrid, z)
+   implementing the full U-statistic method:
+   - Construct the pairwise comparison matrix Vij.
+   - Compute influence vectors Vpos and Vneg.
+   - Compute Spos and Sneg.
+   - Compute empirical ROC and interpolate TPR to fprGrid.
+   - Compute pointwise DeLong variance of TPR.
+   - Build lower/upper CI band arrays.
+   - Return { lower, upper, fpr: fprGrid }.
+
+2. Remove the old placeholder DeLong function (the one using tpr*(1-tpr)/nPos).
+
+3. In continuous_ROC.html, update the ROC rendering logic so that:
+   - When state.rocBandMode === 'delong', the plot uses state.delongBand.
+   - Ensure the legend entry for confidence bands toggles visibility for the
+     shading and boundary lines.
+
+4. Update the sampling-completion logic so that when rocBandMode === 'delong':
+   - Compute state.delongBand by calling ROCUtils.computeDelongTPRBand with
+     the last sample’s positive and negative score arrays.
+
+5. Update import/export logic so metadata includes delongBand and restores it
+   when present.
 
 Do not modify unrelated functionality.
 ```
 
-Use the existing distribution schemas defined in continuous_ROC_config.js. 
-Do NOT duplicate any distribution definitions into ROC_lib.js. 
-All dynamic parameter UI generation must use the distribution metadata from the config file.
+---
 
-Please restructure the UI helpers and parameter containers exactly as described in v1.15.13, 
-but use the config-defined distribution metadata as the schema source. 
+# Version v1.15.12.5 — Estimated ROC Curve & Unified Sample Legend with Bands
 
-ROC_lib.js should remain unchanged except for reading distribution names/keys 
-passed from the UI and metadata.
+## A. Goals
+
+1. **Estimated ROC Curve from Samples**
+   - After a sampling run, compute a **pooled / estimated ROC curve** from the set of sampled empirical ROC curves.
+   - Name this curve using the pattern:
+     
+     > `"<baseCurveName> (estimated)"`
+
+   - Treat this as a canonical ROC curve object (with `fpr`, `tpr`, `auc`, and `bands`) **separate from** the analytic continuous curve.
+
+2. **Attach Confidence Bands to the Estimated Curve (Not the Analytic Curve)**
+   - Compute pointwise confidence bands (bootstrap or DeLong) over an FPR grid from the sampled ROC curves.
+   - Attach bands to the **estimated curve only**, using the canonical `bands[]` structure already supported by `ROC_lib.js`.
+   - Include method metadata so other apps (e.g., `ROC_utility`) know how the band was computed.
+
+3. **Legend Consolidation for Samples & Estimated Curve**
+   - Provide **one ROC legend entry** that toggles visibility of **all sample curves** as a group.
+   - Give the estimated curve its **own legend entry** (distinct color), separate from both the analytic curve and the sample bundle.
+   - Keep the existing legend entry for the **confidence band** that toggles band shading and boundaries together.
+
+4. **Interoperable Export/Import**
+   - Export the estimated curve and its bands via the canonical ROC JSON used throughout the app ecosystem.
+   - Import that JSON back into Continuous ROC Explorer and make the estimated curve usable in the UI.
+   - Ensure other apps (especially `ROC_utility`) can consume the estimated curve and its bands without changes to their core logic.
 
 ---
+
+## B. Implementation Plan
+
+### 1. Compute the Estimated ROC Curve After Sampling
+
+**Files:** `continuous_ROC.html`
+
+1. Identify where sampled ROC curves are stored after a sampling run (e.g., `state.samplesROC`, `state.sampling.samples`, or similar structures derived from `ROC_lib`).
+2. Define an internal FPR grid for the estimated curve (e.g., shared with the existing band computation grid):
+   ```js
+   const estimatedFprGrid = d3.range(0, 1 + 1e-9, config.sampling.fprStep || 0.01);
+   ```
+3. For each sampled ROC curve:
+   - Extract its `(fpr, tpr)` points.
+   - Interpolate `tpr` onto `estimatedFprGrid` using linear interpolation.
+4. Compute the **estimated ROC curve** as the pointwise mean across samples:
+   ```js
+   const tprMean = estimatedFprGrid.map((fpr, i) => mean(samplesTprByGrid[i]));
+   ```
+5. Compute the AUC for this estimated curve using existing ROC utilities (`ROCUtils.aucFromCurve` or equivalent helper). Store:
+   ```js
+   const estimatedCurve = {
+     fpr: estimatedFprGrid,
+     tpr: tprMean,
+     auc: estimatedAuc,
+     bands: [],
+     metadata: {
+       source: "continuous_roc_explorer",
+       role: "estimated_from_samples"
+     }
+   };
+   ```
+6. Use the base curve name (current continuous curve name) to construct the **estimated curve name**:
+   ```js
+   const baseName = state.currentCurveName; // or equivalent
+   const estimatedName = `${baseName} (estimated)`;
+   ```
+7. Store the estimated curve in the app’s internal curve collection so it can be exported via the canonical JSON path (e.g., in the structure passed into `ROCUtils.toCanonicalRocObject` / exporter):
+   ```js
+   state.estimatedCurves[estimatedName] = estimatedCurve;
+   ```
+
+### 2. Compute Confidence Bands on the Estimated Curve
+
+**Files:** `continuous_ROC.html`, `ROC_lib.js` (for helpers if needed)
+
+1. Using the same interpolated per-sample TPR values from Step 1, compute pointwise quantiles for a 95% band:
+   ```js
+   const lower = quantile(samplesTprByGrid[i], 0.025);
+   const upper = quantile(samplesTprByGrid[i], 0.975);
+   ```
+2. Add a band entry to `estimatedCurve.bands` using the **canonical `bands[]` structure** already understood by `ROC_lib.js`:
+   ```js
+   estimatedCurve.bands.push({
+     level: 0.95,
+     lower,
+     upper,
+     method: state.sampling.bandMethod || "bootstrap", // or "delong"
+     n_samples: state.sampling.numSamples || samplesCount,
+     grid: "fpr",
+     source: "continuous_roc_explorer"
+   });
+   ```
+3. Ensure `lower.length` and `upper.length` exactly match `estimatedCurve.fpr.length` so that `ROCUtils.normalizeRocJson` will accept the band and downstream apps can use it without special-casing.
+4. If DeLong analytic bands are used instead of bootstrap, compute them on the same FPR grid and store them in a separate band object with `method: "delong"` (or similar identifier).
+
+### 3. Legend Consolidation: Samples & Estimated Curve
+
+**Files:** `continuous_ROC.html`
+
+1. **Sample ROC curves legend entry**:
+   - Remove any existing code that creates one legend entry per sample curve.
+   - Add a single entry during ROC legend construction:
+     ```js
+     addLegendItem({
+       key: "sampleCurves",
+       label: "Sample ROC Curves",
+       color: config.colors.sampleCurve,
+       visible: visibilityState.rocPlot.sampleCurves
+     });
+     ```
+   - In the legend click handler:
+     ```js
+     if (item.key === "sampleCurves") {
+       visibilityState.rocPlot.sampleCurves = !visibilityState.rocPlot.sampleCurves;
+       drawROCPlot();
+     }
+     ```
+   - In `drawROCPlot()`, wrap drawing of **all** sample ROC curves with:
+     ```js
+     if (visibilityState.rocPlot.sampleCurves) {
+       // draw each sample curve
+     }
+     ```
+
+2. **Estimated curve legend entry**:
+   - When building legend entries for canonical curves, include an entry for the estimated curve using the generated name:
+     ```js
+     addLegendItem({
+       key: `curve-${estimatedName}`,
+       label: estimatedName,
+       color: config.colors.estimatedCurve,
+       visible: visibilityState.rocPlot.estimatedCurves[estimatedName] !== false
+     });
+     ```
+   - In the click handler, toggle the visibility flag for that curve and redraw.
+   - In `drawROCPlot()`, when iterating over curves, check this visibility flag before drawing the estimated curve.
+
+3. **Confidence band legend entry (existing)**:
+   - Keep the existing legend entry for the confidence band (e.g., `"Confidence band"`) that toggles band shading and boundary curves.
+   - Ensure it uses the band attached to the **estimated curve** (if present) when drawing.
+
+### 4. Export: Include Estimated Curve & Bands in Canonical JSON
+
+**Files:** `continuous_ROC.html`, `ROC_lib.js`
+
+1. Wherever the app aggregates curves to export (e.g., a call to `ROCUtils.toCanonicalRocObject` or a manual construction of the canonical JSON):
+   - Add the `estimatedCurve` under its own key:
+     ```js
+     canonical[estimatedName] = estimatedCurve; // normalized before export
+     ```
+2. Ensure `estimatedCurve` conforms to the canonical ROC schema:
+   - `fpr` and `tpr` numeric arrays
+   - `auc` numeric scalar (optional but recommended)
+   - `bands` normalized via `ROCUtils.normalizeRocJson` (and `normalizeBand` must handle extra fields `method`, `n_samples`, `grid`, `source`).
+3. Preserve any app-specific extras under `metadata.continuous_roc_explorer` but do not rely on them for band consumption in other apps.
+
+### 5. Import: Restore Estimated Curve & Bands
+
+**Files:** `continuous_ROC.html`, `ROC_lib.js`
+
+1. During import of canonical ROC JSON:
+   - Detect curves whose names end with `" (estimated)"`.
+   - Store them in `state.estimatedCurves` and make them available in the ROC plot.
+2. If an imported estimated curve has `bands[]`:
+   - Use the first band (or the band with highest `level`) as the default band to display in the Explorer.
+   - Populate any existing internal band state (`state.rocPlot.confidenceBandData`) from that band’s `lower`/`upper` arrays and the curve’s `fpr` grid.
+3. If additional metadata fields (`method`, `n_samples`) are present:
+   - Optionally show them in the UI (e.g., band details panel).
+   - Do **not** require them for correctness.
+
+### 6. ROC_lib & ROC_utility Compatibility
+
+**Files:** `ROC_lib.js`, optionally `ROC_utility.html`
+
+1. Update `normalizeBand` in `ROC_lib.js` (if not already done) to:
+   - Preserve extra fields `method`, `n_samples`, `grid`, `source`, `notes`.
+   - Continue to guarantee `level`, `lower`, and `upper` exist for plotting.
+2. Because the estimated curve is exported as a normal canonical ROC curve with `bands[]`, `ROC_utility.html` does not need structural changes to consume and plot the band:
+   - It can treat the estimated curve like any other curve.
+   - It may optionally read `method` and `n_samples` for display purposes.
+
+### 7. Testing
+
+- Run sampling from the Continuous ROC Explorer.
+- Verify that:
+  - Sample ROC curves can be shown/hidden using a single legend entry.
+  - An estimated curve named `"<baseName> (estimated)"` appears in the ROC legend and can be toggled independently.
+  - The estimated curve has a sensible shape (smoother than individual samples).
+  - Confidence bands are attached to the estimated curve and are shown/hidden via the band legend entry.
+  - Exporting to JSON includes the estimated curve and its band in canonical form.
+  - Importing that JSON into Continuous ROC Explorer reproduces the estimated curve and band.
+  - The same JSON can be opened in `ROC_utility.html` and the estimated curve band can be plotted without code changes.
+
+---
+
+## C. Codex Prompt
+
+```
+Implement milestone v1.15.12.5 from `ContinuousROC_Explorer_Roadmap_v1.15.md`.
+
+Goal: After sampling, compute an estimated ROC curve from the sample set, attach
+confidence bands to that estimated curve (not the analytic curve), consolidate
+sample-curve legend entries into a single toggle, and ensure the estimated curve
+and its bands export/import correctly via the canonical ROC JSON.
+
+Modify:
+  • continuous_ROC.html
+  • ROC_lib.js
+  • (Optionally) ROC_utility.html only for cosmetic display of band metadata.
+
+Key requirements:
+1. After sampling, compute an estimated ROC curve on an FPR grid from all
+   sampled ROC curves. Name it "<baseCurveName> (estimated)" and store it as a
+   canonical ROC object (fpr, tpr, auc, bands, metadata).
+
+2. Compute a 95% pointwise confidence band from the sampled curves and attach it
+   to the estimated curve using the canonical bands[] structure, with
+   method ("bootstrap" or "delong") and n_samples metadata.
+
+3. Update the ROC legend so that:
+   - there is ONE legend entry labeled "Sample ROC Curves" that toggles
+     visibility of all sample curves; and
+   - the estimated curve has its own legend entry with a distinct color
+     (config.colors.estimatedCurve).
+
+4. Ensure the confidence band legend entry uses the band attached to the
+   estimated curve and continues to hide/show both shading and boundaries.
+
+5. Update export logic to include the estimated curve and its bands in the
+   canonical ROC JSON without changing the structure for existing curves.
+
+6. Update import logic so that curves whose names end with " (estimated)" are
+   recognized as estimated curves and used to restore band display and legend
+   entries. Bands must remain usable by other apps (e.g., ROC_utility) without
+   additional structural changes.
+
+7. Update ROC_lib.normalizeBand (if needed) to preserve extra metadata fields
+   (method, n_samples, grid, source) while still normalizing level, lower,
+   and upper.
+
+8. Do not modify unrelated code. Keep all changes minimal and localized.
+```
+---
+
+# Version v1.15.12.7 — Canonical Export/Import Finalization
+
+## A. Goals
+
+This milestone finalizes the Continuous ROC Explorer’s export/import behavior so that:
+
+1. **Only two canonical ROC curves are exported at the top level:**
+   - The **analytic continuous curve** (no bands)
+   - The **sample-estimated ROC curve** (with confidence bands)
+
+2. **All other sampling information** (raw sample ROC curves, sampling settings, distributions, etc.) is placed inside:
+   ```json
+   metadata.continuous_roc_explorer
+   ```
+   and NOT exposed as top-level canonical curves.
+
+3. **Import behavior is symmetric:**
+   - Continuous curve is restored exactly.
+   - Estimated curve (and its bands) are restored as full canonical ROC curves.
+   - Sampling metadata is restored but does not force sample curves to be displayed.
+
+4. **Legend behavior is consistent:**
+   - Only continuous curve, estimated curve, and the unified “Sample ROC Curves” toggle appear.
+   - No phantom or unhideable curves appear.
+
+5. **Cross-app compatibility achieved:**
+   - ROC_utility and future tools can read the exported ROC files without needing any Continuous-ROC-specific logic.
+   - Bands display correctly in other apps because they follow ROC_lib’s canonical shape.
+
+---
+
+## B. Implementation Plan
+
+### 1. Canonicalize Export of Continuous Curve
+**File:** `continuous_ROC.html`
+
+Where the canonical JSON is assembled (export function):
+
+- Ensure the continuous curve is written as:
+  ```js
+  canonical[curveName] = {
+    fpr: continuous.fpr,
+    tpr: continuous.tpr,
+    thr: continuous.thr,
+    auc: continuous.auc,
+    bands: [],    // always empty for analytic curve
+    metadata: {
+      continuous_roc_explorer: {
+        distributions: { positive: [...], negative: [...] },
+        sampling: state.samplingSettings,  // optional
+        samplesROC: state.samplesROC       // optional
+      }
+    }
+  };
+  ```
+
+- Confirm no confidence band is attached to the analytic curve.
+
+---
+
+### 2. Canonicalize Export of Estimated Curve + Bands
+**File:** `continuous_ROC.html`
+
+After sampling, ensure `state.estimatedCurve` has the shape:
+```js
+{
+  name: `${baseName} (estimated)`,
+  fpr: [... grid ...],
+  tpr: [... mean across samples ...],
+  auc: auc_estimate,
+  bands: [
+    {
+      level: 0.95,
+      lower: [...],  // aligned to fpr
+      upper: [...],  // aligned to fpr
+      method: "bootstrap" | "delong"
+    }
+  ],
+  metadata: {
+    continuous_roc_explorer: {
+      sampling: state.samplingSettings,
+      samplesROC: state.samplesROC
+    }
+  }
+}
+```
+
+Modify export so:
+```js
+canonical[estimatedName] = state.estimatedCurve;
+```
+
+Do **not** export sample ROC curves as top-level objects.
+
+---
+
+### 3. Update Import Path: Restore Estimated Curve + Bands
+**Files:** `continuous_ROC.html`, possibly helpers in `ROC_lib.js`
+
+When importing a ROC JSON:
+
+1. **Identify estimated curve** by the naming pattern:
+   ```js
+   curveName.endsWith(" (estimated)")
+   ```
+
+2. Store it as:
+   ```js
+   state.estimatedCurve = importedCanonical[curveName];
+   ```
+
+3. Restore its bands:
+   ```js
+   state.estimatedBands = state.estimatedCurve.bands || [];
+   ```
+
+4. Rebuild the legend entries for:
+   - Continuous curve
+   - Estimated curve
+   - Unified “Sample ROC Curves” toggle
+
+5. Rebuild the ROC display by calling:
+   ```js
+   refreshRocLegend();
+   drawROCPlot();
+   ```
+
+6. Do **not** auto-show raw sample curves; they remain in:
+   ```js
+   metadata.continuous_roc_explorer.samplesROC
+   ```
+   and only the **estimated curve** is displayed.
+
+---
+
+### 4. Unified Sample-Curve Legend Behavior
+
+Ensure the ROC legend logic:
+
+- Has exactly **one** sample legend entry:
+  ```js
+  { key: "sampleCurves", label: "Sample ROC Curves", ... }
+  ```
+
+- Controls all sample curves internally if they are ever displayed.
+
+- Sample curves are **not** displayed by default on import.
+
+---
+
+### 5. Cleanup of Old Structures
+
+Remove or disable any older logic that:
+
+- Adds per-sample ROC curves as top-level curves.
+- Creates legend entries for individual samples.
+- Attaches confidence bands to the continuous curve.
+- Uses `state.confBand` in any way other than via estimated curve bands.
+
+All band display must now come from:
+```js
+state.estimatedCurve.bands
+```
+
+---
+
+### 6. Testing Checklist
+
+#### **Export**
+- Export after sampling → JSON should contain exactly two canonical curves:
+  1. `"MyCurve"`
+  2. `"MyCurve (estimated)"`
+
+- Estimated curve must include:
+  - `fpr`, `tpr`, `auc`
+  - `bands[0].lower` & `bands[0].upper` aligned with `fpr`
+
+#### **Import**
+- Importing JSON → Continuous ROC Explorer must:
+  - Show both the analytic and estimated curves
+  - Display estimated curve bands
+  - Have functional legend toggles
+  - Have no unhideable sample curves
+
+#### **Cross-App Testing**
+- Import the same JSON in **ROC_utility** → estimated curve and bands must appear as normal canonical ROC objects.
+
+---
+
+## C. Codex Prompt
+```
+Implement milestone v1.15.12.7 from `ContinuousROC_Explorer_Roadmap_v1.15.md`.
+
+Goal: Finalize canonical export/import of continuous and estimated ROC curves so
+that all apps using ROC_lib can consume these curves without special logic.
+
+Modify only:
+  • continuous_ROC.html
+  • ROC_lib.js (if needed for band preservation)
+
+Required steps:
+1. Ensure export writes exactly two top-level canonical ROC curves:
+   - The analytic continuous curve (no bands)
+   - The estimated curve (with bands aligned to its fpr grid)
+
+2. Store sample ROC curves and all sampling metadata ONLY inside:
+      metadata.continuous_roc_explorer
+   Do NOT export sample curves as top-level ROC objects.
+
+3. Update import so that:
+   - Curves ending with " (estimated)" are restored as the estimated curve
+   - Their bands are restored and used by the band-rendering pipeline
+   - Sampling metadata is restored but raw samples are not displayed
+   - Legend entries for continuous, estimated, and sample-curves toggle are rebuilt
+
+4. Clean up old logic:
+   - Remove any remaining per-sample top-level curves
+   - Remove band attachments to continuous curve
+   - Remove any legend entries for individual samples
+
+5. Test by exporting and re-importing to ensure the estimated curve and its
+   confidence bands render correctly and are fully controllable via the legend.
+
+Do not modify unrelated functions or UI elements.
+```
+
+---
+
+# Version v1.15.12.7.1 — Fix Estimated ROC Rendering + Bootstrap Bands + Canonical Export
+
+## A. Goals
+This micro‑milestone corrects the issues observed after v1.15.12.7:
+
+1. Estimated ROC curve does not appear on the ROC plot.
+2. Bootstrap confidence bands do not compute or display correctly.
+3. Export/import must fully support bands for both bootstrap and DeLong.
+4. Estimated curve and bands must respond to legend visibility.
+5. Leave the consolidated sample‑curve legend entry unchanged.
+
+---
+
+## B. Implementation Plan
+
+### 1. Fix rendering of the Estimated ROC curve
+
+Modify the ROC rendering function in `continuous_ROC.html`:
+
+- Include the estimated curve in the dataset passed to the renderer.
+- Create a `<path>` for the estimated curve with:
+    - class: `roc-estimated`
+    - stroke color from config: `config.colors.estimatedROC`
+    - stroke‑width: 2–3px
+    - no fill
+
+Bind data using:
+
+    lineGenerator(
+        estimatedCurve.fpr.map((f,i) => [f, estimatedCurve.tpr[i]])
+    )
+
+Estimated ROC must:
+- Draw after the sample curves but before the CI ribbon.
+- Respect legend toggling via a single entry:  
+  **"Estimated ROC"** toggles only this curve.
+
+---
+
+### 2. Fix Bootstrap Confidence Band Computation
+
+Inside the bootstrap band computation section:
+
+- Use the same **shared FPR grid** used for the estimated curve.
+- For each FPR grid value:
+    - collect values across all sample ROC curves via interpolation,
+    - compute:
+        - median (TPR_hat)
+        - 2.5% percentile (lower)
+        - 97.5% percentile (upper)
+
+Store the band object as:
+
+    {
+      method: "bootstrap",
+      level: 0.95,
+      fpr: [...],
+      tpr_hat: [...],
+      lower: [...],
+      upper: [...],
+      n_samples: samples.length
+    }
+
+### 3. Fix Rendering of Confidence Bands
+
+Modify the CI ribbon render code:
+
+- Accept band objects from either bootstrap or DeLong.
+- Draw `<path>` or `<polygon>` inside a group:
+    - class: `roc-ci-band`
+- Color:
+    - fill: `config.colors.ciFill`
+    - opacity: 0.20
+
+Ensure band is only visible when:
+- Estimated ROC is visible
+- CI mode is active
+
+---
+
+### 4. Fix Export Format (Canonical)
+
+Modify export so ROC JSON resembles:
+
+    {
+      "continuous_curve": { fpr: [...], tpr: [...], auc: ... },
+      "estimated_curve":  { fpr: [...], tpr: [...], auc: ... },
+      "ci_bands": [
+        {
+          "method": "delong" | "bootstrap",
+          "level": 0.95,
+          "fpr": [...],
+          "tpr_hat": [...],
+          "lower": [...],
+          "upper": [...],
+          "n_samples": 200
+        }
+      ]
+    }
+
+Notes:
+- No sample curves exported.
+- No UI metadata exported.
+- All arrays must be numeric and same length.
+
+---
+
+### 5. Fix Import Logic
+
+`ROC_lib.js` should be updated to recognize:
+
+- `continuous_curve`
+- `estimated_curve`
+- `ci_bands`
+
+When loaded:
+
+- Render continuous curve as usual.
+- Render estimated ROC curve.
+- Render CI bands if present.
+- Legend:
+    - “Continuous ROC”
+    - “Estimated ROC”
+    - “Show Samples” (toggles sample curves if provided)
+
+Other apps (e.g., ROC_utility) must accept this structure.
+
+---
+
+## C. Codex Patch Prompt
+
+```
+Implement milestone v1.15.12.7.1:
+
+Files:
+  • continuous_ROC.html
+  • ROC_lib.js
+
+Goals:
+  • Render estimated ROC curve.
+  • Compute and render bootstrap CI bands.
+  • Export/import estimated curve + CI bands in canonical format.
+
+Steps:
+  1. Ensure estimatedCurve is included in render() input.
+  2. Add <path class="roc-estimated"> using config.colors.estimatedROC.
+  3. Compute bootstrap band using shared FPR grid and percentiles.
+  4. Render CI band into <g class="roc-ci-band">.
+  5. Export JSON with:
+       continuous_curve, estimated_curve, ci_bands[]
+  6. Update import logic to read and pass structures to renderer.
+  7. CI band visibility must follow Estimated ROC legend toggle.
+  8. Do not export sample curves.
+
+Do not modify unrelated code.
+```
+
+
+
 
 
 # Version v1.15.14 — Full Color Palette Integration via `continuous_ROC_config.js`
@@ -3757,11 +4652,11 @@ Do not modify unrelated logic.
 # NOTES:
 
 * I skipped the animation milestones (v1.15.10 and v1.15.11).
-* skipped v1.15.12 - Global Busy Indicator & Async Operation Wrapper
-* implemented 1.15.13
+* I ran this one later, after color configuration: v1.15.12 - Global Busy Indicator & Async Operation Wrapper
+
 
 I need to re-think animation support:
-- sampling variation
+- sampling variation (sample ROC curves, histograms)
 - parameter scans
 
 

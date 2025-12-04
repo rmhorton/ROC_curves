@@ -55,7 +55,13 @@
     if(lower.length !== length || upper.length !== length){
       throw new Error(`${context}.bands[${idx}] arrays must match fpr/tpr length.`);
     }
-    return {level: levelValue, lower, upper};
+    const extra = {};
+    ['method','n_samples','grid','source'].forEach(key=>{
+      if(band[key] !== undefined){
+        extra[key] = band[key];
+      }
+    });
+    return {level: levelValue, lower, upper, ...extra};
   }
 
   function looksLikeCurve(candidate){
@@ -750,26 +756,58 @@
     return roc.sort((a,b)=>a.fpr - b.fpr || a.tpr - b.tpr);
   };
 
-  ROCUtils.computeDelongRocBand = function(positiveScores, negativeScores, fprGrid, alpha = 0.05){
+  ROCUtils.computeDelongTPRBand = function(positiveScores, negativeScores, fprGrid, z = 1.96){
     const pos = Array.isArray(positiveScores) ? positiveScores.map(Number).filter(Number.isFinite) : [];
     const neg = Array.isArray(negativeScores) ? negativeScores.map(Number).filter(Number.isFinite) : [];
     if(!pos.length || !neg.length || !Array.isArray(fprGrid) || !fprGrid.length){
       return null;
     }
-    const nPos = pos.length;
+    const m = pos.length;
+    const n = neg.length;
+
+    // Pairwise comparison matrix V_ij = I(pos_i > neg_j) + 0.5 * I(pos_i == neg_j)
+    const Vij = Array.from({length:m}, ()=>new Array(n).fill(0));
+    for(let i=0;i<m;i++){
+      for(let j=0;j<n;j++){
+        if(pos[i] > neg[j]){
+          Vij[i][j] = 1;
+        } else if(pos[i] === neg[j]){
+          Vij[i][j] = 0.5;
+        } else {
+          Vij[i][j] = 0;
+        }
+      }
+    }
+
+    // Influence vectors
+    const Vpos = Vij.map(row=>row.reduce((a,b)=>a+b,0)/n);
+    const Vneg = [];
+    for(let j=0;j<n;j++){
+      let sum = 0;
+      for(let i=0;i<m;i++){
+        sum += Vij[i][j];
+      }
+      Vneg.push(sum/m);
+    }
+
+    // Covariances
+    const meanPos = Vpos.reduce((a,b)=>a+b,0)/m;
+    const meanNeg = Vneg.reduce((a,b)=>a+b,0)/n;
+    const Spos = Vpos.reduce((a,b)=>a + Math.pow(b-meanPos,2),0) / (m-1 || 1);
+    const Sneg = Vneg.reduce((a,b)=>a + Math.pow(b-meanNeg,2),0) / (n-1 || 1);
+
+    // Empirical ROC and interpolation
     const combined = pos.map(score=>({score,label:1})).concat(neg.map(score=>({score,label:0})));
     const roc = ROCUtils.computeEmpiricalRoc(combined);
-    if(!roc.length){
-      return null;
-    }
+    if(!roc.length){return null;}
     const fprs = roc.map(pt=>pt.fpr);
     const tprs = roc.map(pt=>pt.tpr);
     const interpolate = (x)=>{
-      const n=fprs.length;
+      const len=fprs.length;
       if(x<=fprs[0]) return tprs[0];
-      if(x>=fprs[n-1]) return tprs[n-1];
+      if(x>=fprs[len-1]) return tprs[len-1];
       let idx=0;
-      while(idx<n && fprs[idx]<x){idx++;}
+      while(idx<len && fprs[idx]<x){idx++;}
       if(idx===0) return tprs[0];
       const x0=fprs[idx-1],x1=fprs[idx];
       const y0=tprs[idx-1],y1=tprs[idx];
@@ -777,19 +815,18 @@
       const t=(x-x0)/(x1-x0);
       return y0+(y1-y0)*t;
     };
-    const z = jStat.normal.inv(1 - alpha/2, 0, 1);
-    const lower = [];
-    const upper = [];
-    const tprGrid = [];
+
+    const lower=[];
+    const upper=[];
     fprGrid.forEach(fpr=>{
-      const tpr = interpolate(fpr);
-      tprGrid.push(tpr);
-      const variance = (tpr*(1 - tpr)) / nPos;
-      const se = Math.sqrt(Math.max(variance, 0));
-      lower.push(Math.max(0, Math.min(1, tpr - z * se)));
-      upper.push(Math.max(0, Math.min(1, tpr + z * se)));
+      const tpr=interpolate(fpr);
+      // DeLong variance for TPR at this FPR
+      const varTPR = (Spos/m) + (Sneg/n);
+      const se = Math.sqrt(Math.max(varTPR,0));
+      lower.push(Math.max(0, Math.min(1, tpr - z*se)));
+      upper.push(Math.max(0, Math.min(1, tpr + z*se)));
     });
-    return {fpr:fprGrid.slice(), tpr:tprGrid, lower, upper};
+    return {fpr:fprGrid.slice(), lower, upper};
   };
 
   ROCUtils.ensureMonotoneRoc = function(points){

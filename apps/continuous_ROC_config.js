@@ -385,6 +385,10 @@ const COLORS = {
     opacity: 0.18,
     strokeOpacity: 1
   },
+  estimatedCurve: {
+    hue: "#17becf",
+    opacity: 1
+  },
   positiveCurveFill: {
     hue: "#1f77b4",
     opacity: 0.08
