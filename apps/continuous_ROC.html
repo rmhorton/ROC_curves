@@ -25,8 +25,8 @@
     .component-controls{display:flex;align-items:center;gap:6px;margin-left:8px}
     .component-controls button,.add-component-btn{background:#ececf9;border:1px solid #cfcfe4;border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer;color:#383856}
     .component-controls button:hover,.add-component-btn:hover{background:#dedef4}
-    .component-remove-btn{min-width:120px;padding:6px 10px;text-align:center;background:#ffeaea;border-color:#e0a3a3;color:#a41a1a;font-weight:700;border-radius:8px}
-    .component-remove-btn:hover{background:#ffd8d8}
+    .component-remove-btn{min-width:28px;padding:4px 8px;text-align:center;background:#f2f2f6;border-color:#ccccd8;color:#6a6a7a;font-weight:700;border-radius:6px}
+    .component-remove-btn:hover{background:#e6e6ee}
     .param-row{display:flex;align-items:center;gap:8px;margin:6px 0;font-size:13px;color:#30304a}
     .component-row{display:flex;align-items:center;gap:8px;margin:6px 0;font-size:13px;color:#30304a}
     .component-row label{min-width:110px}
@@ -1538,9 +1538,10 @@ const COLOR_HELPERS={
             const removeBtn=document.createElement('button');
             removeBtn.type='button';
             removeBtn.className='component-remove-btn';
-            removeBtn.textContent='Remove component';
-            removeBtn.title=STRINGS.multi.removeComponent;
-            removeBtn.setAttribute('aria-label',STRINGS.multi.removeComponent);
+            removeBtn.textContent=STRINGS.distributions?.removeComponent?.label||'×';
+            const tip=STRINGS.distributions?.removeComponent?.tooltip||STRINGS.multi.removeComponent;
+            removeBtn.title=tip;
+            removeBtn.setAttribute('aria-label',tip);
             removeBtn.addEventListener('click',()=>{
               components.splice(index,1);
               renderComponents(prefix);

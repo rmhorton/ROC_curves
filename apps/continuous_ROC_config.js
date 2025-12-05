@@ -72,6 +72,12 @@ const STRINGS = {
     removeComponent: "Remove",
     componentLabel: (idx) => `Component ${idx + 1}`,
     weight: "Weight"
+  },
+  distributions: {
+    removeComponent: {
+      label: "×",
+      tooltip: "Remove this mixture component"
+    }
   }
 };
 
