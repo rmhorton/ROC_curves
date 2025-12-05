@@ -56,7 +56,7 @@
       throw new Error(`${context}.bands[${idx}] arrays must match fpr/tpr length.`);
     }
     const extra = {};
-    ['method','n_samples','grid','source'].forEach(key=>{
+    ['type','method','n_samples','grid','source'].forEach(key=>{
       if(band[key] !== undefined){
         extra[key] = band[key];
       }
@@ -877,8 +877,22 @@
     const map = {};
     curvesArray.forEach(curve=>{
       if(!curve || typeof curve !== 'object') return;
+      if(Array.isArray(curve.bands)){
+        curve.bands = curve.bands.map(b=>{
+          const method = b.method || b.type;
+          return method ? {...b, method, type:method} : b;
+        });
+      }
       const canonical = toCanonicalCurve(curve, curve.name);
-      map[canonical.name] = canonical;
+      if(canonical.role === 'estimated' && canonical.name && !/\(estimated\)\s*$/.test(canonical.name)){
+        canonical.name = `${canonical.name} (estimated)`;
+      }
+      if(canonical.role === 'theoretical' && canonical.name && !/\(theoretical\)\s*$/.test(canonical.name)){
+        canonical.name = `${canonical.name} (theoretical)`;
+      }
+      if(canonical.role === 'theoretical' || canonical.role === 'estimated' || !canonical.role){
+        map[canonical.name] = canonical;
+      }
     });
     return map;
   };

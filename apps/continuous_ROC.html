@@ -1424,8 +1424,6 @@ const COLOR_HELPERS={
           state.estimatedCurve=computeEstimatedCurveFromSamples(state.samplesROC,state.confBand,state.delongBand,state.rocBandMode);
           state.samples.curves=state.samplesROC;
           state.samples.estimatedCurve=state.estimatedCurve;
-          visibilityState.roc.sample={sampleCurves:true};
-          state.samplesROC.forEach((_,idx)=>{visibilityState.roc.sample[idx]=true;});
           refreshRocLegend();
           update();
         });
@@ -2730,13 +2728,17 @@ const COLOR_HELPERS={
               const ok=applyImportedContinuousMetadata({metadata:{continuous_roc_explorer:curve.metadata.continuous_roc_explorer}});
               applied=applied||ok;
             } else if(name.endsWith('(estimated)')){
+              const bands=(curve.bands||[]).map(b=>{
+                const method=b.method||b.type;
+                return method?{...b,method}:b;
+              });
               state.estimatedCurve={
                 fpr:curve.fpr||[],
                 tpr:curve.tpr||[],
-                bands:curve.bands||[]
+                bands
               };
-              if(curve.bands && curve.bands.length){
-                const band=curve.bands[0];
+              if(bands.length){
+                const band=bands[0];
                 if(band.method==='bootstrap'){state.confBand=band;state.rocBandMode='bootstrap';}
                 if(band.method==='delong'){state.delongBand=band;state.rocBandMode='delong';}
               }
