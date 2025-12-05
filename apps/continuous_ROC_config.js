@@ -23,6 +23,14 @@ const STRINGS = {
     thresholdHint: "Drag the vertical line on the score distributions chart or the point on the ROC curve.",
     confusionHeader: ["Sensitivity", "Specificity"],
     prevalenceHeader: ["PPV", "NPV", "Accuracy"],
+    prevalence: {
+      ppv: { label: "PPV" },
+      npv: { label: "NPV" },
+      acc: { label: "Accuracy" },
+      mrate: { label: "Misclassification Rate" },
+      mcc: { label: "MCC" },
+      dor: { label: "DOR" }
+    },
     threshold: {
       tpr: { label: "TPR" },
       tnr: { label: "TNR" },

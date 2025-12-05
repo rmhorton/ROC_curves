@@ -87,13 +87,12 @@
     .bottom-panels{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:24px;margin-top:24px;margin-bottom:16px;width:100%}
     .bottom-panel{width:100%;box-sizing:border-box}
     #prevalenceControl, #prevalenceControl *{width:100%;max-width:100%;box-sizing:border-box;}
-    #metricsPrev table{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));width:100%;max-width:100%;box-sizing:border-box;border-collapse:collapse;}
-    #metricsPrev tr{display:contents;}
-    #metricsPrev th,#metricsPrev td{padding:4px 6px;}
+    .metrics-table{width:100%;border-collapse:collapse;margin-top:10px;font-size:13px}
+    .metrics-table th,.metrics-table td{border:1px solid #d7d7e8;padding:4px 10px;text-align:center}
 
     .threshold-input{display:flex;flex-direction:column;gap:6px;margin-top:8px;font-size:13px;color:#32324e}
 .threshold-input input{width:100%;max-width:100%;padding:5px 6px;border-radius:6px;border:1px solid #c8c8dc;box-sizing:border-box}
-    #prevalenceControl{display:flex;flex-direction:column;align-items:flex-start;gap:10px;font-size:13px;color:#30304a}
+    #prevalenceControl{display:flex;flex-direction:column;align-items:flex-start;gap:12px;font-size:13px;color:#30304a}
     #prevalenceControl input[type=range]{width:100%}
     .component-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
     table{border-collapse:collapse;margin-top:12px;font-size:13px}
@@ -161,7 +160,7 @@
           <input type="number" id="thresholdInput" step="0.001" value="0.5">
         </div>
         <div class="hint" id="thresholdHint"></div>
-        <table id="threshold-metrics-table"></table>
+        <table id="threshold-metrics-table" class="metrics-table"></table>
       </div>
     <div id="prevalenceControl" class="bottom-panel">
         <div class="panel-header">
@@ -171,7 +170,9 @@
         <label for="prevalenceSlider" id="prevalenceLabel">Prevalence:</label>
         <input type="range" id="prevalenceSlider" min="0" max="1" step="0.01" value="0.5">
         <span id="prevalenceVal">0.50</span>
-        <div id="metricsPrev"></div>
+        <div id="metricsPrev">
+          <table id="prevalence-metrics-table" class="metrics-table"></table>
+        </div>
       </div>
     <div id="empiricalPanel" class="ctrl bottom-panel">
       <div class="panel-header">
@@ -514,13 +515,8 @@ const COLOR_HELPERS={
         return {tpr,tnr,fpr,fnr,youden,bacc};
       }
 
-      function renderThresholdMetrics(thrPoint){
-        const table=document.getElementById('threshold-metrics-table');
-        if(!table){return;}
-        if(!thrPoint || !Number.isFinite(thrPoint.tpr) || !Number.isFinite(thrPoint.fpr)){
-          table.innerHTML='';
-          return;
-        }
+      function computeConfusionAtThreshold(thrPoint){
+        if(!thrPoint){return null;}
         const prevalence=clamp(Number(state.prevalence)||0,0,1);
         const tprVal=clamp(thrPoint.tpr,0,1);
         const fprVal=clamp(thrPoint.fpr,0,1);
@@ -528,7 +524,18 @@ const COLOR_HELPERS={
         const FN=Math.max(prevalence-TP,0);
         const FP=fprVal*(1-prevalence);
         const TN=Math.max((1-prevalence)-FP,0);
-        const metrics=computeThresholdMetrics({TP,FP,TN,FN});
+        return {TP,FP,TN,FN,prevalence};
+      }
+
+      function renderThresholdMetrics(thrPoint){
+        const table=document.getElementById('threshold-metrics-table');
+        if(!table){return;}
+        if(!thrPoint || !Number.isFinite(thrPoint.tpr) || !Number.isFinite(thrPoint.fpr)){
+          table.innerHTML='';
+          return;
+        }
+        const confusion=computeConfusionAtThreshold(thrPoint);
+        const metrics=computeThresholdMetrics(confusion);
         const labels=STRINGS.metrics?.threshold||{};
         const rows=[
           {key:'tpr',value:metrics.tpr},
@@ -542,6 +549,47 @@ const COLOR_HELPERS={
           const label=labels[row.key]?.label||row.key.toUpperCase();
           const val=Number.isFinite(row.value)?row.value:0;
           return `<tr><th>${label}</th><td>${val.toFixed(3)}</td></tr>`;
+        }).join('');
+      }
+
+      function computePrevalenceMetrics(confusion){
+        if(!confusion){return {};}
+        const TP=Number(confusion.TP)||0;
+        const FP=Number(confusion.FP)||0;
+        const TN=Number(confusion.TN)||0;
+        const FN=Number(confusion.FN)||0;
+        const safeDiv=(num,den)=>den>0?num/den:NaN;
+        const ppv=safeDiv(TP,TP+FP);
+        const npv=safeDiv(TN,TN+FN);
+        const acc=safeDiv(TP+TN,TP+FP+TN+FN);
+        const mrate=Number.isFinite(acc)?1-acc:NaN;
+        const mccDen=(TP+FP)*(TP+FN)*(TN+FP)*(TN+FN);
+        const mcc=mccDen>0?((TP*TN)-(FP*FN))/Math.sqrt(mccDen):NaN;
+        const dorDen=FP*FN;
+        const dor=TP>0 && TN>0 && dorDen>0 ? (TP*TN)/dorDen : NaN;
+        return {ppv,npv,acc,mrate,mcc,dor};
+      }
+
+      function renderPrevalenceMetrics(thrPoint){
+        const table=document.getElementById('prevalence-metrics-table');
+        if(!table){return;}
+        const confusion=computeConfusionAtThreshold(thrPoint);
+        if(!confusion){table.innerHTML='';return;}
+        const metrics=computePrevalenceMetrics(confusion);
+        const labels=STRINGS.metrics?.prevalence||{};
+        const rows=[
+          {key:'ppv',value:metrics.ppv},
+          {key:'npv',value:metrics.npv},
+          {key:'acc',value:metrics.acc},
+          {key:'mrate',value:metrics.mrate},
+          {key:'mcc',value:metrics.mcc},
+          {key:'dor',value:metrics.dor}
+        ];
+        table.innerHTML=rows.map(row=>{
+          const label=labels[row.key]?.label||row.key.toUpperCase();
+          const val=row.value;
+          const display=Number.isFinite(val)?val.toFixed(3):'—';
+          return `<tr><th>${label}</th><td>${display}</td></tr>`;
         }).join('');
       }
 
@@ -1952,18 +2000,9 @@ const COLOR_HELPERS={
         const thrPoint=rocPairs.reduce((prev,curr)=>Math.abs(curr.thr-threshold)<Math.abs(prev.thr-threshold)?curr:prev,rocPairs[0]);
         rocPoint.attr('cx',rocXScale(thrPoint.fpr)).attr('cy',rocYScale(thrPoint.tpr)).raise();
 
-        const sensitivity=thrPoint.tpr;
-        const specificity=1-thrPoint.fpr;
         renderThresholdMetrics(thrPoint);
+        renderPrevalenceMetrics(thrPoint);
 
-        const prevalence=state.prevalence;
-        const ppvDen=(sensitivity*prevalence)+((1-specificity)*(1-prevalence));
-        const npvDen=((1-sensitivity)*prevalence)+(specificity*(1-prevalence));
-        const ppv=ppvDen>0?(sensitivity*prevalence)/ppvDen:0;
-        const npv=npvDen>0?(specificity*(1-prevalence))/npvDen:0;
-        const accuracy=sensitivity*prevalence+specificity*(1-prevalence);
-        const headers=STRINGS.metrics.prevalenceHeader;
-        document.getElementById('metricsPrev').innerHTML=`<table><tr><th>${headers[0]}</th><th>${headers[1]}</th><th>${headers[2]}</th></tr><tr><td>${ppv.toFixed(3)}</td><td>${npv.toFixed(3)}</td><td>${accuracy.toFixed(3)}</td></tr></table>`;
         renderLegendSelection();
       }
 
