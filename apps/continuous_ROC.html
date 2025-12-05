@@ -63,6 +63,8 @@
     .panel-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
     .panel-title{font-size:15px;font-weight:600;color:#2d2d48}
     .info-icon{font-size:13px;color:#4a4a66;cursor:help;user-select:none;padding:2px 6px;border-radius:6px;border:1px solid #dcdcee;background:#f9f9ff}
+    .subsection{border:1px solid #e1e1f0;border-radius:8px;padding:10px 12px;margin-top:10px;background:#fdfdff}
+    .subsection h4{margin:0 0 8px 0;font-size:14px;font-weight:600;color:#30304a}
     #busyOverlay{position:fixed;inset:0;background:rgba(255,255,255,0.65);display:none;align-items:center;justify-content:center;z-index:9999}
     #busySpinner{width:48px;height:48px;border:5px solid rgba(0,0,0,0.1);border-top-color:#4a4a90;border-radius:50%;animation:spin 1s linear infinite}
     @keyframes spin{to{transform:rotate(360deg)}}
@@ -179,29 +181,35 @@
         <span class="panel-title" id="empiricalPanelTitle"></span>
         <span class="info-icon" id="empiricalPanelInfo" title="ⓘ">ⓘ</span>
       </div>
-      <div class="component-row">
-        <label for="datasetNameInput">Dataset name:</label>
-        <input type="text" id="datasetNameInput" value="simulated_dataset">
+      <div id="sampling-controls-section" class="subsection">
+        <h4 id="samplingSectionTitle"></h4>
+        <div class="component-row">
+          <label for="sampleSizeInput">Sample size:</label>
+          <input type="number" id="sampleSizeInput" value="200" min="10" step="10">
+        </div>
+        <div class="component-row">
+          <label for="numSamplesInput"># samples (ROC reps):</label>
+          <input type="number" id="numSamplesInput" value="20" min="1" step="1">
+        </div>
+        <button id="resampleButton" style="margin-top:10px;">New sample</button>
+        <div class="sim-options">
+          <label><input type="checkbox" id="autoResampleToggle">Auto-resample on parameter change</label>
+        </div>
       </div>
-      <div class="component-row">
-        <label for="sampleSizeInput">Sample size:</label>
-        <input type="number" id="sampleSizeInput" value="200" min="10" step="10">
-      </div>
-      <div class="component-row">
-        <label for="numSamplesInput"># samples (ROC reps):</label>
-        <input type="number" id="numSamplesInput" value="20" min="1" step="1">
-      </div>
-      <button id="resampleButton" style="margin-top:10px;">New sample</button>
-      <div id="dataImportDropZone" style="margin-top:14px;">
-        <label for="dataImportInput">Load empirical data (scores + labels):</label>
-        <input type="file" id="dataImportInput" accept=".csv" style="margin-top:6px;">
-        <div style="font-size:11px;color:#666;margin-top:6px;">Drop a CSV here or use the file picker. Required columns: <code>score</code>, <code>label</code>.</div>
-      </div>
-      <div id="dataImportStatus">No empirical data loaded.</div>
-      <button id="dataExportButton" style="margin-top:10px;">Export Dataset CSV</button>
-      <div id="exportStatus" style="font-size:12px;color:#666;margin-top:6px;"></div>
-      <div class="sim-options">
-        <label><input type="checkbox" id="autoResampleToggle">Auto-resample on parameter change</label>
+      <div id="dataset-io-section" class="subsection">
+        <h4 id="datasetSectionTitle"></h4>
+        <div class="component-row">
+          <label for="datasetNameInput">Dataset name:</label>
+          <input type="text" id="datasetNameInput" value="simulated_dataset">
+        </div>
+        <div id="dataImportDropZone" style="margin-top:8px;">
+          <label for="dataImportInput">Load empirical data (scores + labels):</label>
+          <input type="file" id="dataImportInput" accept=".csv" style="margin-top:6px;">
+          <div style="font-size:11px;color:#666;margin-top:6px;">Drop a CSV here or use the file picker. Required columns: <code>score</code>, <code>label</code>.</div>
+        </div>
+        <div id="dataImportStatus">No empirical data loaded.</div>
+        <button id="dataExportButton" style="margin-top:10px;">Export Dataset CSV</button>
+        <div id="exportStatus" style="font-size:12px;color:#666;margin-top:6px;"></div>
       </div>
     </div>
     <div id="rocPanel" class="ctrl bottom-panel">
@@ -525,6 +533,10 @@ const COLOR_HELPERS={
       setPanelCopy('thresholdPanelTitle','thresholdPanelInfo','threshold');
       setPanelCopy('prevalencePanelTitle','prevalencePanelInfo','prevalence');
       setPanelCopy('empiricalPanelTitle','empiricalPanelInfo','empiricalSamples');
+      const samplingTitle=document.getElementById('samplingSectionTitle');
+      const datasetTitle=document.getElementById('datasetSectionTitle');
+      if(samplingTitle){samplingTitle.textContent=panelStrings.empiricalSamples?.samplingSectionTitle||'Sampling';}
+      if(datasetTitle){datasetTitle.textContent=panelStrings.empiricalSamples?.datasetSectionTitle||'Dataset';}
       setPanelCopy('rocPanelTitle','rocPanelInfo','rocCurves');
 
       function computeThresholdMetrics(confusion){

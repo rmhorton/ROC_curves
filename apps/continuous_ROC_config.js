@@ -58,7 +58,9 @@ const STRINGS = {
     },
     empiricalSamples: {
       title: "Empirical Samples",
-      info: "Configure sampling or load empirical datasets."
+      info: "Configure sampling or load empirical datasets.",
+      samplingSectionTitle: "Sampling",
+      datasetSectionTitle: "Dataset"
     },
     rocCurves: {
       title: "ROC Curves",
