@@ -250,7 +250,6 @@
           negPDF:true,
           posHist:DEFAULT_OPTIONS.showEmpiricalHistogram??true,
           negHist:DEFAULT_OPTIONS.showEmpiricalHistogram??true,
-          empiricalHist:true,
           empiricalPoints:DEFAULT_OPTIONS.showEmpiricalPoints??false
         },
         roc:{
@@ -415,17 +414,10 @@ const COLOR_HELPERS={
           {key:'negHist',label:'Negative histogram',color:COLOR_HELPERS.negHist}
         ];
         if(hasEmpiricalData()){
-          items.push({key:'empiricalHist',label:'Empirical histogram',color:COLOR_HELPERS.empirical});
           items.push({key:'empiricalPoints',label:'Empirical points',color:COLOR_HELPERS.empirical});
         }
         return items;
       };
-      const baseRocLegendItems=[
-        {key:'theoretical',label:'Theoretical ROC',color:COLOR_HELPERS.roc},
-        {key:'estimated',label:'Estimated ROC',color:COLOR_HELPERS.estimated},
-        {key:'sampleCurves',label:'Sample ROC Curves',color:COLOR_HELPERS.sample},
-        {key:'confidenceBand',label:'Confidence band',color:COLOR_HELPERS.sample}
-      ];
 
       function buildLegend(container, items, sectionKey){
         if(!container){return;}
@@ -444,25 +436,29 @@ const COLOR_HELPERS={
           el.appendChild(label);
           el.addEventListener('click',()=>{
             const section=visibilityState[sectionKey]||{};
-            if(sectionKey==='roc' && typeof item.key==='number'){
-              section.sample=section.sample||{};
-              const current=section.sample[item.key];
-              section.sample[item.key]=!current;
-              state.plots.showSampleRocCurves=section.sample[item.key]!==false;
-            } else if(sectionKey==='roc' && item.key==='sampleCurves'){
-              section.sample=section.sample||{};
-              const current=section.sample.sampleCurves;
-              section.sample.sampleCurves=!current;
-              state.plots.showSampleRocCurves=section.sample.sampleCurves;
+            if(sectionKey==='roc'){
+              if(item.key==='sampleCurves'){
+                const current=state.plots.showSampleRocCurves!==false;
+                state.plots.showSampleRocCurves=!current;
+                section.sample=section.sample||{};
+                section.sample.sampleCurves=state.plots.showSampleRocCurves;
+              } else if(item.key==='empirical'){
+                const current=state.plots.showEmpiricalRocCurve!==false;
+                state.plots.showEmpiricalRocCurve=!current;
+                section.empirical=state.plots.showEmpiricalRocCurve;
+              } else if(item.key==='estimated'){
+                const current=state.plots.showEstimatedCurve!==false;
+                state.plots.showEstimatedCurve=!current;
+                section.estimated=state.plots.showEstimatedCurve;
+              } else if(item.key==='confidenceBand'){
+                const current=state.plots.showConfidenceBands!==false;
+                state.plots.showConfidenceBands=!current;
+                section.confidenceBand=state.plots.showConfidenceBands;
+              } else {
+                section[item.key]=!section[item.key];
+              }
             } else {
-              const current=section[item.key];
-              section[item.key]=!current;
-              if(sectionKey==='roc' && item.key==='estimated'){
-                state.plots.showEstimatedCurve=section[item.key]!==false;
-              }
-              if(sectionKey==='roc' && item.key==='confidenceBand'){
-                state.plots.showConfidenceBands=section[item.key]!==false;
-              }
+              section[item.key]=!section[item.key];
             }
             visibilityState[sectionKey]=section;
             renderLegendSelection();
@@ -477,22 +473,20 @@ const COLOR_HELPERS={
           const section=el.dataset.section;
           const key=el.dataset.key;
           let active=visibilityState?.[section]?.[key];
-          if(section==='roc' && key!==undefined && key!==''){
-            const numericKey=Number(key);
-            if(Number.isFinite(numericKey)){
-              active=visibilityState.roc.sample?.[numericKey];
-              if(active===undefined){
-                if(!visibilityState.roc.sample){visibilityState.roc.sample={};}
-                visibilityState.roc.sample[numericKey]=true;
-                active=true;
-              }
-            } else if(key==='sampleCurves'){
-              active=visibilityState.roc.sample?.sampleCurves;
-              if(active===undefined){
-                if(!visibilityState.roc.sample){visibilityState.roc.sample={};}
-                visibilityState.roc.sample.sampleCurves=true;
-                active=true;
-              }
+          if(section==='roc' && key){
+            if(key==='sampleCurves'){
+              active=state.plots.showSampleRocCurves!==false;
+              visibilityState.roc.sample=visibilityState.roc.sample||{};
+              visibilityState.roc.sample.sampleCurves=active;
+            } else if(key==='empirical'){
+              active=state.plots.showEmpiricalRocCurve!==false;
+              visibilityState.roc.empirical=active;
+            } else if(key==='estimated'){
+              active=state.plots.showEstimatedCurve!==false;
+              visibilityState.roc.estimated=active;
+            } else if(key==='confidenceBand'){
+              active=state.plots.showConfidenceBands!==false;
+              visibilityState.roc.confidenceBand=active;
             }
           }
           el.classList.toggle('inactive',!active);
@@ -500,20 +494,19 @@ const COLOR_HELPERS={
       }
 
       function resetVisibilityState(){
-        ['score','roc'].forEach(section=>{
-          if(!visibilityState[section]){visibilityState[section]={};}
-          Object.keys(visibilityState[section]).forEach(key=>{
-            visibilityState[section][key]=true;
-          });
-          if(section==='roc'){
-            visibilityState.roc.sample=visibilityState.roc.sample||{};
-            Object.keys(visibilityState.roc.sample).forEach(key=>{
-              visibilityState.roc.sample[key]=true;
-            });
-            visibilityState.roc.confidenceBand=true;
-            visibilityState.roc.sample.sampleCurves=true;
-          }
-        });
+        visibilityState.score=visibilityState.score||{};
+        visibilityState.roc=visibilityState.roc||{};
+        visibilityState.roc.sample=visibilityState.roc.sample||{};
+        visibilityState.score.posPDF=true;
+        visibilityState.score.negPDF=true;
+        visibilityState.score.posHist=true;
+        visibilityState.score.negHist=true;
+        visibilityState.score.empiricalPoints=true;
+        visibilityState.roc.theoretical=true;
+        visibilityState.roc.empirical=state.plots.showEmpiricalRocCurve!==false;
+        visibilityState.roc.estimated=state.plots.showEstimatedCurve!==false;
+        visibilityState.roc.confidenceBand=state.plots.showConfidenceBands!==false;
+        visibilityState.roc.sample.sampleCurves=state.plots.showSampleRocCurves!==false;
         renderLegendSelection();
       }
 
@@ -808,7 +801,7 @@ const COLOR_HELPERS={
       state.theoretical.negative=state.theoretical.negComponents;
       state.samples={curves:state.samplesROC,estimatedCurve:state.estimatedCurve};
       state.imported={datasetName:currentEmpiricalDataset.name||'',rows:state.empiricalPoints,histograms:null,rocCurve:null};
-      state.plots={showSampleRocCurves:true,showEmpiricalRocCurve:true,showEstimatedCurve:true,showConfidenceBands:true,histogramMode:'sample'};
+      state.plots={showSampleRocCurves:true,showEmpiricalRocCurve:true,showEstimatedCurve:true,showConfidenceBands:true,histogramMode:'sample',showEmpiricalHistogram:true,showEmpiricalPoints:true};
       autoResampleToggle.checked=state.autoResample;
       autoResampleToggle.addEventListener('change',event=>{
         state.autoResample=event.target.checked;
@@ -909,9 +902,19 @@ const COLOR_HELPERS={
         buildLegend(scoreLegendContainer,getScoreLegendItems(),'score');
       }
       function refreshRocLegend(){
-        const items=[...baseRocLegendItems];
-        if(hasEmpiricalData()){
-          items.splice(1,0,{key:'empirical',label:'Empirical ROC',color:COLOR_HELPERS.empirical});
+        const items=[{key:'theoretical',label:'Theoretical ROC',color:COLOR_HELPERS.roc}];
+        if(state.samples?.estimatedCurve){
+          items.push({key:'estimated',label:'Estimated ROC',color:COLOR_HELPERS.estimated});
+        }
+        if(state.samples?.curves && state.samples.curves.length){
+          items.push({key:'sampleCurves',label:'Sample ROC Curves',color:COLOR_HELPERS.sample});
+        }
+        if(state.imported?.rocCurve){
+          items.push({key:'empirical',label:'Empirical ROC',color:COLOR_HELPERS.empirical});
+        }
+        const hasBand=(state.samples?.estimatedCurve && Array.isArray(state.samples.estimatedCurve.bands) && state.samples.estimatedCurve.bands.length) || state.confBand || state.delongBand;
+        if(hasBand){
+          items.push({key:'confidenceBand',label:'Confidence band',color:COLOR_HELPERS.sample});
         }
         buildLegend(rocLegendContainer,items,'roc');
       }
@@ -1786,7 +1789,7 @@ const COLOR_HELPERS={
         const histMode=state.plots.histogramMode||'sample';
         const empiricalHistData=state.imported.histograms;
         let histActive=false;
-        if(histMode==='empirical' && hasEmpiricalData() && empiricalHistData && visibilityState.score.empiricalHist!==false){
+        if(histMode==='empirical' && hasEmpiricalData() && empiricalHistData && (visibilityState.score.posHist||visibilityState.score.negHist)){
           const toDensity=bins=>{
             return (bins||[]).map(bin=>{
               const density=Number(bin.density)||0;
@@ -1888,8 +1891,8 @@ const COLOR_HELPERS={
         };
 
         if(histActive){
-          const showPos = histMode==='empirical' ? visibilityState.score.empiricalHist!==false : visibilityState.score.posHist;
-          const showNeg = histMode==='empirical' ? visibilityState.score.empiricalHist!==false : visibilityState.score.negHist;
+          const showPos = visibilityState.score.posHist!==false;
+          const showNeg = visibilityState.score.negHist!==false;
           if(showPos){
             histPosGroup.style('display',null);
             renderHist(histPosGroup,histPosData,'hist-pos-bar');
@@ -2005,7 +2008,7 @@ const COLOR_HELPERS={
           })
           .lower();
 
-        if(state.estimatedCurve && visibilityState.roc.estimated!==false){
+        if(state.estimatedCurve && state.plots.showEstimatedCurve!==false){
           const estPoints=(state.estimatedCurve.fpr||[]).map((fprVal,idx)=>({fpr:fprVal,tpr:state.estimatedCurve.tpr[idx]})).filter(pt=>Number.isFinite(pt.fpr)&&Number.isFinite(pt.tpr));
           if(estPoints.length>=2){
             estimatedRocPath
@@ -2023,7 +2026,7 @@ const COLOR_HELPERS={
         }
 
         const drawRocBand=(band,prefix,color)=>{
-          const visible=visibilityState.roc.confidenceBand!==false && visibilityState.roc.estimated!==false && state.rocBandMode===prefix && band && Array.isArray(band.fpr) && Array.isArray(band.lower) && Array.isArray(band.upper);
+          const visible=state.plots.showConfidenceBands!==false && state.plots.showEstimatedCurve!==false && state.rocBandMode===prefix && band && Array.isArray(band.fpr) && Array.isArray(band.lower) && Array.isArray(band.upper);
           const bandData=visible?band.fpr.map((fprVal,idx)=>({
             fpr:fprVal,
             lower:band.lower[idx],
@@ -2068,12 +2071,17 @@ const COLOR_HELPERS={
           }
           return method==='bootstrap'?state.confBand:method==='delong'?state.delongBand:null;
         };
-        if(state.rocBandMode==='bootstrap'){
-          drawRocBand(findBand('bootstrap'),'bootstrap',COLOR_HELPERS.sample);
-          drawRocBand(null,'delong',COLOR_HELPERS.sample);
-        } else if(state.rocBandMode==='delong'){
-          drawRocBand(null,'bootstrap',COLOR_HELPERS.sample);
-          drawRocBand(findBand('delong'),'delong',COLOR_HELPERS.sample);
+        if(state.plots.showConfidenceBands!==false){
+          if(state.rocBandMode==='bootstrap'){
+            drawRocBand(findBand('bootstrap'),'bootstrap',COLOR_HELPERS.sample);
+            drawRocBand(null,'delong',COLOR_HELPERS.sample);
+          } else if(state.rocBandMode==='delong'){
+            drawRocBand(null,'bootstrap',COLOR_HELPERS.sample);
+            drawRocBand(findBand('delong'),'delong',COLOR_HELPERS.sample);
+          } else {
+            drawRocBand(null,'bootstrap',COLOR_HELPERS.sample);
+            drawRocBand(null,'delong',COLOR_HELPERS.sample);
+          }
         } else {
           drawRocBand(null,'bootstrap',COLOR_HELPERS.sample);
           drawRocBand(null,'delong',COLOR_HELPERS.sample);
@@ -2088,7 +2096,7 @@ const COLOR_HELPERS={
         rocYAxisGroup.call(d3.axisLeft(rocYScale).ticks(6));
 
         const empiricalCurve=state.imported.rocCurve;
-        if(visibilityState.roc.empirical && empiricalCurve && Array.isArray(empiricalCurve.fpr) && Array.isArray(empiricalCurve.tpr) && empiricalCurve.fpr.length===empiricalCurve.tpr.length && empiricalCurve.fpr.length>=2){
+        if(state.plots.showEmpiricalRocCurve!==false && empiricalCurve && Array.isArray(empiricalCurve.fpr) && Array.isArray(empiricalCurve.tpr) && empiricalCurve.fpr.length===empiricalCurve.tpr.length && empiricalCurve.fpr.length>=2){
           const empiricalPoints=empiricalCurve.fpr.map((fprVal,idx)=>({fpr:fprVal,tpr:empiricalCurve.tpr[idx]})).filter(pt=>Number.isFinite(pt.fpr)&&Number.isFinite(pt.tpr));
           if(empiricalPoints.length>=2){
             empiricalRocPath.datum(empiricalPoints).attr('d',rocLineGenerator).style('opacity',1).raise();
@@ -2720,10 +2728,10 @@ const COLOR_HELPERS={
                 if(band.method==='bootstrap'){state.confBand=band;state.rocBandMode='bootstrap';}
                 if(band.method==='delong'){state.delongBand=band;state.rocBandMode='delong';}
               }
-              visibilityState.roc.estimated=true;
-              estimatedApplied=true;
-            }
-          });
+      visibilityState.roc.estimated=true;
+      estimatedApplied=true;
+    }
+  });
           refreshRocLegend();
           renderLegendSelection();
           update();
