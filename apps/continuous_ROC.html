@@ -60,6 +60,9 @@
     .sim-options{display:flex;flex-direction:column;gap:6px;margin-top:10px;font-size:12px;color:#3a3a5a}
     .sim-options label{display:flex;align-items:center;gap:6px}
     .add-component-btn{margin-top:0;padding:6px 10px}
+    .panel-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+    .panel-title{font-size:15px;font-weight:600;color:#2d2d48}
+    .info-icon{font-size:13px;color:#4a4a66;cursor:help;user-select:none;padding:2px 6px;border-radius:6px;border:1px solid #dcdcee;background:#f9f9ff}
     #busyOverlay{position:fixed;inset:0;background:rgba(255,255,255,0.65);display:none;align-items:center;justify-content:center;z-index:9999}
     #busySpinner{width:48px;height:48px;border:5px solid rgba(0,0,0,0.1);border-top-color:#4a4a90;border-radius:50%;animation:spin 1s linear infinite}
     @keyframes spin{to{transform:rotate(360deg)}}
@@ -149,6 +152,10 @@
 
     <div class="bottom-panels">
       <div id="thresholdControl" class="bottom-panel">
+        <div class="panel-header">
+          <span class="panel-title" id="thresholdPanelTitle"></span>
+          <span class="info-icon" id="thresholdPanelInfo" title="ⓘ">ⓘ</span>
+        </div>
         <div id="thresholdLabel">Threshold: <span id="thresholdVal">0.50</span></div>
         <div class="threshold-input">
           <label for="thresholdInput" id="thresholdInputLabel">Set exact threshold:</label>
@@ -158,13 +165,20 @@
         <div id="metrics"></div>
       </div>
     <div id="prevalenceControl" class="bottom-panel">
+        <div class="panel-header">
+          <span class="panel-title" id="prevalencePanelTitle"></span>
+          <span class="info-icon" id="prevalencePanelInfo" title="ⓘ">ⓘ</span>
+        </div>
         <label for="prevalenceSlider" id="prevalenceLabel">Prevalence:</label>
         <input type="range" id="prevalenceSlider" min="0" max="1" step="0.01" value="0.5">
         <span id="prevalenceVal">0.50</span>
         <div id="metricsPrev"></div>
       </div>
     <div id="empiricalPanel" class="ctrl bottom-panel">
-      <h3>Empirical Dataset</h3>
+      <div class="panel-header">
+        <span class="panel-title" id="empiricalPanelTitle"></span>
+        <span class="info-icon" id="empiricalPanelInfo" title="ⓘ">ⓘ</span>
+      </div>
       <div class="component-row">
         <label for="datasetNameInput">Dataset name:</label>
         <input type="text" id="datasetNameInput" value="simulated_dataset">
@@ -191,7 +205,10 @@
       </div>
     </div>
     <div id="rocPanel" class="ctrl bottom-panel">
-      <h3>ROC Curves</h3>
+      <div class="panel-header">
+        <span class="panel-title" id="rocPanelTitle"></span>
+        <span class="info-icon" id="rocPanelInfo" title="ⓘ">ⓘ</span>
+      </div>
       <div class="component-row">
         <label for="rocExportName">Curve name:</label>
         <input type="text" id="rocExportName" value="exported_curve">
@@ -472,6 +489,18 @@ const COLOR_HELPERS={
       document.getElementById('thresholdInputLabel').textContent=STRINGS.controls.thresholdInputLabel;
       document.getElementById('thresholdHint').textContent=STRINGS.metrics.thresholdHint;
       document.getElementById('prevalenceLabel').textContent=STRINGS.controls.prevalenceLabel;
+      const panelStrings=STRINGS.panels||{};
+      const setPanelCopy=(titleId,infoId,key)=>{
+        const cfg=panelStrings[key]||{};
+        const titleEl=document.getElementById(titleId);
+        const infoEl=document.getElementById(infoId);
+        if(titleEl){titleEl.textContent=cfg.title||'';}
+        if(infoEl){infoEl.setAttribute('title',cfg.info||'');}
+      };
+      setPanelCopy('thresholdPanelTitle','thresholdPanelInfo','threshold');
+      setPanelCopy('prevalencePanelTitle','prevalencePanelInfo','prevalence');
+      setPanelCopy('empiricalPanelTitle','empiricalPanelInfo','empiricalSamples');
+      setPanelCopy('rocPanelTitle','rocPanelInfo','rocCurves');
 
       function cloneComponent(src={}){
         const fallback=DISTRIBUTION_KEYS.find(key=>DISTRIBUTIONS_INTERNAL[key])||Object.keys(DISTRIBUTIONS_INTERNAL)[0];

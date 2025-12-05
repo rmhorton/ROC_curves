@@ -31,6 +31,24 @@ const STRINGS = {
     },
     thresholdHandleTooltip: (value) => `Threshold: ${value.toFixed(3)}`
   },
+  panels: {
+    threshold: {
+      title: "Threshold",
+      info: "Adjust the decision threshold and view confusion metrics."
+    },
+    prevalence: {
+      title: "Prevalence",
+      info: "Set class prevalence and inspect predictive values."
+    },
+    empiricalSamples: {
+      title: "Empirical Samples",
+      info: "Configure sampling or load empirical datasets."
+    },
+    rocCurves: {
+      title: "ROC Curves",
+      info: "Manage ROC export/import and confidence band options."
+    }
+  },
   multi: {
     addComponent: "Add component",
     removeComponent: "Remove",
