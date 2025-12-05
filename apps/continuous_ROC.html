@@ -553,15 +553,7 @@ const COLOR_HELPERS={
         rocPairs:[],
         rocPairsSorted:[],
         dataPoints:[],
-        dataImported:DEFAULT_OPTIONS.dataImported||false,
-        importedDataFilename:DEFAULT_OPTIONS.importedDataFilename||null,
-        importedSampleCount:DEFAULT_OPTIONS.importedSampleCount||0,
-        importedRawPos:[],
-        importedRawNeg:[],
-        showEmpiricalHistogram:DEFAULT_OPTIONS.showEmpiricalHistogram??true,
-        showEmpiricalRoc:DEFAULT_OPTIONS.showEmpiricalRoc??false,
-        showEmpiricalPoints:DEFAULT_OPTIONS.showEmpiricalPoints??false,
-        empiricalPoints:[],
+        dataImported:DEFAULT_OPTIONS.dataImported||false, // mapped to imported
         autoResample:DEFAULT_OPTIONS.autoResample??false,
         simulatedDataActive:false,
         rocBandMode:'none',
@@ -574,8 +566,25 @@ const COLOR_HELPERS={
           estimatedCurve:null,
           numSamples:20
         },
-        imported:{datasetName:'',rows:[],histograms:null,rocCurve:null}, // mirror of imported data
-        plots:{showSampleRocCurves:true,showEmpiricalRocCurve:true,showEstimatedCurve:true,showConfidenceBands:true,histogramMode:'sample'} // mirror of visibility
+        imported:{
+          datasetName:'',
+          filename:null,
+          sampleCount:0,
+          positives:[],
+          negatives:[],
+          rows:[],
+          histograms:null,
+          rocCurve:null
+        },
+        plots:{
+          showSampleRocCurves:true,
+          showEmpiricalRocCurve:DEFAULT_OPTIONS.showEmpiricalRoc??false,
+          showEstimatedCurve:true,
+          showConfidenceBands:true,
+          histogramMode:'sample',
+          showEmpiricalHistogram:DEFAULT_OPTIONS.showEmpiricalHistogram??true,
+          showEmpiricalPoints:DEFAULT_OPTIONS.showEmpiricalPoints??false
+        }
       };
 
       thresholdValEl.textContent=STRINGS.controls.thresholdValue(Number(state.threshold)||0);
@@ -617,6 +626,43 @@ const COLOR_HELPERS={
             state.samples[key]=v;
           }
         });
+      });
+      // map imported / plot flags to structured containers
+      Object.defineProperty(state,'dataImported',{
+        get(){return state.imported.dataImported;},
+        set(v){state.imported.dataImported=v;}
+      });
+      Object.defineProperty(state,'importedDataFilename',{
+        get(){return state.imported.filename;},
+        set(v){state.imported.filename=v;}
+      });
+      Object.defineProperty(state,'importedSampleCount',{
+        get(){return state.imported.sampleCount;},
+        set(v){state.imported.sampleCount=v;}
+      });
+      Object.defineProperty(state,'importedRawPos',{
+        get(){return state.imported.positives;},
+        set(v){state.imported.positives=v;}
+      });
+      Object.defineProperty(state,'importedRawNeg',{
+        get(){return state.imported.negatives;},
+        set(v){state.imported.negatives=v;}
+      });
+      Object.defineProperty(state,'empiricalPoints',{
+        get(){return state.imported.rows;},
+        set(v){state.imported.rows=v;}
+      });
+      Object.defineProperty(state,'showEmpiricalHistogram',{
+        get(){return state.plots.showEmpiricalHistogram;},
+        set(v){state.plots.showEmpiricalHistogram=v;}
+      });
+      Object.defineProperty(state,'showEmpiricalRoc',{
+        get(){return state.plots.showEmpiricalRocCurve;},
+        set(v){state.plots.showEmpiricalRocCurve=v;}
+      });
+      Object.defineProperty(state,'showEmpiricalPoints',{
+        get(){return state.plots.showEmpiricalPoints;},
+        set(v){state.plots.showEmpiricalPoints=v;}
       });
       state.threshold=initialThreshold;
       state.prevalence=initialPrevalence;
@@ -1077,7 +1123,7 @@ const COLOR_HELPERS={
         }
         const positives=state.importedRawPos.length;
         const negatives=state.importedRawNeg.length;
-        const name=currentEmpiricalDataset.name || state.importedDataFilename || 'dataset';
+        const name=state.imported.datasetName || currentEmpiricalDataset.name || state.importedDataFilename || 'dataset';
         if(state.simulatedDataActive){
           statusEl.textContent=`${name}: ${positives+negatives} simulated samples (${positives} positive, ${negatives} negative).`;
         } else {
@@ -1101,7 +1147,6 @@ const COLOR_HELPERS={
         state.importedRawPos=positives;
         state.importedRawNeg=negatives;
         state.empiricalPoints=points;
-        state.imported.rows=points||[];
         state.dataImported=true;
         state.importedDataFilename=filename||'dataset.csv';
         state.importedSampleCount=points.length;
@@ -1125,6 +1170,9 @@ const COLOR_HELPERS={
           setDatasetName(defaultName);
           state.imported.datasetName=defaultName;
         }
+        state.imported.rows=points||[];
+        state.imported.positives=positives||[];
+        state.imported.negatives=negatives||[];
         refreshDatasetExportState();
         refreshDataImportStatus();
         update();
