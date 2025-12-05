@@ -9,9 +9,10 @@
   <script src="continuous_ROC_config.js"></script>
   <script src="ROC_lib.js"></script>
   <style>
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:18px;background:#fcfcff;color:#21213a}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;background:#fcfcff;color:#21213a}
     body.busy{cursor:progress!important}
     body.busy *{cursor:progress!important}
+    .app-root{width:100%;padding:16px 24px;box-sizing:border-box}
     h2{margin:0 0 6px 0;font-size:24px;font-weight:650;color:#1e1e31}
     p.description{margin:0 0 18px 0;font-size:14px;color:#515172}
     .controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:18px;margin-bottom:22px}
@@ -50,7 +51,7 @@
     .roc-empirical{stroke-width:2;fill:none;stroke-dasharray:5 4}
     .roc-bands path{vector-effect:non-scaling-stroke}
     .legend-bar{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;font-size:12px;color:#30304a}
-    #rocLegend{display:flex;flex-wrap:wrap;gap:6px 12px;max-width:540px;align-items:flex-start}
+    #rocLegend{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:flex-start}
     #rocLegend .legend-item{flex:0 0 auto;white-space:nowrap;display:flex;align-items:center;min-width:120px}
     .legend-item{display:flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid #dcdcee;border-radius:8px;cursor:pointer;user-select:none;background:#f9f9ff;transition:background 0.15s,border-color 0.15s,opacity 0.15s}
     .legend-item:hover{background:#f0f0ff}
@@ -66,71 +67,31 @@
     .plots{display:flex;flex-wrap:wrap;gap:20px;margin-bottom:50px}
     .plot-block{flex:1;min-width:360px}
     #distPlot,#rocPlot{width:100%;height:420px}
-    #rocPlot{max-width:540px}
-    #rocPlot svg{max-width:540px;width:100%;height:auto}
+    #rocPlot svg{width:100%;height:auto}
     .roc-samples path{vector-effect:non-scaling-stroke}
-    #rocLegend{flex-wrap:wrap;max-width:540px}
-    #thresholdArea{display:flex;flex-wrap:wrap;gap:40px;align-items:flex-start;margin-bottom:28px}
-    #thresholdControl,#prevalenceControl{flex:1;min-width:280px}
-    #thresholdControl .hint{font-size:12px;color:#60607a;margin-top:6px}
+    #rocLegend{flex-wrap:wrap}
     */ 
-    /* --- Layout Stability Patch --- */
+    .top-controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:20px;margin-bottom:24px;width:100%}
+    .top-column{box-sizing:border-box}
+    .plots-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px;margin-bottom:16px;align-items:flex-start;width:100%}
+    @media (max-width:900px){
+      .top-controls{grid-template-columns:1fr;}
+      .plots-row{grid-template-columns:1fr;}
+    }
+    .plot-cell{box-sizing:border-box}
+    .plot-cell svg,.plot-cell .plot-wrapper{width:100%;height:auto}
+    .plot-score,.plot-roc{display:flex;flex-direction:column;align-items:center}
+    .bottom-panels{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:24px;margin-top:24px;margin-bottom:16px;width:100%}
+    .bottom-panel{width:100%;box-sizing:border-box}
+    #prevalenceControl, #prevalenceControl *{width:100%;max-width:100%;box-sizing:border-box;}
+    #metricsPrev table{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));width:100%;max-width:100%;box-sizing:border-box;border-collapse:collapse;}
+    #metricsPrev tr{display:contents;}
+    #metricsPrev th,#metricsPrev td{padding:4px 6px;}
 
-/* Keep plots on one line, allow horizontal scroll if needed */
-.plots {
-  display: flex;
-  flex-wrap: nowrap;           /* prevent wrapping */
-  flex-direction: row;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 24px;
-  margin-bottom: 60px;
-  overflow-x: auto;            /* enable scroll instead of overlap */
-  overflow-y: visible;
-}
-
-/* Ensure each plot maintains its full height */
-.plot-block {
-  flex: 0 0 auto;              /* prevent shrinking */
-  min-width: 520px;            /* fits standard aspect ratio */
-}
-
-/* Prevent threshold + prevalence areas from collapsing or overlapping */
-#thresholdArea {
-  display: flex;
-  flex-wrap: nowrap;           /* keep them side by side */
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 40px;
-  margin-bottom: 32px;
-  overflow-x: auto;
-  overflow-y: visible;
-}
-
-/* Ensure internal panels resize properly and stay visible */
-#thresholdControl,
-    #prevalenceControl {
-      flex: 0 0 auto;
-      min-width: 340px;
-      background: #fafaff;
-      border: 1px solid #ddddee;
-  border-radius: 10px;
-  padding: 12px;
-  box-shadow: 0 1px 3px rgba(15,15,35,0.08);
-}
-
-/* Optional: constrain entire app width for cleaner screenshots */
-body {
-  max-width: 1400px;
-  margin: auto;
-  background-color: #ffffff;
-}
-
-/* --- End of Layout Patch --- */
     .threshold-input{display:flex;flex-direction:column;gap:6px;margin-top:8px;font-size:13px;color:#32324e}
-    .threshold-input input{width:140px;padding:5px 6px;border-radius:6px;border:1px solid #c8c8dc}
-    #prevalenceControl{display:flex;align-items:center;gap:8px;font-size:13px;color:#30304a}
-    #prevalenceControl input[type=range]{flex:1}
+.threshold-input input{width:100%;max-width:100%;padding:5px 6px;border-radius:6px;border:1px solid #c8c8dc;box-sizing:border-box}
+    #prevalenceControl{display:flex;flex-direction:column;align-items:flex-start;gap:10px;font-size:13px;color:#30304a}
+    #prevalenceControl input[type=range]{width:100%}
     .component-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
     table{border-collapse:collapse;margin-top:12px;font-size:13px}
     th,td{border:1px solid #d7d7e8;padding:4px 10px;text-align:center}
@@ -152,15 +113,18 @@ body {
    .roc-point{fill:#d62728;stroke:#fff;stroke-width:1.6;cursor:pointer}-->
 </head>
 <body>
+<div id="app" class="app-root">
   <h2 id="pageTitle">Continuous ROC Explorer</h2>
   <p class="description" id="pageIntro"></p>
 
-  <div class="controls">
-    <div id="distParamContainer" class="dist-param-container">
+  <div id="distParamContainer" class="top-controls dist-param-container">
+    <div class="top-column top-negatives">
       <div class="ctrl" id="negControl">
         <h3 id="negTitle">Negatives</h3>
         <div id="negParams"></div>
       </div>
+    </div>
+    <div class="top-column top-positives">
       <div class="ctrl" id="posControl">
         <h3 id="posTitle">Positives</h3>
         <div id="posParams"></div>
@@ -168,36 +132,38 @@ body {
     </div>
   </div>
 
-  <div class="plots">
-    <div class="plot-block">
-      <div class="plot-with-legend">
+  <div class="plots-row">
+    <div class="plot-cell plot-score">
+      <div class="plot-with-legend plot-wrapper">
         <div id="distPlot"></div>
       </div>
       <div id="scoreLegend" class="legend-bar"></div>
     </div>
-    <div class="plot-block">
-      <div id="rocPlot"></div>
+    <div class="plot-cell plot-roc">
+      <div class="plot-with-legend plot-wrapper">
+        <div id="rocPlot"></div>
+      </div>
       <div id="rocLegend" class="legend-bar"></div>
     </div>
   </div>
 
-  <div id="thresholdArea">
-    <div id="thresholdControl">
-      <div id="thresholdLabel">Threshold: <span id="thresholdVal">0.50</span></div>
-      <div class="threshold-input">
-        <label for="thresholdInput" id="thresholdInputLabel">Set exact threshold:</label>
-        <input type="number" id="thresholdInput" step="0.001" value="0.5">
+    <div class="bottom-panels">
+      <div id="thresholdControl" class="bottom-panel">
+        <div id="thresholdLabel">Threshold: <span id="thresholdVal">0.50</span></div>
+        <div class="threshold-input">
+          <label for="thresholdInput" id="thresholdInputLabel">Set exact threshold:</label>
+          <input type="number" id="thresholdInput" step="0.001" value="0.5">
+        </div>
+        <div class="hint" id="thresholdHint"></div>
+        <div id="metrics"></div>
       </div>
-      <div class="hint" id="thresholdHint"></div>
-      <div id="metrics"></div>
-    </div>
-    <div id="prevalenceControl">
-      <label for="prevalenceSlider" id="prevalenceLabel">Prevalence:</label>
-      <input type="range" id="prevalenceSlider" min="0" max="1" step="0.01" value="0.5">
-      <span id="prevalenceVal">0.50</span>
-      <div id="metricsPrev"></div>
-    </div>
-    <div id="empiricalPanel" class="ctrl">
+    <div id="prevalenceControl" class="bottom-panel">
+        <label for="prevalenceSlider" id="prevalenceLabel">Prevalence:</label>
+        <input type="range" id="prevalenceSlider" min="0" max="1" step="0.01" value="0.5">
+        <span id="prevalenceVal">0.50</span>
+        <div id="metricsPrev"></div>
+      </div>
+    <div id="empiricalPanel" class="ctrl bottom-panel">
       <h3>Empirical Dataset</h3>
       <div class="component-row">
         <label for="datasetNameInput">Dataset name:</label>
@@ -224,12 +190,12 @@ body {
         <label><input type="checkbox" id="autoResampleToggle">Auto-resample on parameter change</label>
       </div>
     </div>
-      <div id="rocPanel" class="ctrl">
-        <h3>ROC Curves</h3>
-        <div class="component-row">
-          <label for="rocExportName">Curve name:</label>
-          <input type="text" id="rocExportName" value="exported_curve">
-        </div>
+    <div id="rocPanel" class="ctrl bottom-panel">
+      <h3>ROC Curves</h3>
+      <div class="component-row">
+        <label for="rocExportName">Curve name:</label>
+        <input type="text" id="rocExportName" value="exported_curve">
+      </div>
         <div class="component-row">
           <label for="rocBandMode">Confidence band:</label>
           <select id="rocBandMode">
@@ -246,6 +212,7 @@ body {
   </div>
   <div id="busyOverlay"><div id="busySpinner"></div></div>
 
+</div>
   <script>
     window.addEventListener('DOMContentLoaded',()=>{
       const CONFIG=window.MULTIDISTRIBUTION_CONFIG||{};
