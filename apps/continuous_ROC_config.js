@@ -23,6 +23,14 @@ const STRINGS = {
     thresholdHint: "Drag the vertical line on the score distributions chart or the point on the ROC curve.",
     confusionHeader: ["Sensitivity", "Specificity"],
     prevalenceHeader: ["PPV", "NPV", "Accuracy"],
+    threshold: {
+      tpr: { label: "TPR" },
+      tnr: { label: "TNR" },
+      fpr: { label: "FPR" },
+      fnr: { label: "FNR" },
+      youden: { label: "Youden’s J" },
+      bacc: { label: "Balanced Accuracy" }
+    },
     areaTooltips: {
       tp: "True Positives: positives scoring ≥ threshold",
       fn: "False Negatives: positives scoring < threshold",

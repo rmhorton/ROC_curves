@@ -156,13 +156,12 @@
           <span class="panel-title" id="thresholdPanelTitle"></span>
           <span class="info-icon" id="thresholdPanelInfo" title="ⓘ">ⓘ</span>
         </div>
-        <div id="thresholdLabel">Threshold: <span id="thresholdVal">0.50</span></div>
         <div class="threshold-input">
           <label for="thresholdInput" id="thresholdInputLabel">Set exact threshold:</label>
           <input type="number" id="thresholdInput" step="0.001" value="0.5">
         </div>
         <div class="hint" id="thresholdHint"></div>
-        <div id="metrics"></div>
+        <table id="threshold-metrics-table"></table>
       </div>
     <div id="prevalenceControl" class="bottom-panel">
         <div class="panel-header">
@@ -477,7 +476,6 @@ const COLOR_HELPERS={
 
       const prevalenceSlider=document.getElementById('prevalenceSlider');
       const thresholdInput=document.getElementById('thresholdInput');
-      const thresholdValEl=document.getElementById('thresholdVal');
       const prevalenceValEl=document.getElementById('prevalenceVal');
 
       document.title=STRINGS.pageTitle;
@@ -485,7 +483,6 @@ const COLOR_HELPERS={
       document.getElementById('pageIntro').textContent=STRINGS.introText;
       document.getElementById('negTitle').textContent=STRINGS.controls.negativesTitle;
       document.getElementById('posTitle').textContent=STRINGS.controls.positivesTitle;
-      document.getElementById('thresholdLabel').firstChild.textContent=STRINGS.controls.thresholdDisplay+' ';
       document.getElementById('thresholdInputLabel').textContent=STRINGS.controls.thresholdInputLabel;
       document.getElementById('thresholdHint').textContent=STRINGS.metrics.thresholdHint;
       document.getElementById('prevalenceLabel').textContent=STRINGS.controls.prevalenceLabel;
@@ -501,6 +498,52 @@ const COLOR_HELPERS={
       setPanelCopy('prevalencePanelTitle','prevalencePanelInfo','prevalence');
       setPanelCopy('empiricalPanelTitle','empiricalPanelInfo','empiricalSamples');
       setPanelCopy('rocPanelTitle','rocPanelInfo','rocCurves');
+
+      function computeThresholdMetrics(confusion){
+        const TP=Math.max(0,Number(confusion?.TP)||0);
+        const FP=Math.max(0,Number(confusion?.FP)||0);
+        const TN=Math.max(0,Number(confusion?.TN)||0);
+        const FN=Math.max(0,Number(confusion?.FN)||0);
+        const safeDiv=(num,den)=>den>0?num/den:0;
+        const tpr=safeDiv(TP,TP+FN);
+        const tnr=safeDiv(TN,TN+FP);
+        const fpr=safeDiv(FP,FP+TN);
+        const fnr=safeDiv(FN,FN+TP);
+        const youden=tpr+tnr-1;
+        const bacc=(tpr+tnr)/2;
+        return {tpr,tnr,fpr,fnr,youden,bacc};
+      }
+
+      function renderThresholdMetrics(thrPoint){
+        const table=document.getElementById('threshold-metrics-table');
+        if(!table){return;}
+        if(!thrPoint || !Number.isFinite(thrPoint.tpr) || !Number.isFinite(thrPoint.fpr)){
+          table.innerHTML='';
+          return;
+        }
+        const prevalence=clamp(Number(state.prevalence)||0,0,1);
+        const tprVal=clamp(thrPoint.tpr,0,1);
+        const fprVal=clamp(thrPoint.fpr,0,1);
+        const TP=tprVal*prevalence;
+        const FN=Math.max(prevalence-TP,0);
+        const FP=fprVal*(1-prevalence);
+        const TN=Math.max((1-prevalence)-FP,0);
+        const metrics=computeThresholdMetrics({TP,FP,TN,FN});
+        const labels=STRINGS.metrics?.threshold||{};
+        const rows=[
+          {key:'tpr',value:metrics.tpr},
+          {key:'tnr',value:metrics.tnr},
+          {key:'fpr',value:metrics.fpr},
+          {key:'fnr',value:metrics.fnr},
+          {key:'youden',value:metrics.youden},
+          {key:'bacc',value:metrics.bacc}
+        ];
+        table.innerHTML=rows.map(row=>{
+          const label=labels[row.key]?.label||row.key.toUpperCase();
+          const val=Number.isFinite(row.value)?row.value:0;
+          return `<tr><th>${label}</th><td>${val.toFixed(3)}</td></tr>`;
+        }).join('');
+      }
 
       function cloneComponent(src={}){
         const fallback=DISTRIBUTION_KEYS.find(key=>DISTRIBUTIONS_INTERNAL[key])||Object.keys(DISTRIBUTIONS_INTERNAL)[0];
@@ -583,7 +626,6 @@ const COLOR_HELPERS={
         }
       };
 
-      thresholdValEl.textContent=STRINGS.controls.thresholdValue(Number(state.threshold)||0);
       thresholdInput.value=(Number(state.threshold)||0).toFixed(3);
       prevalenceSlider.value=state.prevalence;
       prevalenceValEl.textContent=STRINGS.controls.prevalenceValue(Number(state.prevalence)||0);
@@ -1602,7 +1644,6 @@ const COLOR_HELPERS={
         state.threshold=clamp((minX+maxX)/2,minX,maxX);
       }
         const threshold=state.threshold;
-        thresholdValEl.textContent=STRINGS.controls.thresholdValue(threshold);
         thresholdInput.value=threshold.toFixed(3);
         state.theoretical.threshold=state.threshold;
         state.theoretical.prevalence=state.prevalence;
@@ -1913,8 +1954,7 @@ const COLOR_HELPERS={
 
         const sensitivity=thrPoint.tpr;
         const specificity=1-thrPoint.fpr;
-        const [sensLabel,specLabel]=STRINGS.metrics.confusionHeader;
-        document.getElementById('metrics').innerHTML=`<table><tr><th>${sensLabel}</th><th>${specLabel}</th></tr><tr><td>${sensitivity.toFixed(3)}</td><td>${specificity.toFixed(3)}</td></tr></table>`;
+        renderThresholdMetrics(thrPoint);
 
         const prevalence=state.prevalence;
         const ppvDen=(sensitivity*prevalence)+((1-specificity)*(1-prevalence));
