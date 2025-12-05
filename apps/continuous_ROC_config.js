@@ -67,6 +67,16 @@ const STRINGS = {
       info: "Manage ROC export/import and confidence band options."
     }
   },
+  tooltips: {
+    thresholdLine: "Drag to adjust the decision threshold.",
+    rocPoint: "Drag along the ROC curve to pick a threshold.",
+    newSampleButton: "Generate a new set of sampled ROC curves.",
+    sampleSizeInput: "Number of observations to sample for each run.",
+    numSamplesInput: "Number of sampled ROC curves to generate.",
+    datasetImport: "Import a CSV with score and label columns.",
+    datasetExport: "Export the current simulated dataset to CSV.",
+    datasetName: "Name to use when exporting or tracking the dataset."
+  },
   multi: {
     addComponent: "Add component",
     removeComponent: "Remove",

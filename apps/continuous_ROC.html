@@ -520,7 +520,8 @@ const COLOR_HELPERS={
       document.getElementById('negTitle').textContent=STRINGS.controls.negativesTitle;
       document.getElementById('posTitle').textContent=STRINGS.controls.positivesTitle;
       document.getElementById('thresholdInputLabel').textContent=STRINGS.controls.thresholdInputLabel;
-      document.getElementById('thresholdHint').textContent=STRINGS.metrics.thresholdHint;
+      const thresholdHintEl=document.getElementById('thresholdHint');
+      if(thresholdHintEl){thresholdHintEl.textContent='';}
       document.getElementById('prevalenceLabel').textContent=STRINGS.controls.prevalenceLabel;
       const panelStrings=STRINGS.panels||{};
       const setPanelCopy=(titleId,infoId,key)=>{
@@ -726,6 +727,9 @@ const COLOR_HELPERS={
       const numSamplesInput=document.getElementById('numSamplesInput');
       const sampleSizeInput=document.getElementById('sampleSizeInput');
       const rocBandModeSelect=document.getElementById('rocBandMode');
+      if(resampleButton){resampleButton.title=STRINGS.tooltips?.newSampleButton||'';}
+      if(sampleSizeInput){sampleSizeInput.title=STRINGS.tooltips?.sampleSizeInput||'';}
+      if(numSamplesInput){numSamplesInput.title=STRINGS.tooltips?.numSamplesInput||'';}
       // map legacy properties to theoretical container
       const initialThreshold=state.theoretical.threshold;
       const initialPrevalence=state.theoretical.prevalence;
@@ -840,6 +844,7 @@ const COLOR_HELPERS={
       }
 
       const dataImportInput=document.getElementById('dataImportInput');
+      if(dataImportInput){dataImportInput.title=STRINGS.tooltips?.datasetImport||'';}
       dataImportInput.addEventListener('change',event=>{
         const file=event.target.files?.[0];
         if(file){handleDataFile(file);}
@@ -947,6 +952,8 @@ const COLOR_HELPERS={
       const distNegRect=distContent.append('rect').attr('class','pdf-line-negative').attr('fill',COLOR_HELPERS.negPdfFill).attr('stroke',COLOR_HELPERS.negPdf).style('display','none');
       const thresholdLine=distContent.append('line').attr('class','threshold-line');
       const thresholdHandle=distContent.append('circle').attr('class','threshold-handle').attr('r',6);
+      thresholdLine.append('title').text(STRINGS.tooltips?.thresholdLine||'');
+      thresholdHandle.append('title').text(STRINGS.tooltips?.thresholdLine||'');
 
       const distAreaGenerator=d3.area().curve(d3.curveMonotoneX)
         .x(d=>distXScale(d.x))
@@ -1047,6 +1054,7 @@ const COLOR_HELPERS={
       rocContent.append('path').attr('class','roc-random')
         .attr('d',`M${rocXScale(0)},${rocYScale(0)} L${rocXScale(1)},${rocYScale(1)}`);
       const rocPoint=rocContent.append('circle').attr('class','roc-point').attr('r',6);
+      rocPoint.append('title').text(STRINGS.tooltips?.rocPoint||'');
 
       const rocLineGenerator=d3.line().curve(d3.curveMonotoneX)
         .x(d=>rocXScale(d.fpr))
@@ -2167,6 +2175,7 @@ const COLOR_HELPERS={
 
       const datasetNameInput=document.getElementById('datasetNameInput');
       if(datasetNameInput){
+        datasetNameInput.title=STRINGS.tooltips?.datasetName||'';
         datasetNameInput.addEventListener('input',event=>{
           currentEmpiricalDataset.name=event.target.value.trim();
           refreshDataImportStatus();
@@ -2179,6 +2188,8 @@ const COLOR_HELPERS={
       refreshDataImportStatus();
 
       document.getElementById('dataExportButton').addEventListener('click', exportDataset);
+      const dataExportButton=document.getElementById('dataExportButton');
+      if(dataExportButton){dataExportButton.title=STRINGS.tooltips?.datasetExport||'';}
       const rocExportJsonButton=document.getElementById('rocExportJsonButton');
       const rocExportCsvButton=document.getElementById('rocExportCsvButton');
       const rocImportButton=document.getElementById('rocImportJsonButton');
