@@ -829,6 +829,56 @@
     return {fpr:fprGrid.slice(), lower, upper};
   };
 
+  // Canonical ROC helpers
+  function toCanonicalCurve(curveObj, key){
+    const curve = ROCUtils.toCanonicalRocObject(curveObj, {idHint: key});
+    curve.id = curve.id || key || curve.name || 'curve';
+    curve.name = curve.name || key || curve.id;
+    if(!curve.role && curveObj.role){
+      curve.role = curveObj.role;
+    }
+    if(!curve.auc){
+      curve.auc = ROCUtils.computeAuc(curve.fpr.map((fpr,i)=>({fpr,tpr:curve.tpr[i]})));
+    }
+    if(Array.isArray(curve.bands)){
+      const length = curve.fpr.length;
+      curve.bands = curve.bands.map((band, idx)=>normalizeBand(band, idx, length, curve.name)).filter(Boolean);
+    }
+    return curve;
+  }
+
+  ROCUtils.exportCurvesToJson = function(curvesArray){
+    if(!Array.isArray(curvesArray)){
+      throw new Error('exportCurvesToJson expects an array of canonical curves.');
+    }
+    const map = {};
+    curvesArray.forEach(curve=>{
+      if(!curve || typeof curve !== 'object') return;
+      const canonical = toCanonicalCurve(curve, curve.name);
+      map[canonical.name] = canonical;
+    });
+    return map;
+  };
+
+  ROCUtils.importCurvesFromJson = function(jsonOrObject){
+    let parsed = jsonOrObject;
+    if(typeof jsonOrObject === 'string'){
+      parsed = JSON.parse(jsonOrObject);
+    }
+    if(!parsed || typeof parsed !== 'object'){
+      throw new Error('Invalid ROC JSON input.');
+    }
+    const curves = [];
+    Object.keys(parsed).forEach(key=>{
+      const curveObj = parsed[key];
+      if(curveObj && typeof curveObj === 'object'){
+        const canonical = toCanonicalCurve({...curveObj, name:curveObj.name || key}, key);
+        curves.push(canonical);
+      }
+    });
+    return curves;
+  };
+
   ROCUtils.ensureMonotoneRoc = function(points){
     if(!Array.isArray(points)){
       return [];

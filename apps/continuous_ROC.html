@@ -2300,8 +2300,6 @@ const COLOR_HELPERS={
         }
         const fpr=[];
         const tpr=[];
-        const thresholdValues=[];
-        let thresholdsAreFinite=true;
         selection.points.forEach(point=>{
           const fVal=Number(point.fpr);
           const tVal=Number(point.tpr);
@@ -2310,24 +2308,11 @@ const COLOR_HELPERS={
           }
           fpr.push(fVal);
           tpr.push(tVal);
-          if(thresholdsAreFinite){
-            const thrValue=Number(point.thr);
-            if(!Number.isFinite(thrValue)){
-              thresholdsAreFinite=false;
-            }else{
-              thresholdValues.push(thrValue);
-            }
-          }
         });
         if(!fpr.length){
           throw new Error('ROC curve is empty.');
         }
-        const baseCurve={name:curveName,type:'ROC',fpr,tpr};
-        if(thresholdsAreFinite && thresholdValues.length===fpr.length){
-          baseCurve.threshold=thresholdValues;
-        }
-        const canonicalCurve=ROCUtils.toCanonicalRocObject(baseCurve,{idHint:curveName});
-        canonicalCurve.name=curveName;
+        const theoreticalName=`${curveName} (theoretical)`;
         const empiricalSamples=getProcessedEmpiricalSamples();
         const hasEmpiricalSamples=empiricalSamples.positives.length>0||empiricalSamples.negatives.length>0;
         const empiricalPointList=hasEmpiricalSamples?getProcessedEmpiricalPoints():[];
@@ -2338,33 +2323,39 @@ const COLOR_HELPERS={
           state.domain?.[1],
           empiricalPointList
         );
-        canonicalCurve.metadata=canonicalCurve.metadata||{};
-        canonicalCurve.metadata.continuous_roc_explorer=metadata;
-        const canonicalMap={};
-        const theoreticalName=`${curveName} (theoretical)`;
-        canonicalCurve.name=theoreticalName;
-        canonicalMap[theoreticalName]=canonicalCurve;
+        const theoreticalCurve={
+          id:theoreticalName,
+          name:theoreticalName,
+          role:'theoretical',
+          type:'ROC',
+          fpr,
+          tpr,
+          auc:ROCUtils.computeAuc(selection.points),
+          metadata:{continuous_roc_explorer:metadata}
+        };
+        const curves=[theoreticalCurve];
         if(state.estimatedCurve && Array.isArray(state.estimatedCurve.fpr) && Array.isArray(state.estimatedCurve.tpr) && state.estimatedCurve.fpr.length===state.estimatedCurve.tpr.length && state.estimatedCurve.fpr.length){
           const estimatedName=`${curveName} (estimated)`;
           const estCurve={
-            type:'ROC',
+            id:estimatedName,
             name:estimatedName,
+            role:'estimated',
+            type:'ROC',
             fpr:state.estimatedCurve.fpr,
-            tpr:state.estimatedCurve.tpr
-          };
-          if(state.estimatedCurve.bands && state.estimatedCurve.bands.length){
-            estCurve.bands=state.estimatedCurve.bands;
-          }
-          estCurve.metadata={
-            continuous_roc_explorer:{
-              samplesROC:metadata.samplesROC,
-              samplingSettings:metadata.samplingSettings,
-              distributions:metadata.distributions
+            tpr:state.estimatedCurve.tpr,
+            auc:ROCUtils.computeAuc(state.estimatedCurve.fpr.map((fprVal,idx)=>({fpr:fprVal,tpr:state.estimatedCurve.tpr[idx]}))),
+            bands:state.estimatedCurve.bands||[],
+            metadata:{
+              continuous_roc_explorer:{
+                samplesROC:metadata.samplesROC,
+                samplingSettings:metadata.samplingSettings,
+                distributions:metadata.distributions
+              }
             }
           };
-          canonicalMap[estimatedName]=estCurve;
+          curves.push(estCurve);
         }
-        return {canonicalMap,source:selection.source};
+        return {curves,source:selection.source};
       }
 
       function downloadBlob(blob,filename){
@@ -2380,7 +2371,8 @@ const COLOR_HELPERS={
         const statusEl=document.getElementById('exportStatus');
         const curveName=getExportCurveName();
         try{
-          const {canonicalMap}=buildCanonicalExportCurve(curveName);
+          const {curves}=buildCanonicalExportCurve(curveName);
+          const canonicalMap=ROCUtils.exportCurvesToJson(curves);
           const blob=ROCUtils.toRocJsonBlob(canonicalMap,`${curveName}.json`);
           downloadBlob(blob,`${curveName}.json`);
           if(statusEl){
@@ -2415,51 +2407,38 @@ const COLOR_HELPERS={
       }
 
       function handleImportedRocData(curveMap){
-        if(!curveMap||typeof curveMap!=='object'){alert('Imported ROC JSON did not contain any curves.');return;}
-        const curveIds=Object.keys(curveMap);
-        if(!curveIds.length){alert('Imported ROC JSON did not contain any curves.');return;}
-        let applied=false;
-        let estimatedApplied=false;
-        for(const id of curveIds){
-          const curve=curveMap[id];
-          if(!curve||typeof curve!=='object'){continue;}
-          if(typeof curve.name==='string' && curve.name.endsWith(' (theoretical)')){
-            const baseName=curve.name.replace(/ \\(theoretical\\)$/,'');
-            const ok=applyImportedContinuousMetadata(curve);
-            applied=applied||ok;
-            continue;
-          }
-          if(typeof curve.name==='string' && curve.name.endsWith(' (estimated)')){
-            state.estimatedCurve={
-              fpr:Array.isArray(curve.fpr)?curve.fpr:[],
-              tpr:Array.isArray(curve.tpr)?curve.tpr:[],
-              bands:Array.isArray(curve.bands)?curve.bands:null
-            };
-            if(state.estimatedCurve.bands && state.estimatedCurve.bands.length){
-              const band=state.estimatedCurve.bands[0];
-              if(band.method==='bootstrap'){state.confBand=band;state.rocBandMode='bootstrap';}
-              if(band.method==='delong'){state.delongBand=band;state.rocBandMode='delong';}
+        try{
+          const curves=ROCUtils.importCurvesFromJson(curveMap);
+          let applied=false;
+          let estimatedApplied=false;
+          curves.forEach(curve=>{
+            const name=curve.name||'';
+            if(name.endsWith('(theoretical)') && curve.metadata?.continuous_roc_explorer){
+              const ok=applyImportedContinuousMetadata({metadata:{continuous_roc_explorer:curve.metadata.continuous_roc_explorer}});
+              applied=applied||ok;
+            } else if(name.endsWith('(estimated)')){
+              state.estimatedCurve={
+                fpr:curve.fpr||[],
+                tpr:curve.tpr||[],
+                bands:curve.bands||[]
+              };
+              if(curve.bands && curve.bands.length){
+                const band=curve.bands[0];
+                if(band.method==='bootstrap'){state.confBand=band;state.rocBandMode='bootstrap';}
+                if(band.method==='delong'){state.delongBand=band;state.rocBandMode='delong';}
+              }
+              visibilityState.roc.estimated=true;
+              estimatedApplied=true;
             }
-            visibilityState.roc.estimated=true;
-            estimatedApplied=true;
-            continue;
-          }
-          if(!applied && ROCUtils.extractContinuousRocMetadata(curve)){
-            const ok=applyImportedContinuousMetadata(curve);
-            applied=applied||ok;
-          }
-        }
-        refreshRocLegend();
-        renderLegendSelection();
-        if(!applied && !estimatedApplied){
+          });
+          refreshRocLegend();
+          renderLegendSelection();
           update();
-        } else {
-          update();
+          alert(`Imported ${curves.length} ROC curve${curves.length===1?'':'s'}.`);
+        }catch(err){
+          console.error(err);
+          alert('Failed to import ROC JSON.');
         }
-        if(!applied){
-          // already updated
-        }
-        alert(`Imported ${curveIds.length} ROC curve${curveIds.length>1?'s':''}.`);
       }
 
       renderComponents('neg');
