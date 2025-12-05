@@ -250,6 +250,7 @@
           negPDF:true,
           posHist:DEFAULT_OPTIONS.showEmpiricalHistogram??true,
           negHist:DEFAULT_OPTIONS.showEmpiricalHistogram??true,
+          empiricalHist:true,
           empiricalPoints:DEFAULT_OPTIONS.showEmpiricalPoints??false
         },
         roc:{
@@ -406,13 +407,19 @@ const COLOR_HELPERS={
 
       const scoreLegendContainer=document.getElementById('scoreLegend');
       const rocLegendContainer=document.getElementById('rocLegend');
-      const scoreLegendItems=[
-        {key:'posPDF',label:'Positive PDF',color:COLOR_HELPERS.posPdfFill},
-        {key:'negPDF',label:'Negative PDF',color:COLOR_HELPERS.negPdfFill},
-        {key:'posHist',label:'Positive histogram',color:COLOR_HELPERS.posHist},
-        {key:'negHist',label:'Negative histogram',color:COLOR_HELPERS.negHist},
-        {key:'empiricalPoints',label:'Empirical points',color:COLOR_HELPERS.empirical}
-      ];
+      const getScoreLegendItems=()=>{
+        const items=[
+          {key:'posPDF',label:'Positive PDF',color:COLOR_HELPERS.posPdfFill},
+          {key:'negPDF',label:'Negative PDF',color:COLOR_HELPERS.negPdfFill},
+          {key:'posHist',label:'Positive histogram',color:COLOR_HELPERS.posHist},
+          {key:'negHist',label:'Negative histogram',color:COLOR_HELPERS.negHist}
+        ];
+        if(hasEmpiricalData()){
+          items.push({key:'empiricalHist',label:'Empirical histogram',color:COLOR_HELPERS.empirical});
+          items.push({key:'empiricalPoints',label:'Empirical points',color:COLOR_HELPERS.empirical});
+        }
+        return items;
+      };
       const baseRocLegendItems=[
         {key:'theoretical',label:'Theoretical ROC',color:COLOR_HELPERS.roc},
         {key:'estimated',label:'Estimated ROC',color:COLOR_HELPERS.estimated},
@@ -898,10 +905,17 @@ const COLOR_HELPERS={
         .attr('text-anchor','middle')
         .text(STRINGS.plots.scoreXAxis);
 
-      buildLegend(scoreLegendContainer,scoreLegendItems,'score');
-      function refreshRocLegend(){
-        buildLegend(rocLegendContainer,[...baseRocLegendItems],'roc');
+      function refreshScoreLegend(){
+        buildLegend(scoreLegendContainer,getScoreLegendItems(),'score');
       }
+      function refreshRocLegend(){
+        const items=[...baseRocLegendItems];
+        if(hasEmpiricalData()){
+          items.splice(1,0,{key:'empirical',label:'Empirical ROC',color:COLOR_HELPERS.empirical});
+        }
+        buildLegend(rocLegendContainer,items,'roc');
+      }
+      refreshScoreLegend();
       refreshRocLegend();
       renderLegendSelection();
       distContent.append('text')
@@ -926,6 +940,8 @@ const COLOR_HELPERS={
 
       const distPosLinePath=distContent.append('path').attr('class','pdf-line-positive').attr('fill',COLOR_HELPERS.posPdfFill).attr('stroke',COLOR_HELPERS.posPdf);
       const distNegLinePath=distContent.append('path').attr('class','pdf-line-negative').attr('fill',COLOR_HELPERS.negPdfFill).attr('stroke',COLOR_HELPERS.negPdf);
+      const distPosRect=distContent.append('rect').attr('class','pdf-line-positive').attr('fill',COLOR_HELPERS.posPdfFill).attr('stroke',COLOR_HELPERS.posPdf).style('display','none');
+      const distNegRect=distContent.append('rect').attr('class','pdf-line-negative').attr('fill',COLOR_HELPERS.negPdfFill).attr('stroke',COLOR_HELPERS.negPdf).style('display','none');
       const thresholdLine=distContent.append('line').attr('class','threshold-line');
       const thresholdHandle=distContent.append('circle').attr('class','threshold-handle').attr('r',6);
 
@@ -1302,8 +1318,16 @@ const COLOR_HELPERS={
         state.imported.rows=points||[];
         state.imported.positives=positives||[];
         state.imported.negatives=negatives||[];
+        const hist=computeSampleHistogramsFromSample(positives||[],negatives||[]);
+        state.imported.histograms=hist;
+        const rocCurve=ROCUtils.computeEmpiricalRocCurve(points||[],{name:`${state.imported.datasetName||'Empirical'} ROC`,id:'empirical'});
+        state.imported.rocCurve=rocCurve;
+        state.plots.histogramMode='empirical';
         refreshDatasetExportState();
         refreshDataImportStatus();
+        refreshScoreLegend();
+        refreshRocLegend();
+        renderLegendSelection();
         update();
       }
 
@@ -1759,34 +1783,32 @@ const COLOR_HELPERS={
         let histPosData=[];
         let histNegData=[];
         let histMaxDensity=0;
-        const histActive=(hasEmpiricalSamples||hasSampleHist) && (visibilityState.score.posHist||visibilityState.score.negHist);
-        if(histActive){
-          if(hasSampleHist){
-            const toDensity=(bins)=>{
-              return bins.map(bin=>{
-                const width=(bin.x1??bin.x0)-(bin.x0??bin.x1);
-                const density=width>0?(bin.density ?? 0):0;
-                histMaxDensity=Math.max(histMaxDensity,density);
-                return {...bin,density};
-              });
-            };
-            histPosData=toDensity(state.samplesHist.positives||[]);
-            histNegData=toDensity(state.samplesHist.negatives||[]);
-          } else {
-            const totalPos=empiricalSamples.positives.length;
-            const totalNeg=empiricalSamples.negatives.length;
-            const total=Math.max(totalPos+totalNeg,1);
-            const binCount=Math.min(40,Math.max(10,Math.round(Math.sqrt(total))));
-            const binGenerator=(d3.histogram?d3.histogram():d3.bin()).domain([minX,maxX]).thresholds(binCount);
-            const toDensity=(bins,totalCount)=>bins.map(bin=>{
-              const width=(bin.x1??bin.x0)-(bin.x0??bin.x1);
-              const density=(totalCount>0 && width>0)?bin.length/(totalCount*width):0;
+        const histMode=state.plots.histogramMode||'sample';
+        const empiricalHistData=state.imported.histograms;
+        let histActive=false;
+        if(histMode==='empirical' && hasEmpiricalData() && empiricalHistData && visibilityState.score.empiricalHist!==false){
+          const toDensity=bins=>{
+            return (bins||[]).map(bin=>{
+              const density=Number(bin.density)||0;
               histMaxDensity=Math.max(histMaxDensity,density);
-              return {x0:bin.x0,x1:bin.x1,density};
+              return {...bin,density};
             });
-            histPosData=totalPos?toDensity(binGenerator(empiricalSamples.positives),totalPos):[];
-            histNegData=totalNeg?toDensity(binGenerator(empiricalSamples.negatives),totalNeg):[];
-          }
+          };
+          histPosData=toDensity(empiricalHistData.positives);
+          histNegData=toDensity(empiricalHistData.negatives);
+          histActive=true;
+        } else if(histMode==='sample' && hasSampleHist && (visibilityState.score.posHist||visibilityState.score.negHist)){
+          const toDensity=(bins)=>{
+            return bins.map(bin=>{
+              const width=(bin.x1??bin.x0)-(bin.x0??bin.x1);
+              const density=width>0?(bin.density ?? 0):0;
+              histMaxDensity=Math.max(histMaxDensity,density);
+              return {...bin,density};
+            });
+          };
+          histPosData=toDensity(state.samplesHist.positives||[]);
+          histNegData=toDensity(state.samplesHist.negatives||[]);
+          histActive=true;
         }
 
         const yMax=Math.max(theoreticalMax,histMaxDensity);
@@ -1796,23 +1818,57 @@ const COLOR_HELPERS={
         distXAxisGroup.call(d3.axisBottom(distXScale));
         distYAxisGroup.call(d3.axisLeft(distYScale));
 
-        if(visibilityState.score.posPDF){
-          distPosLinePath
-            .style('display',null)
-            .attr('fill',COLOR_HELPERS.posPdfFill)
-            .attr('stroke',COLOR_HELPERS.posPdf)
-            .datum(dataPoints).attr('d',distPosLineGenerator);
-        } else {
-          distPosLinePath.style('display','none').attr('d',null);
+        const renderUniformRect=(rectEl,lineEl,distKey)=>{
+          const comps=state[distKey+'Components']||[];
+          const first=comps[0];
+          const isUniform=first && first.distribution==='uniform';
+          if(!isUniform){return false;}
+          const params=first.parameters||{};
+          const min=Math.min(Number(params.min)||0,Number(params.max)||0);
+          const max=Math.max(Number(params.min)||0,Number(params.max)||0);
+          const width=max-min;
+          if(width<=0){rectEl.style('display','none');lineEl.style('display','none');return true;}
+          const height=1/width;
+          rectEl
+            .style('display',visibilityState.score[distKey==='pos'?'posPDF':'negPDF']?null:'none')
+            .attr('x',distXScale(min))
+            .attr('width',distXScale(max)-distXScale(min))
+            .attr('y',distYScale(height))
+            .attr('height',distYScale(0)-distYScale(height))
+            .attr('fill',distKey==='pos'?COLOR_HELPERS.posPdfFill:COLOR_HELPERS.negPdfFill)
+            .attr('stroke',distKey==='pos'?COLOR_HELPERS.posPdf:COLOR_HELPERS.negPdf);
+          lineEl.style('display','none').attr('d',null);
+          return true;
+        };
+
+        const usedPosRect=renderUniformRect(distPosRect,distPosLinePath,'pos');
+        const usedNegRect=renderUniformRect(distNegRect,distNegLinePath,'neg');
+
+        if(!usedPosRect){
+          if(visibilityState.score.posPDF){
+            distPosLinePath
+              .style('display',null)
+              .attr('fill',COLOR_HELPERS.posPdfFill)
+              .attr('stroke',COLOR_HELPERS.posPdf)
+              .datum(dataPoints).attr('d',distPosLineGenerator);
+            distPosRect.style('display','none');
+          } else {
+            distPosLinePath.style('display','none').attr('d',null);
+            distPosRect.style('display','none');
+          }
         }
-        if(visibilityState.score.negPDF){
-          distNegLinePath
-            .style('display',null)
-            .attr('fill',COLOR_HELPERS.negPdfFill)
-            .attr('stroke',COLOR_HELPERS.negPdf)
-            .datum(dataPoints).attr('d',distNegLineGenerator);
-        } else {
-          distNegLinePath.style('display','none').attr('d',null);
+        if(!usedNegRect){
+          if(visibilityState.score.negPDF){
+            distNegLinePath
+              .style('display',null)
+              .attr('fill',COLOR_HELPERS.negPdfFill)
+              .attr('stroke',COLOR_HELPERS.negPdf)
+              .datum(dataPoints).attr('d',distNegLineGenerator);
+            distNegRect.style('display','none');
+          } else {
+            distNegLinePath.style('display','none').attr('d',null);
+            distNegRect.style('display','none');
+          }
         }
 
         const renderHist=(group,data,className)=>{
@@ -1832,14 +1888,16 @@ const COLOR_HELPERS={
         };
 
         if(histActive){
-          if(visibilityState.score.posHist){
+          const showPos = histMode==='empirical' ? visibilityState.score.empiricalHist!==false : visibilityState.score.posHist;
+          const showNeg = histMode==='empirical' ? visibilityState.score.empiricalHist!==false : visibilityState.score.negHist;
+          if(showPos){
             histPosGroup.style('display',null);
             renderHist(histPosGroup,histPosData,'hist-pos-bar');
           } else {
             histPosGroup.selectAll('rect').remove();
             histPosGroup.style('display','none');
           }
-          if(visibilityState.score.negHist){
+          if(showNeg){
             histNegGroup.style('display',null);
             renderHist(histNegGroup,histNegData,'hist-neg-bar');
           } else {
@@ -2029,10 +2087,11 @@ const COLOR_HELPERS={
         rocXAxisGroup.call(d3.axisBottom(rocXScale).ticks(6));
         rocYAxisGroup.call(d3.axisLeft(rocYScale).ticks(6));
 
-        if(visibilityState.roc.empirical && hasEmpiricalSamples){
-          const empiricalRoc=ROCUtils.computeEmpiricalRoc(empiricalPointList);
-          if(empiricalRoc.length>=2){
-            empiricalRocPath.datum(empiricalRoc).attr('d',rocLineGenerator).style('opacity',1).raise();
+        const empiricalCurve=state.imported.rocCurve;
+        if(visibilityState.roc.empirical && empiricalCurve && Array.isArray(empiricalCurve.fpr) && Array.isArray(empiricalCurve.tpr) && empiricalCurve.fpr.length===empiricalCurve.tpr.length && empiricalCurve.fpr.length>=2){
+          const empiricalPoints=empiricalCurve.fpr.map((fprVal,idx)=>({fpr:fprVal,tpr:empiricalCurve.tpr[idx]})).filter(pt=>Number.isFinite(pt.fpr)&&Number.isFinite(pt.tpr));
+          if(empiricalPoints.length>=2){
+            empiricalRocPath.datum(empiricalPoints).attr('d',rocLineGenerator).style('opacity',1).raise();
           } else {
             empiricalRocPath.attr('d',null).style('opacity',0);
           }

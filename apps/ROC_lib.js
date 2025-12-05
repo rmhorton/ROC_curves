@@ -756,6 +756,29 @@
     return roc.sort((a,b)=>a.fpr - b.fpr || a.tpr - b.tpr);
   };
 
+  ROCUtils.computeEmpiricalRocCurve = function(points, options = {}){
+    const rocPoints = ROCUtils.computeEmpiricalRoc(points);
+    if(!rocPoints.length){
+      return null;
+    }
+    const fpr = rocPoints.map(p=>p.fpr);
+    const tpr = rocPoints.map(p=>p.tpr);
+    const thr = rocPoints.map(p=>p.thr);
+    const auc = ROCUtils.computeAuc(rocPoints);
+    const name = options.name || 'Empirical ROC';
+    const id = options.id || 'empirical';
+    return {
+      id,
+      name,
+      role:'empirical',
+      type:'ROC',
+      fpr,
+      tpr,
+      thr,
+      auc
+    };
+  };
+
   ROCUtils.computeDelongTPRBand = function(positiveScores, negativeScores, fprGrid, z = 1.96){
     const pos = Array.isArray(positiveScores) ? positiveScores.map(Number).filter(Number.isFinite) : [];
     const neg = Array.isArray(negativeScores) ? negativeScores.map(Number).filter(Number.isFinite) : [];
