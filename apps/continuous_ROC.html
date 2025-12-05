@@ -530,16 +530,21 @@ const COLOR_HELPERS={
         return [cloneComponent(opts||{distribution:DISTRIBUTION_ORDER[0]})];
       }
 
-        const state={
-        threshold:DEFAULT_OPTIONS.threshold??0.5,
-        prevalence:DEFAULT_OPTIONS.prevalence??0.5,
-        thresholdInitialized:false,
+      // NOTE: v1.16 state refactor:
+      // `state` will gradually replace scattered globals for theoretical, samples,
+      // imported data, and plot visibility. For now this object mirrors existing fields.
+      const state={
+        theoretical:{
+          threshold:DEFAULT_OPTIONS.threshold??0.5,
+          prevalence:DEFAULT_OPTIONS.prevalence??0.5,
+          thresholdInitialized:false,
+          posComponents:cloneSet(DEFAULT_OPTIONS.positives),
+          negComponents:cloneSet(DEFAULT_OPTIONS.negatives)
+        },
         domain:[0,1],
         rocPairs:[],
         rocPairsSorted:[],
         dataPoints:[],
-        posComponents:cloneSet(DEFAULT_OPTIONS.positives),
-        negComponents:cloneSet(DEFAULT_OPTIONS.negatives),
         dataImported:DEFAULT_OPTIONS.dataImported||false,
         importedDataFilename:DEFAULT_OPTIONS.importedDataFilename||null,
         importedSampleCount:DEFAULT_OPTIONS.importedSampleCount||0,
@@ -558,19 +563,49 @@ const COLOR_HELPERS={
         estimatedCurve:null,
         numSamples:20,
         rocBandMode:'none',
-        busy:false
+        busy:false,
+        samples:{curves:[],estimatedCurve:null}, // mirror of sampling outputs
+        imported:{datasetName:'',rows:[],histograms:null,rocCurve:null}, // mirror of imported data
+        plots:{showSampleRocCurves:true,showEmpiricalRocCurve:true,showEstimatedCurve:true,showConfidenceBands:true,histogramMode:'sample'} // mirror of visibility
       };
 
-      thresholdValEl.textContent=STRINGS.controls.thresholdValue(state.threshold);
-      thresholdInput.value=state.threshold.toFixed(3);
+      thresholdValEl.textContent=STRINGS.controls.thresholdValue(Number(state.threshold)||0);
+      thresholdInput.value=(Number(state.threshold)||0).toFixed(3);
       prevalenceSlider.value=state.prevalence;
-      prevalenceValEl.textContent=STRINGS.controls.prevalenceValue(state.prevalence);
+      prevalenceValEl.textContent=STRINGS.controls.prevalenceValue(Number(state.prevalence)||0);
 
       const autoResampleToggle=document.getElementById('autoResampleToggle');
       const resampleButton=document.getElementById('resampleButton');
       const numSamplesInput=document.getElementById('numSamplesInput');
       const sampleSizeInput=document.getElementById('sampleSizeInput');
       const rocBandModeSelect=document.getElementById('rocBandMode');
+      // map legacy properties to theoretical container
+      const initialThreshold=state.theoretical.threshold;
+      const initialPrevalence=state.theoretical.prevalence;
+      const initialThresholdInitialized=state.theoretical.thresholdInitialized;
+      ['threshold','prevalence','thresholdInitialized'].forEach(key=>{
+        Object.defineProperty(state,key,{
+          get(){return state.theoretical[key];},
+          set(v){state.theoretical[key]=v;}
+        });
+      });
+      Object.defineProperty(state,'posComponents',{
+        get(){return state.theoretical.posComponents;},
+        set(v){state.theoretical.posComponents=v;}
+      });
+      Object.defineProperty(state,'negComponents',{
+        get(){return state.theoretical.negComponents;},
+        set(v){state.theoretical.negComponents=v;}
+      });
+      state.threshold=initialThreshold;
+      state.prevalence=initialPrevalence;
+      state.thresholdInitialized=initialThresholdInitialized;
+      // initialize mirrors
+      state.theoretical.positive=state.theoretical.posComponents;
+      state.theoretical.negative=state.theoretical.negComponents;
+      state.samples={curves:state.samplesROC,estimatedCurve:state.estimatedCurve};
+      state.imported={datasetName:currentEmpiricalDataset.name||'',rows:state.empiricalPoints,histograms:null,rocCurve:null};
+      state.plots={showSampleRocCurves:true,showEmpiricalRocCurve:true,showEstimatedCurve:true,showConfidenceBands:true,histogramMode:'sample'};
       autoResampleToggle.checked=state.autoResample;
       autoResampleToggle.addEventListener('change',event=>{
         state.autoResample=event.target.checked;
@@ -1045,6 +1080,7 @@ const COLOR_HELPERS={
         state.importedRawPos=positives;
         state.importedRawNeg=negatives;
         state.empiricalPoints=points;
+        state.imported.rows=points||[];
         state.dataImported=true;
         state.importedDataFilename=filename||'dataset.csv';
         state.importedSampleCount=points.length;
@@ -1058,12 +1094,15 @@ const COLOR_HELPERS={
           const existing=(input?.value||'').trim();
           if(!existing || previousSource!=='simulated'){
             setDatasetName('simulated_dataset');
+            state.imported.datasetName='simulated_dataset';
           }else{
             currentEmpiricalDataset.name=existing;
+            state.imported.datasetName=existing;
           }
         }else{
           const defaultName=(filename||'dataset.csv').replace(/\.[^.]+$/, '')||'imported_dataset';
           setDatasetName(defaultName);
+          state.imported.datasetName=defaultName;
         }
         refreshDatasetExportState();
         refreshDataImportStatus();
@@ -1150,6 +1189,8 @@ const COLOR_HELPERS={
             state.confBand=null;
           }
           state.estimatedCurve=computeEstimatedCurveFromSamples(state.samplesROC,state.confBand,state.delongBand,state.rocBandMode);
+          state.samples.curves=state.samplesROC;
+          state.samples.estimatedCurve=state.estimatedCurve;
           visibilityState.roc.sample={sampleCurves:true};
           state.samplesROC.forEach((_,idx)=>{visibilityState.roc.sample[idx]=true;});
           refreshRocLegend();
@@ -1490,14 +1531,18 @@ const COLOR_HELPERS={
 
         state.domain=[minX,maxX];
         if(!state.thresholdInitialized){
-          state.threshold=clamp(DEFAULT_OPTIONS.threshold??(minX+maxX)/2,minX,maxX);
-          state.thresholdInitialized=true;
-        } else if(state.threshold<minX || state.threshold>maxX){
-          state.threshold=clamp((minX+maxX)/2,minX,maxX);
-        }
+        state.threshold=clamp(Number(state.theoretical?.threshold??DEFAULT_OPTIONS.threshold??(minX+maxX)/2)||((minX+maxX)/2),minX,maxX);
+        state.thresholdInitialized=true;
+      } else if(state.threshold<minX || state.threshold>maxX){
+        state.threshold=clamp((minX+maxX)/2,minX,maxX);
+      }
         const threshold=state.threshold;
         thresholdValEl.textContent=STRINGS.controls.thresholdValue(threshold);
         thresholdInput.value=threshold.toFixed(3);
+        state.theoretical.threshold=state.threshold;
+        state.theoretical.prevalence=state.prevalence;
+        state.theoretical.positive=state.posComponents;
+        state.theoretical.negative=state.negComponents;
 
         const N=500;
         const xs=Array.from({length:N},(_,i)=>minX+(maxX-minX)*i/(N-1));
@@ -2170,6 +2215,7 @@ const COLOR_HELPERS={
           state.samplesROC=[];
           state.samplesHist=null;
           visibilityState.roc.sample={sampleCurves:true};
+          state.samples={curves:[],estimatedCurve:null};
           refreshRocLegend();
           renderLegendSelection();
           return false;
@@ -2180,6 +2226,7 @@ const COLOR_HELPERS={
         state.samplesROC.forEach((_,idx)=>{
           visibilityState.roc.sample[idx]=true;
         });
+        state.samples.curves=state.samplesROC;
         computeConfidenceBand();
         refreshRocLegend();
         renderLegendSelection();
