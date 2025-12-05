@@ -258,6 +258,33 @@
         document.body.innerHTML='<p style="color:#a20000">Configuration not found. Ensure multidistribution_config.js is loaded.</p>';
         return;
       }
+      const METRIC_TOOLTIPS={
+        threshold:{
+          tpr:'True Positive Rate (Sensitivity): TP / (TP + FN)',
+          tnr:'True Negative Rate (Specificity): TN / (TN + FP)',
+          fpr:'False Positive Rate: FP / (FP + TN)',
+          fnr:'False Negative Rate: FN / (FN + TP)',
+          youden:'Youden’s J statistic: TPR + TNR - 1',
+          bacc:'Balanced Accuracy: (TPR + TNR) / 2'
+        },
+        prevalence:{
+          ppv:'Positive Predictive Value: TP / (TP + FP)',
+          npv:'Negative Predictive Value: TN / (TN + FN)',
+          acc:'Overall accuracy: (TP + TN) / (TP + FP + TN + FN)',
+          mrate:'Error rate: 1 - Accuracy',
+          mcc:'Matthews Correlation Coefficient: correlation between observed and predicted classes',
+          dor:'Diagnostic Odds Ratio: (TP * TN) / (FP * FN)'
+        }
+      };
+      ['threshold','prevalence'].forEach(section=>{
+        const target=STRINGS.metrics?.[section];
+        if(!target){return;}
+        Object.entries(METRIC_TOOLTIPS[section]).forEach(([key,tip])=>{
+          if(target[key] && target[key].tooltip===undefined){
+            target[key].tooltip=tip;
+          }
+        });
+      });
       const DISTRIBUTIONS_INTERNAL=Object.fromEntries(
         Object.entries(DISTRIBUTIONS||{}).map(([key,def])=>{
           const trimmed=String(key||'').trim();
@@ -546,9 +573,11 @@ const COLOR_HELPERS={
           {key:'bacc',value:metrics.bacc}
         ];
         table.innerHTML=rows.map(row=>{
-          const label=labels[row.key]?.label||row.key.toUpperCase();
+          const labelCfg=labels[row.key]||{};
+          const label=labelCfg.label||row.key.toUpperCase();
+          const tooltip=labelCfg.tooltip||'';
           const val=Number.isFinite(row.value)?row.value:0;
-          return `<tr><th>${label}</th><td>${val.toFixed(3)}</td></tr>`;
+          return `<tr><th title="${tooltip}">${label}</th><td>${val.toFixed(3)}</td></tr>`;
         }).join('');
       }
 
@@ -586,10 +615,12 @@ const COLOR_HELPERS={
           {key:'dor',value:metrics.dor}
         ];
         table.innerHTML=rows.map(row=>{
-          const label=labels[row.key]?.label||row.key.toUpperCase();
+          const labelCfg=labels[row.key]||{};
+          const label=labelCfg.label||row.key.toUpperCase();
+          const tooltip=labelCfg.tooltip||'';
           const val=row.value;
           const display=Number.isFinite(val)?val.toFixed(3):'—';
-          return `<tr><th>${label}</th><td>${display}</td></tr>`;
+          return `<tr><th title="${tooltip}">${label}</th><td>${display}</td></tr>`;
         }).join('');
       }
 

@@ -24,20 +24,20 @@ const STRINGS = {
     confusionHeader: ["Sensitivity", "Specificity"],
     prevalenceHeader: ["PPV", "NPV", "Accuracy"],
     prevalence: {
-      ppv: { label: "PPV" },
-      npv: { label: "NPV" },
-      acc: { label: "Accuracy" },
-      mrate: { label: "Misclassification Rate" },
-      mcc: { label: "MCC" },
-      dor: { label: "DOR" }
+      ppv: { label: "PPV", tooltip: "Positive Predictive Value: TP / (TP + FP)" },
+      npv: { label: "NPV", tooltip: "Negative Predictive Value: TN / (TN + FN)" },
+      acc: { label: "Accuracy", tooltip: "Overall accuracy: (TP + TN) / (TP + FP + TN + FN)" },
+      mrate: { label: "Misclassification Rate", tooltip: "Error rate: 1 - Accuracy" },
+      mcc: { label: "MCC", tooltip: "Matthews Correlation Coefficient: correlation between observed and predicted classes" },
+      dor: { label: "DOR", tooltip: "Diagnostic Odds Ratio: (TP * TN) / (FP * FN)" }
     },
     threshold: {
-      tpr: { label: "TPR" },
-      tnr: { label: "TNR" },
-      fpr: { label: "FPR" },
-      fnr: { label: "FNR" },
-      youden: { label: "Youden’s J" },
-      bacc: { label: "Balanced Accuracy" }
+      tpr: { label: "TPR", tooltip: "True Positive Rate (Sensitivity): TP / (TP + FN)" },
+      tnr: { label: "TNR", tooltip: "True Negative Rate (Specificity): TN / (TN + FP)" },
+      fpr: { label: "FPR", tooltip: "False Positive Rate: FP / (FP + TN)" },
+      fnr: { label: "FNR", tooltip: "False Negative Rate: FN / (FN + TP)" },
+      youden: { label: "Youden’s J", tooltip: "Youden’s J statistic: TPR + TNR - 1" },
+      bacc: { label: "Balanced Accuracy", tooltip: "Balanced Accuracy: (TPR + TNR) / 2" }
     },
     areaTooltips: {
       tp: "True Positives: positives scoring ≥ threshold",
