@@ -422,13 +422,21 @@ const COLOR_HELPERS={
               section.sample=section.sample||{};
               const current=section.sample[item.key];
               section.sample[item.key]=!current;
+              state.plots.showSampleRocCurves=section.sample[item.key]!==false;
             } else if(sectionKey==='roc' && item.key==='sampleCurves'){
               section.sample=section.sample||{};
               const current=section.sample.sampleCurves;
               section.sample.sampleCurves=!current;
+              state.plots.showSampleRocCurves=section.sample.sampleCurves;
             } else {
               const current=section[item.key];
               section[item.key]=!current;
+              if(sectionKey==='roc' && item.key==='estimated'){
+                state.plots.showEstimatedCurve=section[item.key]!==false;
+              }
+              if(sectionKey==='roc' && item.key==='confidenceBand'){
+                state.plots.showConfidenceBands=section[item.key]!==false;
+              }
             }
             visibilityState[sectionKey]=section;
             renderLegendSelection();
@@ -556,15 +564,16 @@ const COLOR_HELPERS={
         empiricalPoints:[],
         autoResample:DEFAULT_OPTIONS.autoResample??false,
         simulatedDataActive:false,
-        samplesROC:[],
-        samplesHist:null,
-        confBand:null,
-        delongBand:null,
-        estimatedCurve:null,
-        numSamples:20,
         rocBandMode:'none',
         busy:false,
-        samples:{curves:[],estimatedCurve:null}, // mirror of sampling outputs
+        samples:{
+          curves:[],
+          histograms:null,
+          confBand:null,
+          delongBand:null,
+          estimatedCurve:null,
+          numSamples:20
+        },
         imported:{datasetName:'',rows:[],histograms:null,rocCurve:null}, // mirror of imported data
         plots:{showSampleRocCurves:true,showEmpiricalRocCurve:true,showEstimatedCurve:true,showConfidenceBands:true,histogramMode:'sample'} // mirror of visibility
       };
@@ -597,6 +606,18 @@ const COLOR_HELPERS={
         get(){return state.theoretical.negComponents;},
         set(v){state.theoretical.negComponents=v;}
       });
+      ['samplesROC','samplesHist','confBand','delongBand','estimatedCurve','numSamples'].forEach(key=>{
+        Object.defineProperty(state,key,{
+          get(){return state.samples[key==='samplesROC'?'curves':key==='samplesHist'?'histograms':key==='estimatedCurve'?'estimatedCurve':key];},
+          set(v){
+            if(key==='samplesROC'){state.samples.curves=v;return;}
+            if(key==='samplesHist'){state.samples.histograms=v;return;}
+            if(key==='estimatedCurve'){state.samples.estimatedCurve=v;return;}
+            if(key==='numSamples'){state.samples.numSamples=v;return;}
+            state.samples[key]=v;
+          }
+        });
+      });
       state.threshold=initialThreshold;
       state.prevalence=initialPrevalence;
       state.thresholdInitialized=initialThresholdInitialized;
@@ -619,10 +640,10 @@ const COLOR_HELPERS={
         await regenerateSampleRocs(true);
       });
       if(numSamplesInput){
-        numSamplesInput.value=state.numSamples;
+        numSamplesInput.value=Number(state.samples?.numSamples)||20;
         numSamplesInput.addEventListener('input',async event=>{
           const val=Math.max(1,Math.round(Number(event.target.value)||1));
-          state.numSamples=val;
+          state.samples.numSamples=val;
           event.target.value=String(val);
         });
       }
@@ -1150,7 +1171,7 @@ const COLOR_HELPERS={
       async function regenerateSampleRocs(force=false){
         if(!force && !state.autoResample){return;}
         await withBusy(async ()=>{
-          const numSamples=Math.max(1,Number(state.numSamples)||1);
+          const numSamples=Math.max(1,Number(document.getElementById('numSamplesInput')?.value)||Number(state.samples?.numSamples)||1);
           const {nPos,nNeg}=getSampleCounts();
           const curves=[];
           let lastPosSamples=null;
@@ -1745,7 +1766,7 @@ const COLOR_HELPERS={
           .attr('stroke-width',1)
           .attr('fill','none')
           .style('display',()=>{
-            const visible=visibilityState.roc.sample?.sampleCurves;
+            const visible=state.plots.showSampleRocCurves;
             return visible===false?'none':null;
           })
           .lower();
