@@ -1,368 +1,220 @@
 ---
-title: "LLM-Driven Development Workflow Guide"
-output:
-  html_document:
-    toc: true
-    toc_depth: 3 # Adjust this to include headers up to a specific level
-    toc_float: true # Makes the TOC float on the side
+title: "LLM-Assisted Development Workflow Guide"
+format: html
+editor: visual
 ---
 
+# LLM-Assisted Development Workflow Guide
 
-This guide defines a **general, reusable workflow** for developing any **client-side interactive web application** using:
+## 1. Purpose and Scope
+This guide defines a systematic, repeatable workflow for developing and enhancing **interactive JavaScript applications** using:
 
-- ChatGPT (or other LLM) as the *design and planning assistant*
-- Codex (or other code-generation LLM) as the *implementation engine*
+- Human expertise and oversight  
+- ChatGPT for requirements analysis, planning, and specification  
+- Codex (VS Code with the OpenAI coding module) for implementation
 
-Because this guide contains prompts intended for LLM consumption, the *entire document must be delivered as raw Markdown inside this fenced block*.
-
-All content inside this block is **raw text**. Nothing should be rendered to HTML by the ChatGPT UI.
-
+The workflow emphasizes clarity, reproducibility, and small, verifiable steps. Each development cycle improves the application through a numbered milestone such as **1.16.1**, **1.16.2**, etc., with optional micro-milestones such as **1.16.1.1**.
 
 ---
 
-# 0. Functional Description Phase (Phase 0)
-
-Phase 0 exists to generate or refine a **functional description** of the application before requirements are drafted.
-
-Depending on the project’s state, Phase 0 has **three distinct contexts**:
-
-## 0A. Brand-new application
-The human developer has no app yet. ChatGPT conducts **iterative elicitation**:
-
-- What is the domain/purpose?
-- What workflows does the app support?
-- What UI components or interactions are needed?
-- What data does the app manipulate?
-
-Output: a *clean functional description* of the intended app.
-
-## 0B. Existing application **without** a functional description
-The human uploads current code (HTML/JS/CSS/other source files).  
-ChatGPT analyzes the code and produces a *functional description of what the app currently does*.
-
-This description should:
-
-- Avoid implementation details
-- Focus on *what* the app does, not *how*
-- Describe UI elements, controls, behaviors, interactions, output formats
-
-## 0C. Existing application **with** a stored functional description
-The human simply uploads the stored description.  
-No code upload is needed for Phase 0.
-
-## Purpose of Phase 0 output
-The output of Phase 0 will be:
-
-- Provided to Phase 1 (Requirements Elicitation)  
-- Stored in the codebase (e.g., a `docs/functional_description.md` file) at the end of the cycle  
-- Used in future cycles to avoid repeatedly uploading code  
-
-## Phase 0 Prompt Template
-The human says:
-
-**“Phase 0: Produce a functional description of this app. I am providing:
-(choose one)
-— A description of a brand-new app  
-— Existing code files  
-— A previously generated functional description  
-Generate a clean, implementation-free description of what the app does.”**
-
-ChatGPT returns a *functional description only*.  
-No plan, no milestones, no implementation details.
-
+## 2. Guiding Principles
+- **Iterative Improvement:** Each cycle implements one milestone’s worth of enhancements.
+- **Clarity Before Coding:** Ambiguous instructions must be resolved *before* producing a functional description or implementation plan.
+- **Executability:** Functional descriptions must be detailed enough that Codex can implement them without guessing.
+- **Structured Versioning:**
+  - Milestones increment the last decimal (1.16.1 → 1.16.2).  
+  - Micro-milestones add a deeper decimal (1.16.1.1 → 1.16.1.2).  
+  - Numbers such as **1.16.0** serve only as *anchors*, not actual versions.
+- **Small, Reliable Changes:** Each milestone should be feasible to complete in a single Codex session.
 
 ---
 
-# 1. Requirements Elicitation (Phase 1)
+## 3. Versioning Terminology
+A version number consists of **four hierarchical components**:
 
-In Phase 1, the human provides:
+```
+<major release>.<minor release>.<milestone>.<micro-milestone>
+```
 
-- The functional description from Phase 0
-- New goals, problems, feature requests
-- Constraints, preferences, UX goals
-- The *current version number* (e.g., `1.16.0`)
+Example:
+```
+1.16.3.2
+```
 
-ChatGPT refines these into a **precise and complete requirements list**.
+### 3.1 Major Release
+Large conceptual changes or public releases.
 
-## Rules for Phase 1
+### 3.2 Minor Release
+A group of related feature improvements.
 
-- No code should be analyzed yet.
-- ChatGPT may ask clarifying questions.
-- ChatGPT must not propose implementation details.
-- Requirements must not mix conceptual design with technical details.
+### 3.3 Milestone
+A planned unit of work that **should be implementable using one Codex prompt**.
 
-## Phase 1 Prompt Template
-Human says:
-
-**“Phase 1: Using the functional description and my inputs, help me refine a complete and precise
-requirements list for the next version. Ask clarification questions where needed. Do NOT propose
-an implementation plan yet.”**
-
-When complete, the human explicitly instructs:
-
-**“Finalize the requirements list.”**
-
-ChatGPT returns the polished list.
-
+### 3.4 Micro-Milestone
+A corrective unit of work inserted **only as needed**, typically for regressions.
 
 ---
 
-# 2. Roadmap Planning (Phase 2)
-
-ChatGPT uses the finalized requirements list to produce a **versioned roadmap** containing:
-
-- Guiding principles  
-- Major milestones (feature-level steps)  
-- Micro-milestones (fine-grained corrective/repair steps) generated later as needed  
-- Detailed implementation descriptions  
-- Codex prompts for each milestone  
-
-## Versioning Rules
-
-- The human provides the starting version number, e.g., `1.16.0`.  
-- The first milestone is `1.16.1`.  
-- Micro-milestones append another decimal: `1.16.1.1`, `1.16.1.2`, etc.  
-- Milestone names must be **descriptive**, not symbolic.  
-- Codex should embed version numbers in code comments for traceability.  
-- The human uses git for commits, not Codex.  
-
-Recommended git commands (human only):
-
+## 4. Mermaid Diagram — Versioning Hierarchy
+```{mermaid}
+flowchart TD
+    A[Version Number] --> B[Major Release]
+    A --> C[Minor Release]
+    A --> D[Milestone]
+    A --> E[Micro-Milestone]
 ```
-git add .
-git commit -m "Implement milestone v1.16.X — <description>"
-```
-
-## Where the code is uploaded
-ChatGPT needs the code in **Phase 3**, not Phase 2.  
-Roadmap planning should not rely on code inspection.
-
-## Refactoring consideration
-ChatGPT should:
-
-- Defer code inspection to Phase 3  
-- After seeing code, propose internal refactorings as separate milestones  
-- Renumber milestones accordingly once refactors are known  
-
-## Roadmap Formatting Rules
-
-- Entire roadmap delivered as raw Markdown inside a fenced text block  
-- No rendered HTML allowed  
-- Includes:  
-  - Full milestone descriptions  
-  - Full Codex prompts  
-  - Warnings not to modify unrelated code  
-  - Explicit file lists to modify  
-  - Testing instructions directed to the human, not Codex  
-
-## Phase 2 Prompt Template
-Human says:
-
-**“Phase 2: Using the finalized requirements list and the functional description, produce a complete roadmap with milestones and Codex prompts. Deliver the entire roadmap as raw Markdown in a fenced text block.”**
-
-ChatGPT outputs the roadmap.
-
 
 ---
 
-# 3. Code Analysis & Refactoring Planning (Phase 3)
+## 5. High-Level Workflow
+Each cycle follows these phases:
 
-Now the human uploads the *current codebase*.
-
-ChatGPT:
-
-- Reads the actual HTML/JS/CSS/assets  
-- Identifies architectural structure  
-- Detects inconsistencies between requirements and code  
-- Suggests refactoring steps as *new milestones* (e.g., `1.16.1–1.16.3`)  
-
-## Why the code is uploaded again
-
-LLMs do not maintain full state across long conversations.
-
-This guide explicitly requires:
-
-- Code uploaded **before Phase 0 only for extraction**, not retained  
-- Code uploaded again in **Phase 3 for full analysis**  
-
-This avoids hallucinations, lost context, and outdated assumptions.
-
-## Good refactoring milestone properties
-
-- Purely structural (no feature changes)  
-- Safe, testable atomic changes  
-- No redesign beyond scope  
-- Eliminate duplication, dead code, layout inconsistencies  
-- Restructure state, config, or component boundaries as required  
-
-## Phase 3 Prompt Template
-Human says:
-
-**“Phase 3: Here is the current codebase. Analyze it against the roadmap and requirements, identify needed refactoring milestones, and insert them into the roadmap before feature milestones. Do not begin implementation yet.”**
-
-ChatGPT replies with added refactor milestones.
-
+1. **Phase 1 — Requirement Gathering & Clarification**  
+2. **Phase 2 — Functional Description**  
+3. **Phase 3 — Implementation Plan**  
+4. **Phase 4 — Codex Implementation**  
+5. **Phase 5 — Verification & Micro-Milestones**
 
 ---
 
-# 4. Implementation (Phase 4)
-
-Now the human proceeds through milestones sequentially.
-
-For each milestone:
-
-1. Human copies the milestone’s Codex prompt  
-2. Human opens a new Codex session  
-3. Provides:  
-   - The milestone version number  
-   - The codebase (Codex reads files directly in the local dev directory)  
-4. Codex makes the modifications  
-5. Human tests (manual unless automated tests exist)  
-6. Human commits via git  
-
-If Codex cannot complete a milestone in one attempt, ChatGPT must generate **micro-milestones**.
-
-## When to create micro-milestones
-
-- Codex refuses the request  
-- Codex reports the task is too large or risky  
-- Codex makes partial modifications  
-- Human sees regressions (often in browser console)  
-
-Micro-milestones should fix:
-
-- Naming inconsistencies  
-- Layout issues  
-- Missing tooltips  
-- Incorrect schema fields  
-- Broken legend toggles  
-- Overflow problems  
-- Misaligned UI components  
-
-## Phase 4 Prompt Template
-Human says:
-
-**“Codex could not complete milestone vX.Y.Z. Here is the error information (including console messages). Please analyze the failure and generate micro-milestones vX.Y.Z.1, vX.Y.Z.2, … until the milestone can be safely completed.”**
-
-ChatGPT replies with atomic micro-milestones.
-
+## 6. Mermaid Diagram — Workflow Overview
+```mermaid
+flowchart TD
+    U[User Provides Prototype App + Enhancements] --> P1[Phase 1: Requirement Clarification]
+    P1 --> P2[Phase 2: Functional Description]
+    P2 --> P3[Phase 3: Implementation Plan]
+    P3 --> P4[Phase 4: Codex Implementation]
+    P4 --> P5[Phase 5: Verification]
+    P5 -->|Needs Fix| Micro[Micro-Milestones]
+    Micro --> P5
+    P5 -->|Complete| Next[Next Milestone Cycle]
+```
 
 ---
 
-# 5. Finalization (Phase 5)
+## 7. Phase 1 — Requirement Gathering & Clarification
+This phase ensures that all enhancement requests become **clear, testable, and unambiguous requirements**.
 
-When all milestones and micro-milestones are implemented:
+### 7.1 Intake of Requirements
+- Identify ambiguous statements  
+- Detect missing constraints  
+- Resolve conflicting requirements
 
-- Human tests the app  
-- Human tags the release in git  
-- ChatGPT generates the Phase 0 functional description for the *next* development cycle  
-- This is stored inside the codebase, e.g., `docs/functional_description.md`  
+### 7.2 Clarification Dialogue
+ChatGPT asks targeted questions until the requirements are:
 
-## Phase 5 Prompt Template
-Human says:
+- Fully specified  
+- Testable  
+- Unambiguous  
+- Matched to the intended milestone number
 
-**“Phase 5: Generate a fresh functional description of the app, suitable for use as Phase 0 in the next cycle. Exclude implementation details.”**
+### 7.3 Requirement Sources
+This phase handles all input types:
 
-ChatGPT replies with the description.
+- User-supplied descriptions  
+- ChatGPT-generated drafts based on high-level goals  
+- Hybrid descriptions refined jointly
 
-
----
-
-# Appendix A — ChatGPT Prompt Templates
-
-## Template: Phase 0 (Existing App, No Description)
-
-```
-Phase 0: Produce a clean, implementation-free functional description of this app.
-I am uploading the current codebase.
-Describe:
-
-- All UI components
-- All interactions
-- All input/output behavior
-- Any internal conceptual models
-
-Do NOT propose improvements or plans.
-Do NOT include implementation details.
-```
-
-## Template: Phase 1 Requirements
-
-```
-Phase 1: Using the functional description and my notes, help me refine a complete,
-precise requirements list for the next version.
-
-Ask clarification questions when needed.
-Do NOT propose implementation details.
-```
-
-## Template: Phase 2 Roadmap
-
-```
-Phase 2: Produce a full roadmap with numbered milestones starting from version V.
-Include:
-
-- Guiding principles
-- Major milestones with descriptive names
-- Detailed milestone descriptions
-- Detailed Codex prompts
-- Instructions not to modify unrelated code
-- Human testing steps
-
-Deliver the roadmap as RAW MARKDOWN in a fenced block.
-```
-
-## Template: Phase 3 Refactoring
-
-```
-Phase 3: Analyze the uploaded code. Identify structural refactors needed to support
-the roadmap. Insert refactor milestones before feature milestones. Do NOT make
-changes—only update the roadmap.
-```
-
-## Template: Micro-Milestones
-
-```
-Codex could not complete milestone vX.Y.Z. Please analyze the failure and produce
-micro-milestones vX.Y.Z.1, vX.Y.Z.2, … that break the task into safe atomic steps.
-Each must include a Codex prompt.
-```
-
+### 7.4 Exit Criteria
+- All requirements are explicit and understood  
+- The milestone version (e.g., **1.16.1**) is confirmed  
+- Ready to create a functional description
 
 ---
 
-# Appendix B — Best Practices for Client-Side Web Apps
+## 8. Phase 2 — Functional Description
+A **formal specification** of everything to be implemented in the milestone.
 
-## Configuration
+### 8.1 Contents
+- Purpose and scope of the milestone  
+- UI behaviors, event flows, and interactions  
+- Data transformations & algorithms  
+- File-level responsibilities  
+- Constraints and edge cases
 
-- All UI strings should live in an external configuration file.
-- Any UI text rendered in multiple places should be centralized.
-
-## Architecture
-
-- Separate logic, rendering, and data handling modules.
-- Do not mix DOM construction and business logic.
-- Use clear namespaces for shared libraries.
-- Avoid global variables except for a documented app-state store.
-
-## Layout and UX
-
-- Ensure responsive design without magic numbers.
-- Use semantic HTML where possible.
-- Keep interactive components discoverable.
-- Provide tooltips instead of inline text.
-
-## Testing
-
-- Automated tests (if any) must be runnable by Codex.
-- Manual tests must be listed explicitly for the human.
-
-## Versioning
-
-- Embed version numbers in code comments for traceability.
-- Tag git releases consistently.
-
+### 8.2 Exit Criteria
+A document sufficiently detailed for Codex to implement directly.
 
 ---
 
-# End of Document
+## 9. Phase 3 — Implementation Plan
+A procedural plan specifying the exact changes Codex will perform.
+
+### 9.1 Contents
+- Files to modify or create  
+- Exact insertions, deletions, and updates  
+- Function and variable names  
+- Module dependencies  
+- Notes for post-implementation testing
+
+---
+
+## 10. Phase 4 — Codex Implementation
+Codex performs the code modifications as specified.
+
+### 10.1 Developer Responsibilities
+- Provide the implementation plan to Codex  
+- Test the updated app after Codex completes the changes  
+- Identify regressions or missing behaviors
+
+---
+
+## 11. Phase 5 — Verification & Micro-Milestones
+### 11.1 Testing
+The user tests for:
+- Functional correctness  
+- UI/UX correctness  
+- Performance  
+- Stability and errors
+
+### 11.2 Issue Identification
+If problems arise, they are returned to ChatGPT.
+
+### 11.3 Micro-Milestone Loop
+For each corrective step:
+
+1. ChatGPT produces a micro-functional description.  
+2. ChatGPT produces a micro-implementation plan.  
+3. Codex applies the fix.  
+4. User re-tests.
+
+### 11.4 Exit Criteria
+The milestone is complete when all corrections are finished and stable.
+
+---
+
+## 12. Mermaid Diagram — Micro-Milestone Loop
+```mermaid
+flowchart TD
+    V[Verification] -->|Issue Found| MFD[Micro-Functional Description]
+    MFD --> MIP[Micro-Implementation Plan]
+    MIP --> C[Codex Applies Fix]
+    C --> V
+    V -->|Stable| Done[Milestone Complete]
+```
+
+---
+
+## 13. Best Practices
+### 13.1 For the User
+- Keep milestones small  
+- Provide concrete test cases  
+- Document regression issues precisely
+
+### 13.2 For ChatGPT
+- Identify ambiguities early  
+- Produce deterministic, codifiable descriptions  
+- Maintain consistent terminology
+
+### 13.3 For Codex
+- Follow the implementation plan faithfully  
+- Apply minimal diffs  
+- Avoid unrequested structural changes
+
+---
+
+## 14. Appendix Materials (Future Work)
+- Templates for functional descriptions  
+- Templates for implementation plans  
+- Common pitfalls  
+- Recommended JS app layout
