@@ -9,9 +9,11 @@ editor: visual
 
 ## Introduction
 
-This Workflow Guide describes a structured, repeatable process for producing an Implementation Plan document for an interactive JavaScript application using a combination of human direction, ChatGPT analysis, and Codex-generated code modifications. The process is designed to help the developer and ChatGPT collaborate effectively by breaking down the work into clearly defined phases, each with a specific purpose and deliverable. At its core, the Workflow Guide ensures that the Implementation Plan—the document that instructs Codex exactly how to modify the application—is produced systematically and with sufficient clarity that each milestone can be implemented reliably in a single Codex session. By separating functional analysis, requirement gathering, refactoring preparation, milestone planning, code execution, and final documentation, this process minimizes ambiguity, reduces the likelihood of regressions, and provides a robust framework for iterative development. The ultimate goal of the Workflow Guide is not merely to describe how to develop the application, but to define how ChatGPT should reason about the application, elicit and clarify requirements, organize them into milestones, and generate the precise prompts that form the Implementation Plan.
+This Workflow Guide defines a disciplined, repeatable process for generating an Implementation Plan document for an interactive JavaScript application through the coordinated work of a human developer, ChatGPT, and Codex. Unlike a traditional software-development guide, this document is written for two audiences simultaneously: the human developer who provides direction and validation, and ChatGPT, which must follow the guide as an operational manual describing how it should reason, analyze, and structure its outputs. Because ChatGPT plays an active role in interpreting requirements, identifying ambiguities, planning refactors, and generating Codex prompts, the workflow must specify not only what the phases accomplish but also how ChatGPT is expected to think during each phase. This ensures that the Implementation Plan—the detailed set of instructions that Codex will follow—is constructed systematically, without improvisation or inconsistent reasoning.
 
-This flowchart shows the phases:
+The rigor of this process is necessary because LLM-based coding systems are highly sensitive to ambiguity, incompletely described behavior, and accidental shifts in structure. Without clear phase boundaries and explicit reasoning expectations, ChatGPT may infer behavior that the application does not exhibit, overlook missing requirements, or propose unnecessary architectural changes that create instability downstream. By enforcing a separation between functional analysis, requirements elicitation, refactoring preparation, milestone construction, code execution, and final documentation, the guide prevents these failure modes and ensures that each milestone is small enough and clear enough to be implemented reliably in a single Codex session. The workflow thus creates a controlled environment in which ChatGPT is required to ask clarifying questions, document behavior precisely, avoid assumptions, and produce deterministic plans that Codex can execute safely.
+
+The flowchart below illustrates the phases in order:
 
 ```{mermaid}
 flowchart TD
@@ -26,130 +28,866 @@ flowchart TD
     P6 ==> |Complete| Next[Next Milestone Cycle]
 ```
 
-The guide assumes a single developer is working on the project, and that the developer is familiar enough with the requirements to be able to answer questions about them.
+The guide assumes a single developer who understands the project well enough to answer clarifying questions, supply code and context when needed, and verify that Codex’s changes reflect the intended behavior. ChatGPT’s role is to follow this guide as a procedural framework, ensuring that every phase contributes to a coherent, accurate, and implementable plan for modifying the application.
 
-Critical Assessment: Introduction
+## Introductory ChatGPT Prompt — Load and Internalize the LLM-Assisted Development Workflow Guide  
 
-The introduction successfully identifies the purpose of the Workflow Guide and situates the Implementation Plan as the central output of the process. However, the current version still reads more like a high-level rationale than an operational mandate, and it does not emphasize strongly enough that the document must serve as instructions to ChatGPT on how to think, structure, and reason in subsequent phases. Because ChatGPT is one of the main consumers of the guide, the introduction should be more explicit about the expectations placed on the model: what kinds of reasoning it must perform, how it should handle ambiguity, and what obligations it has at each stage of the workflow. For human readers, the introduction could also benefit from a clearer explanation of why this rigor is necessary when working with LLM-driven coding tools, since the risks of hallucinated structure or uncontrolled refactoring are central to the rationale. As drafted, the introduction provides a good overview, but it needs sharper framing about the dual audience and the operational discipline the workflow is meant to enforce.
+```markdown
+
+You are about to assist in a multi-phase iterative software development process using the **LLM-Assisted Development Workflow**. Before any phase begins, you must load and internalize the entire Workflow Guide. The developer will provide it in two forms:
+
+1. **Inline text** (authoritative, must be fully internalized)
+2. **A file upload** containing the same Workflow Guide (reference copy only)
+
+You must treat the inline version as the **source of truth**.  
+The file exists only so you can re-open and re-read the guide later using `file_search.msearch` or `file_search.mclick` if context is lost or if the document must be consulted verbatim.
+
+## Your obligations during this initialization step
+
+1. **Read the full inline Workflow Guide from beginning to end.**  
+   Internalize all rules, constraints, definitions, phase descriptions, requirements, and obligations.
+
+2. **Acknowledge that the inline text is authoritative.**  
+   Do not rely on the file unless the developer explicitly asks you to re-open part of it.
+
+3. **Do not begin any phase yet.**  
+   Wait for the developer to explicitly initiate Phase 1.1, 1.2, or 1.3.
+
+4. **Do not ask clarifying questions at this time.**  
+   Your sole task is to read, internalize, and confirm understanding.
+
+5. **When finished, respond only with:**  
+   **“The Workflow Guide is loaded and understood. I will wait for the developer to begin Phase 1.”**
+
+## Important behavioral constraints
+
+- You must follow the Workflow Guide **rigorously and literally** throughout the entire development cycle.  
+- You must not reinterpret its rules or replace them with your own preferences.  
+- You must not begin eliciting requirements, generating functional descriptions, or analyzing code until told to begin one of the Phase 1 variants.  
+- You must not perform Phase 2, 3, 4, 5, or 6 without explicit initiation.  
+- When the developer initiates a phase, use only the rules defined in the Workflow Guide.  
+- If instructed to retrieve or re-read parts of the guide, use `file_search` with the uploaded file.  
+
+---
+
+## BEGIN WORKFLOW GUIDE (inline authoritative version)
+
+<paste full text of the Workflow Guide here>
+
+## END WORKFLOW GUIDE
+
+(Upload the same Workflow Guide as a file before sending this prompt.)
+
+```
+
 
 ------------------------------------------------------------------------
 
-## Phase 1 — Functional Description of the Application
+# Phase 1 — Functional Description of the Application (Rewritten)
 
-A functional description is a precise account of what the application is supposed to do, expressed entirely in terms of observable behavior rather than code structure. Separating the functional description from the implementation is essential because LLM-driven coding systems handle ambiguity poorly and will often fabricate structure or behavior when requirements are blended with technical detail. A clean functional description specifies only the intended behavior—what the user sees, what events occur, and what outputs or transformations must follow—without implying how the code should achieve those results. An explicit behavioral description forces all requirements, including edge cases and failure modes, to be stated before any code changes are proposed. This reduces the risk of regressions and makes discrepancies far easier to detect during verification because the expected behavior is documented independently of the code that attempts to realize it. In LLM-assisted iterative development, this separation is not a formality but a guardrail: it prevents accidental architectural drift, ensures that milestone scopes remain stable, and allows micro-milestones to correct genuine defects rather than misunderstandings created earlier in the process.
+A functional description is a precise, exhaustive account of what the application currently does, expressed entirely in terms of observable behavior rather than implementation details. It describes what the user sees, how the interface responds, which events occur, what data transformations follow, and how the application behaves under all relevant conditions. The functional description forms the behavioral baseline for the entire development cycle. It must avoid speculation, interpretation, or idealization and must reflect the application's actual behavior as verified by the developer.
 
-There are three ways Functional Descriptions can be provided
-1.1: For a new app, ChatGPT elicits from the developer a detailed description of how the desired app whould work
-1.2: For an existing app, ChatGPT generates a description from the code of the current version.
-1.3: If a functional description has already been generated (e.g., in Phase 5 of the previous cycle) it can simply be uploaded.
+The purpose of Phase 1 is to generate a complete, accurate, and non-speculative functional description of the application as it exists at the start of the current development cycle. Because ChatGPT cannot run the application and has no autonomous access to its codebase, the description must rely solely on information explicitly provided by the developer. ChatGPT must request clarification whenever information is incomplete, ambiguous, or contradictory. Under no circumstances may ChatGPT fill gaps with inferred behavior or assumptions about developer intent.
+
+There are three distinct approaches to generating this functional description. The developer will choose which applies at the start of the cycle.
+
+## 1.1 — Elicitation from the Developer
+
+This approach applies when the developer provides an informal or partially complete description of the application's behavior. ChatGPT's task is to transform the developer's descriptions into a structured, unambiguous, and complete functional description. ChatGPT must identify missing details, contradictions, edge cases, and any statements that lack sufficient specificity. For each such gap, ChatGPT must ask clarifying questions and refine the description through an iterative process until it is complete. The final description must restate *only* the behaviors that the developer has explicitly confirmed and must not introduce additional functionality or inferred logic. The output should read as a clean, authoritative specification of the application's current observable behavior.
+
+### ChatGPT Prompt for Phase 1.1
+
+```markdown
+# Phase 1.1 — Functional Description Elicitation from the Developer  
+# (Prompt Template for ChatGPT)
+
+You are now operating in **Phase 1.1 — Functional Description Elicitation** of the LLM-Assisted Development Workflow. Your goal in this phase is to work with the human developer to produce a **complete, accurate, and non-speculative functional description** of the current application, expressed entirely in terms of its observable behavior.
+
+A functional description documents only what the user can see, do, and experience: UI layout, user interactions, event flows, state changes, and data transformations. You must *not* include implementation details or interpret the developer’s intent beyond what they explicitly confirm.
+
+## Your Obligations
+
+1. **No assumptions.**  
+   Do not infer missing behavior, guess intent, or fill in gaps with speculation.
+
+2. **Identify ambiguity.**  
+   Any unclear, underspecified, or contradictory behavior must trigger targeted clarifying questions.
+
+3. **Elicit completeness.**  
+   Continue asking questions until every relevant behavior is described unambiguously.
+
+4. **Follow the standardized functional-description format.**  
+   Output must match the structure used across this workflow (the same format used in Phase 6).
+
+5. **Avoid implementation details.**  
+   Describe what the system *does*, not how the code implements it.
+
+6. **The developer is the authority.**  
+   When code, descriptions, or earlier statements conflict, ask the developer to clarify.  
+   Do not resolve inconsistencies on your own.
+
+## Your Process
+
+1. Begin by asking the developer for a high-level description of what the application currently does.  
+2. Break the application into behavioral domains (UI structure, controls, user interactions, event flows, data transformations, initialization, resetting, etc.).  
+3. Ask systematic, detail-oriented questions for each domain until every behavior is fully specified.  
+4. Ask explicitly about boundary cases, invalid inputs, asynchronous behavior, error handling, and any mode or state transitions.  
+5. Flag vague statements and ask for clarification (“sometimes,” “usually,” “it should,” “it’s supposed to”).  
+6. Summarize open questions before generating the functional description.  
+7. After all ambiguity is resolved, produce the final functional description using the required format.  
+8. Ask the developer to confirm accuracy; revise only when explicitly corrected.
+
+## Your First Message
+
+Begin by saying:
+
+“Please give me a high-level description of what your current application does. After that, I will ask you a structured series of questions to produce a complete and precise functional description of its observable behavior.”
+```
 
 
-Critical Assessment: Phase 1 — Functional Description of the Application
+## 1.2 — Code-Based Reconstruction
 
-Phase 1 is conceptually solid: it establishes the importance of documenting the application’s current behavior before planning any changes. The prose is readable to humans and sufficiently directive for ChatGPT. However, the section may gloss over one crucial difficulty: ChatGPT does not have direct access to the running application and is therefore dependent on code snippets, file uploads, or human descriptions. The Guide should clarify exactly what inputs ChatGPT can expect in this phase and what level of inference is appropriate. Without explicit boundaries, ChatGPT may either over-infer functionality from incomplete descriptions or under-specify the behavior due to caution. The current text also does not warn ChatGPT against inventing features or filling gaps with assumptions, which is one of the most common failure modes in LLM-assisted documentation generation. Strengthening these warnings would make the section more robust for its intended audience.
+This approach applies when no prior functional description exists and the developer instead provides the **entire client-side codebase** of the application at the beginning of the cycle. Because the workflow applies only to small, self-contained client-side JavaScript applications, ChatGPT can read the full codebase in a single session.
+
+ChatGPT must describe only behavior that is clearly implemented in the provided code. If code appears incomplete, ambiguous, partially wired, unused, commented out, or inconsistent, ChatGPT must not infer intent—it must ask the developer to resolve the uncertainty. ChatGPT must carefully distinguish between active features and dormant or experimental code. It must describe only user-visible behavior and event flows that the code demonstrably supports. If inconsistencies arise between different parts of the code, the developer's clarification is the final authority.
+
+The resulting description must reflect the application's behavior *as actually implemented*, using the same structure and formatting conventions that will later be required in Phase 6. The functional description must not include speculative or planned behavior, even if the code suggests an intended feature. Only observable behavior supported by the code and verified by the developer may be included.
+
+### Prompt Template for Phase 1.2 — Code-Based Reconstruction
+
+```markdown
+# Phase 1.2 — Code-Based Reconstruction (Prompt Template for ChatGPT)
+
+You are now operating in **Phase 1.2 — Code-Based Reconstruction** of the LLM-Assisted Development Workflow. In this phase, the developer will provide the **entire client-side codebase** of the current version of the application, and your task is to produce a **complete, accurate, non-speculative functional description** of the application’s actual behavior as implemented in that code.
+
+This functional description must document the application strictly in terms of its **observable behavior**: user-visible UI structure, interactions, event flows, data transformations, state transitions, and behavior under all relevant conditions. You must not include implementation details, internal algorithmic structure, or developer intent unless explicitly confirmed.
+
+## Your obligations
+
+1. **Read the entire codebase carefully.**  
+   You must consider all provided HTML, CSS, JavaScript modules, embedded scripts, configuration files, and assets.
+
+2. **Describe only what is explicitly implemented.**  
+   Do not infer intended behavior or speculate about features that appear partially implemented, unused, or experimental.
+
+3. **Identify and flag ambiguity.**  
+   If any part of the code could represent more than one possible behavior, you must ask the developer for clarification.
+
+4. **Do not document dormant features.**  
+   If code is commented out, unused, not connected to UI elements, or never invoked, ask the developer whether it represents real behavior before documenting it.
+
+5. **Use the standardized functional-description structure.**  
+   Your final output must match the required format exactly (the same structure that will later be regenerated in Phase 6).
+
+6. **The developer is the authority.**  
+   If the code conflicts with previous requirements or appears incomplete, ask for clarification.  
+   Do not resolve discrepancies on your own.
+
+7. **No speculative reasoning.**  
+   Do not guess at behavior, do not fill gaps with assumptions, and do not reinterpret ambiguous code paths.
+
+## Your process
+
+1. Ask the developer to confirm that the full client-side codebase has been provided.  
+2. Request any missing files if necessary.  
+3. Parse the entire codebase, noting UI components, event handlers, data flows, and observable behaviors.  
+4. For any ambiguous or incomplete behavior, ask targeted clarifying questions.  
+5. Summarize all unresolved questions before producing the functional description.  
+6. After the developer answers all questions, generate the final functional description using the required standardized structure.  
+7. Ask the developer to confirm its accuracy.
+
+## Your first message
+
+Begin by saying:
+
+“Please confirm that the full client-side codebase of the application has been provided. Once confirmed, I will review the code and ask any necessary clarification questions before generating a complete functional description based solely on the implemented behavior.”
+
+```
+
+## 1.3 — Use of a Prior Functional Description
+
+This approach applies when Phase 6 was performed at the end of the previous development cycle. In that case, the developer provides the previously generated functional description, which should already reflect the exact behavior of the application at the end of that cycle. ChatGPT must verify its accuracy for the current cycle.
+
+To verify the description, ChatGPT must inspect the Implementation Plan and micro-milestones executed during the preceding cycle and ask the developer to confirm which changes were successfully implemented, which required modification, and whether any unplanned changes were made. ChatGPT must not assume these changes were successful unless explicitly confirmed by the developer. If discrepancies are identified between the prior description and the application's confirmed behavior, ChatGPT must ask for clarification and update the description accordingly. The final output must be a coherent, internally consistent restatement of the application's present behavior—not a summary of changes.
+
+### Prompt Template for Phase 1.3 — Using Prior Functional Description
+
+```markdown
+# Phase 1.3 — Using a Prior Functional Description (Prompt Template for ChatGPT)
+
+You are now operating in **Phase 1.3 — Using a Prior Functional Description** of the LLM-Assisted Development Workflow. In this phase, the developer will provide the **functional description produced at the end of the previous development cycle** (typically generated in Phase 6). Your task is to verify and update that description so that it accurately reflects the behavior of the application at the start of the current development cycle.
+
+Your goal is to produce a **complete, accurate, non-speculative functional description** in the standardized format. The updated description must reflect the application's **actual and confirmed behavior**, incorporating all changes implemented in the previous cycle’s milestones and micro-milestones.
+
+## Your obligations
+
+1. **Treat the provided functional description as the baseline.**  
+   Do not discard it or rewrite its structure. You must preserve its organization and formatting conventions.
+
+2. **Verify alignment with the implemented changes.**  
+   Compare the prior functional description against:  
+   - the Implementation Plan from the previous cycle,  
+   - the micro-milestones generated during verification, and  
+   - the developer’s confirmation of what was actually implemented.
+
+3. **The developer is the authoritative source of truth.**  
+   Do not assume a milestone was implemented successfully unless the developer confirms it.
+
+4. **Identify discrepancies.**  
+   If any part of the prior description conflicts with the developer’s account of the current application, ask clarifying questions.
+
+5. **Avoid speculation.**  
+   You must not infer missing behavior, expand features, or reinterpret ambiguous statements.
+
+6. **Stay within the functional-description scope.**  
+   Do not include implementation details or code-level explanations; focus only on observable behavior.
+
+7. **Produce an updated, coherent functional description.**  
+   After all clarifications are complete, update the prior description so that it accurately describes the application's current behavior.
+
+## Your process
+
+1. Ask the developer to provide the prior functional description and any notes about which milestones and micro-milestones were successfully implemented.  
+2. Review the prior description thoroughly.  
+3. Ask targeted questions about any milestone or micro-milestone whose success or effect is uncertain.  
+4. Ask clarifying questions about any discrepancies, contradictions, vague statements, or incomplete behavioral descriptions.  
+5. Summarize unresolved issues before updating the description.  
+6. Once the developer has answered all questions, produce the updated functional description using the required standardized structure.  
+7. Ask the developer to confirm its accuracy.
+
+## Your first message
+
+Begin by saying:
+
+“Please provide the functional description generated at the end of the previous development cycle, along with confirmation of which milestones and micro-milestones were successfully implemented. Once I have those, I will ask clarifying questions as needed before producing an updated functional description.”
+
+```
+
+
+## Outcome of Phase 1
+
+Regardless of the approach used, the result of Phase 1 must be a complete, accurate, and non-speculative functional description written in the standardized format shared with Phase 6. It must reflect only verified behavior and must not include inferred features or assumptions. ChatGPT must flag any open questions or ambiguities rather than resolving them independently. The developer is the ultimate authority on any aspect of behavior that is not fully clear from the supplied materials.
+
+This functional description becomes the authoritative input for Phase 2 (Requirements Elicitation) and forms the behavioral foundation for the Implementation Plan that will guide all subsequent development.
 
 ------------------------------------------------------------------------
 
 ## Phase 2 — Requirements Elicitation
 
-In this phase we will generate a **formal specification** of the new features and enhancements to be implemented in this minor version.  The requirements elicitation phase begins once the current functional description is complete and serves as the point where the application’s future behavior is defined with precision. In this phase, the developer provides descriptions of each desired new feature, enhancement, or modification, typically in informal or partially specified form. ChatGPT’s responsibility is to treat these initial descriptions as raw input and transform them into a complete, unambiguous, and testable set of behavioral requirements. To accomplish this, ChatGPT must ask targeted, iterative clarifying questions, probing for missing information, implicit assumptions, and edge cases that the user may not have considered. It must identify gaps such as vague UI interactions, undefined data transformations, ambiguous event flows, contradictory expectations, or conditions under which the new behavior should not occur. The goal is to eliminate all ambiguity so that nothing is left to interpretation later in the process. By the end of this phase, ChatGPT should have a fully specified description of the desired behavior of the upcoming version, expressed in a way that leaves no uncertainty about what the application should do, how the user should interact with it, and what outputs or state changes should occur under various conditions. This clarified requirement set must be precise enough that ChatGPT can convert it directly into an implementation plan during the next phase and ultimately into Codex prompts in Phase 4. In this prose ChatGPT must understand its obligations during elicitation: it must interrogate the initial descriptions thoroughly, resolve every ambiguity, and produce requirements that are complete, consistent with the existing functional description, and ready for translation into concrete implementation steps.
+In this phase we generate a **formal specification** of the new features and enhancements to be implemented in the current minor version. Requirements elicitation begins only after the Phase 1 functional description is complete, so that both the developer and ChatGPT share a precise understanding of how the application currently behaves. Phase 2 is where the application’s future behavior is defined with precision. The developer provides descriptions of each desired new feature, enhancement, or modification, typically in informal or partially specified form. ChatGPT’s responsibility is to treat these initial descriptions as raw input and transform them into a complete, unambiguous, and testable set of behavioral requirements that are explicitly grounded in the existing functional description.
 
-Critical Assessment: Phase 2 — Requirements Elicitation & Clarification
+To do this effectively, ChatGPT must not passively echo the developer’s requests; it must actively interrogate them. Whenever a requirement is incomplete, vague, or inconsistent with the current functional description, ChatGPT must ask targeted follow-up questions. Signs that a requirement is ambiguous include: references to “improve,” “clean up,” or “optimize” without stating concrete behavioral outcomes; UI changes that do not specify what triggers them, how the user interacts with them, or what happens in edge cases; data processing or algorithmic changes that do not describe inputs, outputs, and error conditions; requirements that contradict existing behavior described in Phase 1; and any statements that leave it unclear what should happen under particular user actions or boundary conditions. When these patterns appear, ChatGPT must assume that clarification is required and explicitly ask the developer to resolve the ambiguity rather than making assumptions.
 
-Phase 2 is one of the strongest sections, clearly explaining the back-and-forth nature of requirement gathering and emphasizing the need for thorough clarification. It acknowledges the model’s role as an interrogator, not merely a recorder, which is essential. However, the section could benefit from more explicit guidance on how ChatGPT should detect ambiguity. For example, it could offer heuristics (implicit assumptions, missing user interactions, underspecified edge cases) to help the model recognize when it should ask follow-up questions. As written, the section assumes ChatGPT will intuit these patterns, which is not always reliable. In addition, it should explicitly remind ChatGPT that requirement clarification is not the place for implementation reasoning—premature technical speculation can distort the requirements. The section is directionally correct but could be strengthened with operational detail and guardrails.
+Equally important, Phase 2 is not the place for implementation reasoning. ChatGPT must avoid proposing data structures, internal algorithms, or refactoring strategies while requirements are still being clarified. Any discussion of “how to implement” belongs in later phases; introducing technical design too early can distort the requirements, causing them to reflect an imagined implementation rather than the developer’s true intent. During Phase 2, the only acceptable focus is on what the application should do: the visible behavior, user interactions, event flows, state changes, and conditions under which each behavior should or should not occur. ChatGPT should continually check that each requirement is stated in behavioral terms that can be tested against the running application, not in terms of code edits.
+
+By the end of this phase, ChatGPT must produce a fully specified description of the desired behavior for the upcoming version, expressed in a way that leaves no uncertainty about what the application should do, how the user should interact with it, and what outputs or state changes should occur under various conditions. This clarified requirement set must be precise enough that ChatGPT can convert it directly into refactoring requirements in Phase 3 and an Implementation Plan in Phase 4, and ultimately into Codex prompts. For ChatGPT, the obligations in this phase are explicit: ask clarifying questions whenever any part of a requirement is underspecified; resolve every ambiguity with the developer rather than filling gaps by inference; and ensure that the final requirements are complete, consistent with the existing functional description, and ready for translation into concrete implementation steps.
+
+
+### Prompt Template for Phase 2 — Requirements Elicitation & Clarification
+
+```markdown
+# Phase 2 — Requirements Elicitation & Clarification (Prompt Template for ChatGPT)
+
+You are now operating in **Phase 2 — Requirements Elicitation & Clarification** of the LLM-Assisted Development Workflow. Your goal in this phase is to work with the developer to generate a **complete, unambiguous, and fully specified set of behavioral requirements** for the upcoming minor version. These requirements describe **new features**, **enhancements**, and **modifications** the developer wants to add to the application.
+
+These requirements must be stated in terms of **intended observable behavior**, not implementation details. You must not propose designs, code structures, algorithms, or file organization. Your output must be purely behavioral and must remain fully aligned with the functional description from Phase 1.
+
+## Your obligations
+
+1. **You must not interpret ambiguous descriptions.**  
+   When the developer provides a feature description, treat it as initial raw input and identify all gaps or ambiguities.
+
+2. **You must ask targeted, systematic clarifying questions.**  
+   Probe for missing details such as boundary conditions, user flows, event timing, error states, dependencies on existing UI, and any expected constraints.
+
+3. **You must ensure the requirements are complete and testable.**  
+   Each requirement must eventually be stated so clearly that the correct behavior is objectively verifiable.
+
+4. **You must avoid implementation thinking.**  
+   Do not suggest how something will be coded.  
+   Do not infer internal structures.  
+   Do not discuss algorithms or file changes.
+
+5. **Resolve contradictions only through developer confirmation.**  
+   Never choose among conflicting interpretations. The developer is the sole authority.
+
+6. **Align requirements with the Phase-1 functional description.**  
+   If a new requirement contradicts existing behavior, you must ask whether the existing behavior is to be replaced, extended, or modified.
+
+7. **Do not finalize requirements prematurely.**  
+   Continue asking questions until there are no ambiguities or missing details.
+
+## Your process
+
+1. Ask the developer to list all desired features, enhancements, corrections, or modifications for the upcoming minor version.  
+2. For each item, extract the core intended behavior and identify all ambiguity, missing detail, or potential contradictions.  
+3. Ask systematic clarifying questions, one domain at a time:  
+   - triggers and user actions  
+   - UI layout implications  
+   - data inputs and outputs  
+   - event ordering and timing  
+   - validation rules and constraints  
+   - interactions with existing behavior  
+   - edge cases, failure modes, and invalid inputs  
+4. Repeat questioning until every requirement is fully specified and unambiguous.  
+5. Summarize the clarified requirements in a structured list.  
+6. Ask the developer to confirm the finalized list before moving to Phase 3.
+
+## What you must not do
+
+- Do not write or discuss code.  
+- Do not describe internal implementation.  
+- Do not refactor or reorganize requirements on your own.  
+- Do not infer new behavior not explicitly confirmed by the developer.  
+- Do not merge requirements with refactoring; this belongs to Phase 3.  
+- Do not begin planning milestones; that belongs to Phase 4.
+
+## Your first message
+
+Begin by saying:
+
+“Please list the new features, enhancements, or modifications you want to include in this minor version. After that, I will ask structured, detailed questions to clarify each item until we have a complete and unambiguous requirements specification.”
+
+```
 
 ------------------------------------------------------------------------
 
 ## Phase 3 — Refactoring Requirements
 
-The Refactoring Requirements phase serves as a bridge between defining what the application should do next and determining how best to prepare the codebase for those changes. After the new requirements have been fully elicited and clarified, ChatGPT examines the existing code structure, module relationships, naming conventions, data flow, and architectural patterns to determine whether the current implementation is well suited to accommodate the upcoming enhancements. The goal is not to redesign the application but to identify structural issues that could impede the implementation of the new requirements or cause unnecessary complexity, brittleness, or duplication during coding. ChatGPT must look for opportunities to simplify functions, improve module boundaries, clarify responsibilities, eliminate dead code, address inconsistent naming, and resolve any structural irregularities that could interfere with clean implementation. These potential refactoring actions must be described as requirements in their own right, focusing on observable outcomes rather than specific code edits, and must be stated with the same level of clarity and completeness used in earlier phases. Once identified, these refactoring requirements are merged with the functional requirements from Phase 2, forming a unified set of objectives that the Implementation Plan will address. By carrying out this analysis before any coding begins, ChatGPT ensures that Codex works within a well-structured and maintainable codebase, reducing the risk of regressions and creating a more reliable foundation for all subsequent development.
+The purpose of Phase 3 is to determine whether any structural adjustments to the codebase should be made before implementing the behavioral requirements defined in Phase 2. These adjustments—called **refactoring requirements**—are not enhancements or new features, but small, focused changes that improve the codebase’s readiness for upcoming work. This phase is directed primarily at ChatGPT, which must analyze the existing source code (the full set of files uploaded in Phase 1) together with the newly clarified requirements from Phase 2, and identify cases where the current structure of the application would make later implementation error-prone, brittle, or unnecessarily complex. The output of this phase will be a set of refactoring requirements that will be merged with the functional requirements before constructing the Implementation Plan in Phase 4.
 
-Critical Assessment: Phase 3 — Refactoring Requirements
+To carry out this analysis safely, ChatGPT must follow strict constraints. Refactoring considerations must be limited to changes that directly support the implementation of the Phase 2 requirements. ChatGPT must not propose broad architectural redesigns, speculative reorganizations, or “cleanups” motivated solely by aesthetic preference. Instead, it must look for concrete indicators that limited, targeted refactoring is justified. These indicators include duplicated logic that the new requirements would otherwise need to touch in multiple places; overly long or multi-purpose functions that would become more complicated when extended to support the new behaviors; data structures that are inconsistent, poorly named, or difficult to integrate with the upcoming changes; and event-handling flows where the planned new behaviors would require inserting logic into ambiguous or awkward pathways. Whenever ChatGPT suspects that implementation of a Phase 2 requirement would be significantly easier or safer if some part of the code were simplified, split up, or renamed, it must articulate that reasoning explicitly and treat the adjustment as a refactoring requirement, not as an implementation step.
 
-Phase 3 appropriately focuses on preparing the codebase for new features by identifying necessary refactoring steps. This is one of the most delicate phases because ChatGPT must evaluate the structure of real-world code, yet the current description does not fully address the risk of overreach. ChatGPT tends to propose sweeping refactors that are not necessary for the next milestone or that create more instability than they resolve. The section should make explicit that refactoring requirements must be minimal, targeted, and directly tied to enabling the Phase 2 requirements. The prose reads clearly for developers but may not constrain ChatGPT sufficiently. It also does not describe how ChatGPT should balance the cost of a refactor against the advantage it yields, a critical judgment that requires instruction. As it stands, the section conveys the purpose but lacks rigor in describing how ChatGPT should execute the analysis.
+Refactoring requirements must be written in behavioral terms, describing _what structural improvement must be achieved_ without prescribing _how to make the code edits_. For example, a refactoring requirement might state that “the logic for computing the ROC curve must be consolidated into a single dedicated function so that additional threshold-handling behaviors can be added cleanly,” but it must not instruct Codex to create files, rename variables, or restructure modules—that belongs in Phase 4. ChatGPT must also ensure that each refactoring requirement is minimal, narrowly scoped, directly tied to a specific Phase 2 requirement, and does not introduce changes unrelated to the upcoming milestone goals. If ChatGPT is uncertain about whether a refactor is necessary or speculative, it must ask the developer for clarification.
+
+At the end of this phase, ChatGPT merges the Phase 3 refactoring requirements with the Phase 2 behavioral requirements, producing a unified, comprehensive requirement set that will serve as the input to Phase 4. This combined set defines both the new behaviors that the application must exhibit and the structural improvements that must precede those behaviors. When performed correctly, Phase 3 ensures that the Implementation Plan constructed in Phase 4 is grounded in practical, incremental steps that Codex can execute reliably, reducing the risk of regressions and enabling more stable iterative development.
+
+
+### Prompt Template for Phase 3 — Refactoring Requirements
+
+```markdown
+# Phase 3 — Refactoring Requirements (Prompt Template for ChatGPT)
+
+You are now operating in **Phase 3 — Refactoring Requirements** of the LLM-Assisted Development Workflow. In this phase, your goal is to examine the existing application codebase and the clarified behavioral requirements from Phase 2 to determine whether any **refactoring** is necessary before implementation begins.
+
+Refactoring requirements describe structural, modular, or organizational changes to the codebase that will make the upcoming milestones safer, clearer, or less error-prone. These are not new features and must not introduce new behavior visible to the user. They exist solely to support a clean and stable implementation of the Phase 2 requirements.
+
+## Your obligations
+
+1. **Refactoring must never change behavior.**  
+   You must identify only internal code reorganizations that preserve the current functional behavior documented in Phase 1.
+
+2. **You must not invent refactoring tasks.**  
+   Refactoring should only be recommended when necessary for implementing Phase 2 requirements safely and predictably.
+
+3. **You must request the complete codebase if not already provided.**  
+   You must not infer code structure from incomplete information.
+
+4. **Identify structural or architectural inconsistencies.**  
+   If different modules implement behaviors inconsistently, or if existing code is fragmented across unrelated files, ask the developer to confirm whether refactoring is appropriate.
+
+5. **Surface risks and dependencies.**  
+   If implementing a requirement depends on unstable or confusing code paths, you must ask whether restructuring is appropriate before proceeding.
+
+6. **Align all refactoring with Phase 2 behavioral requirements.**  
+   Do not propose refactoring unrelated to supporting the upcoming features or enhancements.
+
+7. **Avoid implementation details of future features.**  
+   You must not discuss how Phase 2 requirements will be implemented.  
+   Your focus is only on the preconditions for safe implementation.
+
+## Your process
+
+1. Ask the developer to confirm whether the full codebase has been provided.  
+2. Review the existing code together with the Phase 1 functional description.  
+3. Identify potential refactoring opportunities, such as:  
+   - duplicated logic that will conflict with new features  
+   - poorly structured state management  
+   - deeply nested event flows  
+   - inconsistent naming or file organization  
+   - unused or dormant code that could interfere with implementation  
+4. For each potential refactoring need, ask the developer precise questions to confirm whether refactoring should be performed.  
+5. Only after all clarifications are complete, produce a structured list of refactoring requirements.  
+6. Ask the developer to confirm the final list before Phase 4 begins.
+
+## What you must not do
+
+- Do not attempt to implement refactoring.  
+- Do not write or plan code changes for Phase 2 requirements.  
+- Do not mix refactoring requirements with new behavior requirements.  
+- Do not alter or reinterpret the Phase 1 functional description.  
+- Do not plan milestones; that is Phase 4.  
+- Do not propose speculative or “nice-to-have” refactoring not needed for this release.
+
+## Your first message
+
+Begin by saying:
+
+“Please confirm that I have access to the full current codebase. After that, I will analyze the code and the Phase 2 requirements to identify any refactoring needs that must be addressed before implementation begins.”
+
+```
 
 ------------------------------------------------------------------------
 
 ## Phase 4 — Implementation Plan
 
+### Developer Instructions for Phase 4
 
-In the Implementation Plan phase, ChatGPT transforms the combined set of functional and refactoring requirements into a structured sequence of milestones that can be implemented safely and efficiently by Codex. This phase requires ChatGPT to analyze the requirements, identify logical groupings, and determine the order in which changes must be carried out so that each milestone builds cleanly on the work of the previous ones. A milestone is defined as a unit of work that can be completed in a single Codex session, which means ChatGPT must divide the requirements into coherent increments that are neither too large nor too interdependent. Dependency analysis is central to this phase: if one requirement involves functionality or structure that must exist before another can be implemented, that dependency must be reflected in the milestone ordering. ChatGPT must ensure that Codex is never asked to modify code that depends on features or structures that have not yet been created or refactored. Once the milestones have been identified and ordered, ChatGPT writes a precise Codex prompt for each one. These prompts must specify exactly what changes Codex should make, which files or modules are involved, and how the new behavior integrates with the existing codebase. The prompts must be sufficiently detailed to allow Codex to implement the milestone deterministically, without inventing structure or deviating from the established requirements. By the end of this phase, ChatGPT produces a complete implementation plan consisting of an ordered list of milestones, each with a corresponding Codex prompt that instructs the coding model exactly how to carry out the required modifications. This plan ensures that implementation proceeds methodically, avoids conflicts and regressions, and maintains alignment with the behavior defined earlier in the development cycle.
+Phase 4 is the stage where ChatGPT generates the Implementation Plan in a controlled, stepwise manner, and the developer copies each part of the output into an external Implementation Plan document. This may seem like a menial task, but it is essential for maintaining the integrity of the plan. If ChatGPT were allowed to hold and revise the entire plan internally, the model could unintentionally alter earlier sections, merge or reorder milestones, corrupt code-block formatting, or drift away from the established structure. By copying each approved segment into the Implementation Plan document yourself, you ensure that the plan remains stable, correct, and immune to unintentional changes by ChatGPT.
 
-When generating the Implementation Plan, ChatGPT must assign a version number to each milestone using this four-part hierarchical versioning scheme: 
-```         
-(major release) . (minor release) . (milestone) . (micro-milestone)
+Before beginning Phase 4, gather the complete set of clarified behavioral requirements from Phase 2 and the final list of refactoring requirements from Phase 3. These constitute the inputs that ChatGPT will rely on when constructing the milestones. At the start of Phase 4, paste three elements into ChatGPT in the order listed: (1) the Phase 4 Prompt Template, (2) the Implementation Plan Assembly Protocol, and (3) the Phase 2 and Phase 3 requirements. The order matters. The Phase 4 Prompt Template defines what ChatGPT must produce, while the Assembly Protocol defines how ChatGPT must behave while producing it. The Assembly Protocol assumes the Phase 4 rules are already loaded, so those rules must appear first. When pasting, ensure that both templates are included in full, including all backticks and code fences, because missing or truncated fences can cause ChatGPT to misinterpret nested prompts.
+
+Once these elements have been pasted, instruct ChatGPT to begin Phase 4. ChatGPT will then request the Phase 2 and Phase 3 requirements if they have not already been provided. After receiving them, ChatGPT will start generating the Implementation Plan in incremental segments, beginning with the Overview section and then producing each milestone one at a time. After ChatGPT outputs each segment, you must copy it immediately into your external Implementation Plan document, verify that the formatting (especially the fenced text blocks containing Codex prompts) is intact, and then confirm to ChatGPT that you are ready to proceed. ChatGPT will not continue until you explicitly give permission. This incremental, confirmation-driven process ensures that ChatGPT never revises earlier output and that the Implementation Plan remains deterministic and stable.
+
+During Phase 4, do not ask ChatGPT to regenerate earlier segments unless you intend to replace them in full. Partial edits or incremental rewrites within ChatGPT increase the risk of formatting corruption, nested prompt drift, or logical inconsistencies. If revisions are needed, make them directly in your external Implementation Plan document and then instruct ChatGPT to continue with the next milestone. Do not ask ChatGPT to show “the entire plan so far,” because doing so risks breaking the formatting or prompting ChatGPT to rewrite earlier content. Once all milestones have been generated and approved, Phase 4 is complete and the development process can proceed to Phase 5.
+
+
+### Prompt Template for Phase 4 — Implementation Plan Generation
+
+````markdown
+# Phase 4 — Implementation Plan Generation (Prompt Template for ChatGPT)
+
+You are now operating in **Phase 4 — Implementation Plan Generation** of the LLM-Assisted Development Workflow. Your goal in this phase is to transform the fully clarified behavioral requirements from Phase 2 and the confirmed refactoring requirements from Phase 3 into a **structured, deterministic, dependency-aware sequence of milestones**, each of which will later be executed by Codex. Each milestone must include a Codex prompt that is safe, complete, literal, and ready for execution.
+
+This prompt template contains strict rules and formatting conventions. You must follow them exactly.
+
+## Your obligations
+
+1. **Do not implement anything.**
+   Your task is to produce an Implementation Plan document, not code.
+
+2. **Use only the Phase 2 requirements and Phase 3 refactoring list as inputs.**
+   Do not invent or reinterpret requirements.
+
+3. **Group requirements into milestones that can each be implemented in a single Codex session.**
+   Each milestone must be self-contained and must not depend on future milestones.
+
+4. **Ensure correct dependency ordering.**
+   If a requirement depends on another, schedule the prerequisite first.
+
+5. **Follow the version numbering scheme exactly.**
+   Begin with the provided `<major>.<minor>.0` anchor and number milestones 1, 2, 3, ... using the third decimal.
+   Do not assign micro-milestone numbers in this phase.
+
+6. **Output each milestone with the exact 3-part structure:**
+   - **A. Milestone Goals**
+   - **B. Implementation Details**
+   - **C. Codex Prompt**
+
+7. **Isolate the Codex prompt inside a fenced code block with `text` as the language.**
+   The Codex prompt must be plain text with no Markdown formatting.
+
+8. **Do not alter or interpret Codex prompts.**
+   Output them literally.
+
+9. **Do not allow Codex to perform refactoring unless explicitly required by Phase 3.**
+   Codex must not reorganize files, rename identifiers, or create abstractions unless the milestone requires it.
+
+10. **End the Implementation Plan after the final milestone.**
+   Do not proceed to Phase 5.
+
+## Structure of the Implementation Plan
+
+Your Implementation Plan output must follow this structure exactly:
+
+````markdown
+# Implementation Plan for Version <major>.<minor>
+
+## Overview
+A concise summary of the overall plan, referencing (but not repeating) the Phase 2 and Phase 3 inputs.
+
+## Milestones
+One section per milestone, in order.
+
+### <major>.<minor>.<milestone> — <Milestone Title>
+
+#### A. Milestone Goals
+A clear, behavioral description of what this milestone accomplishes.
+
+#### B. Implementation Details
+Technical reasoning describing how Codex will modify the codebase. No code should be written here.
+
+#### C. Codex Prompt
+```text
+<literal Codex prompt goes here>
+```
+````
+
+## Requirements for the Codex Prompts
+
+Each Codex prompt must:
+- specify exactly which files will be modified
+- specify exactly which functions, selectors, handlers, or structural locations must be updated
+- describe the changes in plain text without placeholders
+- forbid Codex from touching unrelated parts of the code
+- include no analysis, no meta-comments, and no Markdown formatting
+- remain strictly within the scope of this milestone
+
+## Your process
+
+1. Review the Phase 2 requirements.
+2. Review the Phase 3 refactoring requirements.
+3. Identify natural clusters of work that can be safely implemented together.
+4. Determine the correct ordering of milestones based on dependencies.
+5. Draft each milestone following the required structure.
+6. Generate a Codex prompt for each milestone using a fenced ```text block.
+7. Produce the final Implementation Plan document.
+8. Stop.
+
+## Your first message
+
+Begin by saying:
+
+"Please provide the Phase 2 requirements and Phase 3 refactoring requirements. Once I have them, I will construct the Implementation Plan following the Phase 4 rules and formatting requirements."
+`
+````
+
+
+### Implementation Plan Assembly Protocol
+
+(Instructions for ChatGPT during Phase 4)
+
+````markdown
+
+You must follow this protocol exactly when generating the Implementation Plan. The goal is to ensure that the plan is produced in modular, sequential segments, with each segment approved before moving on, to avoid drift, unintended rewriting, or formatting corruption.
+
+These rules override all default behaviors.
+
+## 1. Never generate the entire Implementation Plan in a single output
+You must NOT produce the full Implementation Plan all at once. Instead, you will generate it in ordered segments, each of which the developer will paste into the external document.
+
+The required sequence is:
+1. Overview Section
+2. Milestone 1 (sections A, B, and C)
+3. Developer approval
+4. Milestone 2
+5. Developer approval
+6. Continue until all milestones are generated
+
+Do not skip or reorder steps.
+
+## 2. After generating any segment, STOP and wait for confirmation
+After outputting each segment (Overview or individual Milestone), terminate your message and say:
+
+"Please confirm that you have copied this section into the Implementation Plan. I will continue when you are ready."
+
+Do NOT proceed until the developer explicitly confirms.
+
+## 3. Never revise or regenerate earlier segments
+Once a segment has been produced and approved:
+- Do not rewrite it
+- Do not improve it
+- Do not add to it
+- Do not reformat it
+- Do not attempt to fix it later
+
+Each segment is final once the developer confirms copying it.
+
+## 4. Milestones must be self-contained and independent
+Each milestone must follow this structure:
+
+### <major>.<minor>.<milestone> — <Milestone Title>
+
+#### A. Milestone Goals
+(behavioral description only)
+
+#### B. Implementation Details
+(technical reasoning, no code)
+
+#### C. Codex Prompt
+```text
+<literal Codex prompt>
 ```
 
--   Milestones increment the third decimal (1.16.1 → 1.16.2).\
--   Zeros, as in **1.16.0** serve only as *anchors*, not actual versions.
--   Micro-milestones add a fourth decimal (1.16.1.1 → 1.16.1.2).\
-    
-Major Release: Large conceptual changes.
+Rules:
+- Do not combine multiple planned milestones.
+- Do not introduce dependencies backwards or across milestones.
+- Do not require edits outside the scope of the milestone.
 
-Minor Release: A group of feature improvements implemented in a single Roadmap Plan.
+## 5. Codex Prompt formatting rules (strict)
+Inside the Codex prompt:
+- Use a fenced code block: ```text
+- No Markdown syntax inside
+- No bold, headings, bullets, italics
+- No commentary or reasoning
+- No placeholders
+- No delegated decisions
+- No refactoring unless explicitly required
+- Only literal, deterministic instructions
 
-Milestone: A planned unit of work that **should be implementable using one Codex prompt**.
+## 6. Version numbering rules
+Number milestones strictly in sequence:
+1. The cycle starts at `<major>.<minor>.0` (anchor)
+2. The first milestone is `<major>.<minor>.1`
+3. Then `<major>.<minor>.2`, `<major>.<minor>.3`, etc.
+4. Micro-milestones must NOT appear in Phase 4
+5. Micro-milestones are added only in Phase 5
 
-Micro-Milestone: A corrective unit of work inserted **only as needed**, typically for regressions.
+Never skip numbers. Never reorder.
 
+## 7. The Overview section
+The Overview section must:
+- appear first
+- summarize the plan at a high level
+- not include any Codex prompts
+- not include milestone details
+- not include code
 
+## 8. Developer control
+After each segment, you must yield control:
+- Do not continue without explicit permission
+- Do not produce the next milestone early
+- Do not conclude the plan
 
-The major release and minor release numbers will already have been selected at the start of the development cycle and must remain fixed throughout the plan. As ChatGPT enumerates the milestones, it must begin by assigning the first planned milestone the next available milestone number, which is one increment above the anchor value ending in zero. For example, if the development cycle begins at version 1.16.0, the first milestone in the plan must be labeled 1.16.1, the next 1.16.2, and so on. ChatGPT must continue incrementing the third component of the version number sequentially for each planned milestone, ensuring that no numbers are skipped and that the ordering of the milestones reflects their dependency structure. The fourth component of the version number is not used during this phase and must not be assigned to any planned milestone; micro-milestones are created later, during verification, only when corrective work becomes necessary. Each milestone defined in the Implementation Plan must therefore have a unique three-part version number of the form [major release].[minor release].[milestone], where the milestone number increases monotonically in the order in which Codex is expected to implement them. This numbering system provides an unambiguous execution order for Codex and creates a clear historical record of how the version was constructed.
+Stay strictly within the developer's requested scope.
 
-Each milestone in the Implementation Plan will include three sections:
+## 9. Stopping criteria
+You must stop and request confirmation when:
+- a segment is complete
+- the developer indicates a need to pause
+- dependencies or ambiguities require clarification
 
-### 4A. Milestone Goals
+## 10. Your first message under this protocol
+Your first message must be:
 
-The first component of each milestone is a clear description of the milestone’s goals. This description states the specific requirements that the milestone will satisfy, expressed in terms of intended behavior, structural changes, or refactoring outcomes. It should be written at the level of observable effects on the application or the codebase rather than at the level of individual edits, allowing both the user and ChatGPT to verify that the milestone has a coherent purpose and fits logically within the ordered sequence of changes. This description serves as the conceptual anchor for the milestone: it explains what the milestone is meant to accomplish, why it is being performed at this point in the sequence, and how it contributes to completing the requirements for the new version. A well-formulated goal description ensures that each milestone is purposeful, well-scoped, and aligned with the broader development plan.
-
-### 4B. Implementation Details
-
-The second component consists of the implementation details, which translate the milestone’s goals into the specific technical strategy that Codex will need to follow. These details explain how the milestone’s objectives should be realized within the structure of the existing codebase. They may discuss which modules must be updated or created, which functions require modification or refactoring, how data flow or event handling must change, and how the new logic should integrate with existing application state or UI components. This section also identifies any risks, interactions, or edge cases that Codex must handle carefully to avoid regressions. The implementation details do not yet specify exact line-level changes but provide a disciplined outline of the engineering reasoning behind the upcoming code modifications. Their purpose is to ensure clarity and coherence before Codex is ever asked to touch the code.
-
-### 4C. Codex Prompt
-
-The third component is the Codex prompt itself, which must be written with enough precision and explicit guidance that Codex can carry out the milestone deterministically. This prompt must specify the exact files to modify, the functions or classes affected, the structural changes required, and the manner in which new behavior should be added or existing behavior updated. It should include explicit instructions for how Codex should navigate the codebase, how to integrate modifications without introducing inconsistencies, and how to preserve the architectural intentions expressed in the implementation details. The prompt should avoid ambiguity, avoid delegating decisions to Codex, and prevent the model from inventing unnecessary abstractions or refactoring beyond what the milestone requires. In effect, the Codex prompt is the executable representation of the milestone: it encapsulates all necessary instructions so that Codex can implement the changes cleanly, accurately, and in full alignment with the established plan.
-
-
-Critical Assessment: Phase 4 — Implementation Plan
-
-Phase 4 is the centerpiece of the Workflow Guide and the portion most directed at ChatGPT, but the current version may still be too abstract for a model expected to generate actionable, deterministic, multi-step plans. The text explains the need to group requirements into milestones, ensure dependency correctness, and generate precise prompts, but it stops short of detailing how ChatGPT should perform these tasks, particularly the grouping and dependency analysis. Without clear operational heuristics—such as examining shared modules, assessing code proximity, sequencing UI dependencies before back-end logic—ChatGPT may group requirements suboptimally or produce inconsistent milestone boundaries. The Codex prompt construction subsection is also high-level: a model may need explicit instruction not to rewrite large portions of the codebase, not to introduce abstractions unless required, and not to reorganize directories unless specified. While the conceptual framework is sound, the section should include more detailed constraints, examples, and warnings to ensure that ChatGPT consistently generates well-structured Implementation Plans.
+"Please provide the Phase 2 requirements and the Phase 3 refactoring requirements. Once I have both, I will begin generating the Implementation Plan following the Implementation Plan Assembly Protocol."
+````
 
 ------------------------------------------------------------------------
 
 ## Phase 5 — Codex Implementation
 
-This section of the plan will include the following instructions for the developer:
+In this workflow, the Phase 5 Developer Instructions below must be copied directly into the Implementation Plan because the Implementation Plan is required to function as a complete, self-contained document for the current development cycle. This Workflow Guide defines the methodology, but the Implementation Plan defines the operational steps that the developer must follow for a specific version. Embedding the Phase 5 instructions directly into the Plan ensures that the developer never needs to refer back to the Guide while executing milestones, reduces procedural errors, and maintains a single authoritative reference for how Codex interactions are to be carried out. This also provides a version-specific historical record of exactly how Phase 5 was meant to be executed, which is critical for debugging regressions, reconstructing decision paths, or preparing Phase 6 documentation for the next cycle. By making each Implementation Plan self-contained, the workflow becomes more deterministic, repeatable, and robust.
+
+### Developer Instructions (to be included exactly as written in every Implementation Plan):
 
 ```
-In the Codex Implementation phase, you carry out each milestone defined in the Implementation Plan by providing the corresponding Codex prompt to the coding model. After Codex completes the requested changes, you must run the updated application and evaluate its behavior carefully, checking that the results match the functional description and requirements established earlier in the process. This step is critical, because even well-constructed prompts can lead Codex to generate code that introduces regressions, omits edge cases, or inadvertently modifies parts of the system unrelated to the milestone. Your responsibility is to verify that the application behaves as intended, identify any deviations, and determine whether a correction requires a quick fix or a new micro-milestone.
+In the Codex Implementation phase, you will execute each milestone in the Implementation Plan by submitting its Codex prompt to the coding model and then verifying that the resulting behavior matches the functional description and requirements established earlier in the development cycle. For every planned milestone, follow this procedure:
+	1.	Copy the Codex prompt exactly as it appears inside the milestone’s ```text code block, and paste it into Codex without modification.
+	2.	Allow Codex to apply the requested changes to the codebase.
+	3.	Run the updated application and verify that the behavior matches both the Phase 1 functional description and the Phase 2 requirements.
+	4.	Carefully check for regressions, missing behaviors, broken interactions, malformed UI elements, incorrect event flows, console errors, or unexpected state changes.
+	5.	Confirm that the behavior now implemented aligns fully with the milestone goals defined in the Implementation Plan.
 
-When problems are minor or obvious, such as errors revealed by console output or straightforward runtime failures, you can often fix them by communicating directly with Codex. In these cases, it is sufficient to paste the error message or a brief explanation into a new Codex prompt, allowing the model to correct the issue efficiently. When the issue is more complex—such as a structural inconsistency, a subtle behavioral mismatch, or a regression affecting multiple parts of the application—you should involve ChatGPT. In those situations, you will describe the problem in detail, provide the relevant code segments as needed, and ask ChatGPT to generate one or more micro-milestone prompts for Codex. These micro-milestones ensure that even complicated problems are addressed systematically, with clear reasoning and controlled modifications to the codebase.
+If you encounter a minor or straightforward issue—such as a console error, a missing function reference, a small logic oversight, or a simple mismatch between expected and actual behavior—you may correct it by interacting directly with Codex. Provide Codex with the error message or a brief explanation of the problem and let it generate the necessary fix.
 
-The phase continues until every milestone has been fully implemented and all discovered issues have been resolved. Through this combination of direct Codex interaction for simple fixes and ChatGPT-generated micro-milestones for more substantial problems, you ensure that the final application reflects the intended behavior with accuracy and stability.
+If you encounter a complex or ambiguous issue, such as a structural inconsistency, regressions spanning multiple components, subtle behavioral mismatches, or uncertainty about the correct fix, you must return to ChatGPT. Provide a clear description of the problem and upload any relevant code. ChatGPT will determine whether the issue requires one or more micro-milestones, which should follow the <major>.<minor>.<milestone>.<micro> version numbering scheme. Execute micro-milestones just like planned milestones: submit the Codex prompt, verify behavior, and repeat as needed.
+
+Continue this process—executing planned milestones, verifying the results, and adding micro-milestones when necessary—until all milestones are complete and the application’s behavior matches the expected functionality exactly. When no regressions or inconsistencies remain, Phase 5 is complete.
 ```
 
-Critical Assessment: Phase 5 — Codex Implementation
-
-This section is appropriately directed toward the developer and describes the responsibilities clearly. It highlights the need for careful verification and distinguishes between simple issues that can be addressed directly in Codex and complex issues that require micro-milestones generated by ChatGPT. However, the section could be more explicit about the common pitfalls developers encounter when interpreting Codex output, such as over-trusting partial fixes, overlooking collateral changes, or assuming that code compiles implies correctness. It may also benefit from instructions for logging issues, maintaining change history, or tracking micro-milestone numbering. While the section is conceptually sound, giving the developer more structure on how to approach debugging and validation would increase reliability.
 
 ------------------------------------------------------------------------
 
+## Phase 6 — Generate New Functional Description
 
-## Phase 6 - Generate New Functional Description
+In this final phase, ChatGPT produces a new, authoritative functional description of the application exactly as it behaves at the end of the current minor release cycle. This document becomes the Phase 1 input for the next cycle, so its accuracy and completeness are critical. The purpose of Phase 6 is not to summarize the changes implemented during the cycle, nor to compare the current version to previous versions, nor to describe how the application ideally ought to work. Instead, ChatGPT must restate the entire functioning of the application as a coherent whole, strictly reflecting its verified, observable behavior after all milestones and micro-milestones have been completed.
 
-In this final phase, ChatGPT produces a new functional description of the application that reflects the system’s complete and verified behavior at the end of the minor version after all milestones and micro-milestones have been implemented and verified. This description will serve as the authoritative Functional Description for the next development cycle. The purpose of this step is not to summarize the changes that occurred during the milestones, nor to compare the current state of the app to previous versions, but to restate the entire behavior of the application as a coherent whole, exactly as it now functions after all milestones and micro-milestones have been completed. ChatGPT must integrate the behavioral expectations defined in the requirements, the architectural adjustments specified in the refactoring requirements, and the full application code as it exists at the end of this minor version development cycle into a single, unified account of the app’s current features, interactions, event flows, data transformations, and user-visible behaviors.
+Because ChatGPT does not not have autonomous access to the codebase, the developer must supply the necessary final materials for this phase. At minimum, the developer must provide either (a) the complete set of final application source files, or (b) all modified files or excerpts required to determine the app’s current behavior. ChatGPT may only document behavior supported by the following sources, **in strict priority order**:
 
-ChatGPT will generate this functional description using the a prompt very similar to the one defined in Phase 3.3, though it may also use the Implementation Plan as input.
+1. **The final, developer-supplied code**  
+   If the code’s actual behavior differs from prior requirements, the code overrides them.
 
-Critical Assessment: Phase 6 - Generate New Functional Description
+2. **Direct clarifications provided by the developer during this phase**  
+   When the code is ambiguous or incomplete, ChatGPT must ask questions rather than guess.
 
-The revised Phase 6 description captures the intended purpose of generating a new baseline functional description, but it contains several conceptual and practical weaknesses that may cause problems when ChatGPT is asked to execute this step. The most significant issue is that the description assumes ChatGPT can integrate “the full application code as it exists at the end of this minor version” into the functional description. In practice, ChatGPT does not have autonomous access to the codebase; it only sees the code that has been uploaded or pasted into the conversation. Without explicit instructions on how the developer is supposed to supply the final code or relevant excerpts, the model may make unwarranted inferences about behavior, invent functionality, or gloss over areas where the code and earlier requirements diverge. This is one of the most common and dangerous failure modes for LLMs producing system-level documentation.
+3. **The functional description generated in Phase 1 and the verified outcomes of Phases 4–5**  
+   These may be used only when fully consistent with the final codebase and developer clarifications.
 
-The second problem is that the description is ambiguous about the source of truth ChatGPT should rely on when the final implemented behavior does not perfectly match the earlier requirements or the Implementation Plan. It states that the model must integrate requirements, refactoring adjustments, and final code, but it does not specify a priority order or a strategy for resolving inconsistencies. Without guidance, ChatGPT may default to idealized or aspirational behavior rather than documenting what the application actually does. This undermines the purpose of Phase 6, which is to provide a faithful, ground-truth baseline for the next cycle.
+ChatGPT must never assume, infer, or invent behavior not grounded in these inputs. If the code, the earlier functional description, and the Implementation Plan conflict, ChatGPT must request clarification rather than silently choosing an interpretation. Under no circumstances may ChatGPT reconstruct “intended” behavior; it must document only the real, implemented behavior.
 
-A further issue is the vague reference to “a prompt very similar to the one defined in Phase 3.3.” While this may be true in the abstract, the section does not precisely describe how the Phase 3.3 prompt should be reused or adapted, nor does it clarify what additional context or constraints must be provided to ChatGPT at this stage. This makes the instructions incomplete and leaves too much room for interpretation, which is risky in a document intended to govern deterministic, repeatable behavior by an LLM.
+To ensure cross-cycle consistency, ChatGPT must generate the new functional description using **the same structure, style, and terminology specified in the Phase 1.2 prompt**. In practical terms, Phase 6 will simply reuse the Phase 1.2 prompt, supplying it with the updated codebase and clarifications derived during verification. Only those modifications required to reflect newly implemented or corrected behaviors are permitted. ChatGPT may not alter the organizational structure, headings, or conceptual format of the functional description. Consistency across cycles is essential: the new description should read exactly like a Phase 1 functional description for a newly provided app.
 
-Finally, the prose lacks explicit guardrails preventing ChatGPT from introducing enhancements, reinterpreting behaviors, or restructuring the functional description format. Because the Phase 6 output will be used as Phase 1 input in the next cycle, errors here can propagate indefinitely. The section needs stronger emphasis on fidelity, consistency of structure, and the prohibition of speculative interpretation.
+During this phase, ChatGPT must adhere to strict behavioral constraints:
 
-Overall, the section communicates the high-level goal effectively but fails to provide sufficient operational precision for ChatGPT to perform the task reliably. It would benefit from tighter constraints, clarification of inputs, explicit prioritization rules, and a more concrete explanation of how it should reuse the Phase 3.3 prompt.
+- **No speculative or inferred behavior**  
+- **No enhancements or design improvements**  
+- **No reconstruction of missing or implied logic**  
+- **No representation of unused, commented, or partially implemented code unless the developer confirms the intended behavior**  
+- **No deviation from the Phase 1.2 functional description structure**
+
+When complete, the Phase 6 output must be a fully grounded, comprehensive, non-speculative description of the application’s actual behavior as of the end of the minor version. It should serve as a stable baseline for the next cycle—clear enough for the developer, precise enough for ChatGPT, and consistent enough to support repeated iterative development without drift or accumulated error.
+
+### Prompt Template for Phase 6 — New Functional Description
+
+````markdown
+You are now operating in **Phase 6 — Generate New Functional Description** of the LLM-Assisted Development Workflow. Your task in this phase is to produce a complete, accurate, and non-speculative Functional Description of the application *as it exists at the end of the current development cycle*, after all milestones and micro-milestones have been implemented and verified. This description will serve as the authoritative Phase 1 input for the next development cycle.
+
+This prompt template contains strict rules and behavioral constraints. You must follow them exactly.
+
+---
+
+## Your purpose in Phase 6
+
+Your goal is to reconstruct the final, verified behavior of the application by integrating four sources of information:
+
+1. **The Phase 2 clarified behavioral requirements** (desired behavior).
+2. **The Phase 3 refactoring requirements** (architectural constraints).
+3. **The Implementation Plan**, including all planned milestones and any micro-milestones.
+4. **The developer’s confirmations from Phase 5**, which provide ground truth about what was actually implemented.
+
+You may also incorporate **final code excerpts provided by the developer**, but you must not infer or guess behavior from code you have not been shown. When conflicts arise between these sources, the developer’s confirmed results from Phase 5 take precedence, followed by the actual implementation plan, followed by final code excerpts, followed by the earlier requirements.
+
+Your output must document the **actual, verified behavior** of the system — not the intended behavior, not an idealized design, and not a reconstruction based on partial code. Your description must match what the application *actually does now*, after all implementation work has finished.
+
+---
+
+## Your obligations
+
+1. **Do not implement anything.** You must not write or modify code.
+
+2. **Do not idealize or speculate.** Only describe behaviors confirmed by the developer or visible in the final code excerpts.
+
+3. **Do not rely on requirements alone.** Requirements represent intentions, but the actual system may deviate due to micro-milestones, clarifications, bug fixes, or design corrections.
+
+4. **Ask clarification questions whenever needed.** If behavior is ambiguous, contradictory, or missing from the inputs, you must ask the developer rather than guess.
+
+5. **Produce a complete, coherent, self-contained functional description.** The output must describe the full behavior of the application in terms of user-visible actions, UI structure, event flows, data transformations, and state transitions.
+
+6. **Avoid implementation detail.** Describe what the system does, not how it does it. Do not mention filenames, functions, modules, or code structures.
+
+7. **Maintain the format of prior functional descriptions.** The document must conform to the organizational structure used in Phase 1 functional descriptions.
+
+8. **Resolve all contradictions by consulting the developer.** Never silently choose between conflicting inputs.
+
+9. **Do not summarize milestones.** The output must describe the final system as a unified whole, not as a collection of changes.
+
+10. **Stop after producing the functional description.** Do not begin any further phases.
+
+---
+
+## Your process
+
+1. Request:  
+   “Please provide the final Implementation Plan (including any micro-milestones), the Phase 2 and Phase 3 requirements, and the confirmed results from Phase 5. If necessary, please also upload relevant portions of the final code.”
+
+2. Review all inputs carefully.
+
+3. Ask clarification questions for any inconsistencies, ambiguous behaviors, or missing details.
+
+4. When all behavior is clear, produce a **complete functional description** structured identically to the one generated in Phase 1.
+
+5. Ensure that the description reflects **actual implemented behavior**, not intended behavior.
+
+6. Stop.
+
+---
+
+## Your first message under this template
+
+Begin by saying:
+
+"To generate the new Functional Description for Phase 6, I will need the final Implementation Plan (including micro-milestones), the Phase 2 and Phase 3 requirements, your confirmations from Phase 5, and any necessary excerpts from the final code. Please provide these materials, and I will begin." 
+
+````
+
+-----------------
+
+# Appendix A: Version Numbering Scheme (Full Specification)
+
+Every milestone in the Implementation Plan must be assigned a version number using a four-part hierarchical versioning scheme. The structure of the version number is:
+
+```
+<major release>.<minor release>.<milestone>.<micro-milestone>
+```
+
+Each component has a distinct purpose:
+
+**Major Release**  
+This number changes only when the application undergoes a major conceptual or architectural transformation—changes large enough that the overall workflow or purpose of the application is meaningfully altered. Major releases are rare and mark the beginning of a new long-term development trajectory.
+
+**Minor Release**  
+A minor release corresponds to a complete roadmap plan—a coherent set of new features, enhancements, and refactors developed over one full execution of the Workflow Guide. The minor release number is chosen at the start of the cycle and remains fixed throughout Phases 1 through 6.
+
+**Milestone**  
+Milestones represent the planned units of work in the Implementation Plan. Each milestone must be implementable in a single Codex session. Milestones increment the **third** part of the version number. At the start of each minor release cycle, the roadmap begins at an anchor version ending in `.0` (such as `1.16.0`). This anchor version is *not* an actual version of the application. It is only a starting reference point.  
+The *first real milestone* of the cycle is numbered:
+
+```
+<major>.<minor>.1
+```
+
+with subsequent milestones numbered sequentially:
+
+```
+<major>.<minor>.2
+<major>.<minor>.3
+<major>.<minor>.4
+...
+```
+
+The milestone number must increase monotonically and must not skip numbers. The milestone sequence defines the precise execution order for Codex.
+
+**Micro-Milestone**  
+Micro-milestones are unplanned corrective updates created during Phase 5 when regressions or functional mismatches are detected. They are **never** assigned during Phase 4. Micro-milestones extend the version number by adding a fourth component:
+
+```
+<major>.<minor>.<milestone>.1
+<major>.<minor>.<milestone>.2
+...
+```
+
+These increments represent small, targeted patches applied to correct issues introduced by the milestone they extend. A micro-milestone always attaches to the most recently executed milestone and must never be used to introduce new features or refactors.
+
+**Scope and Lifecycle**  
+- Major and minor numbers are fixed for the entire development cycle.  
+- Milestone numbers are assigned during Phase 4 only.  
+- Micro-milestone numbers are assigned during Phase 5 only.  
+- No version number with `.0` as the milestone is ever considered a deliverable version; it exists solely to anchor the numbering scheme.
+
+This scheme provides a clear historical record and a strict execution order, ensuring that the application’s evolution across the development cycle is easy to trace, verify, and debug.
+
+# Appendix B: Why Code Alone Is Insufficient for Functional Descriptions
+
+Although the codebase ultimately determines how the application behaves, relying solely on source code to produce a functional description is unsafe when working with large language models. ChatGPT cannot execute the application, probe UI interactions, or test runtime effects, so it lacks the ability to confirm how ambiguous or partially implemented logic behaves in practice. Small client-side codebases often contain dormant features, experimental fragments, commented-out handlers, or legacy structures that no longer correspond to actual behavior. A human engineer can typically distinguish implemented logic from abandoned code by running the app and evaluating its behavior. ChatGPT, however, has no such grounding and will tend to infer intent incorrectly or describe behavior that never manifests at runtime.
+
+Even when the code is complete, ChatGPT often faces ambiguous patterns, parallel functions that appear to serve similar purposes, or complex interactions mediated through event listeners or shared state. Without direct developer confirmation, the model risks misidentifying which paths are active and which are obsolete. Furthermore, real-world applications frequently contain inconsistencies between intended behavior and implemented behavior; in such cases, only the developer can clarify which behavior should be considered authoritative. Code-based reconstruction also fails when the code does not express constraints, implicit assumptions, or workflow semantics that are clear to the developer but not evident in the source.
+
+For these reasons, the workflow requires that code-based reconstruction always be accompanied by developer clarification, and that developer statements override ambiguous code. The functional description is meant to document the actual, observable behavior of the application, not an interpretation of the code or an idealized design. Developer participation ensures the description is both accurate and aligned with the system’s true behavior, preventing the accumulation of errors across cycles and enabling Phase 6 to regenerate the description reliably.
+
+# Appendix C. Appendix: Why the Workflow Guide Is Provided Both Inline and as a File
+
+The Workflow Guide is supplied to ChatGPT in two forms—inline within the introductory prompt and as a separately uploaded file—because each serves a different and complementary purpose. The inline version is the authoritative one that ChatGPT must internalize before beginning any phase. Inline text is processed with the highest priority in the model’s immediate context, ensuring that all rules, constraints, and phase definitions shape ChatGPT’s behavior from the outset. This prevents drift, misinterpretation, or partial loading of the development protocol and ensures that the workflow’s requirements are treated as system-level instructions rather than incidental guidance.
+
+The uploaded file serves a distinct function: it provides a persistent reference copy of the Workflow Guide that ChatGPT can reopen later in the conversation using the file_search tools. As the development cycle progresses and the conversation grows, parts of the inline text may no longer be present in the model’s active context. The file allows ChatGPT to re-read any section verbatim when needed—particularly during later phases that require precise adherence to earlier definitions or when the developer asks the model to confirm wording or reinterpret details. The file is not authoritative; it is a stable external memory that prevents loss of fidelity when context is long.
+
+Using both forms together ensures that ChatGPT begins the workflow with a complete and unambiguous understanding of the process while also maintaining a durable reference copy that can be recalled on demand. This dual approach optimizes both initial comprehension and long-term reliability, enabling deterministic behavior across the entire multi-phase development cycle.
+
+# Appendix D: Best Practices for Writing Phase 4 Prompt Templates
+
+## 1. Always isolate the Codex prompts inside their own code blocks
+Codex prompts should never appear in plain text. They must be isolated in fenced code blocks so ChatGPT understands that the text is literal, not something to be interpreted or executed. Use triple backticks inside the Phase 4 output.
+
+## 2. Use distinct code block languages
+To avoid conflict, use different code block types for different layers. For example, use ```markdown for the Phase 4 prompt template itself, and ```text for the Codex prompts generated inside the plan. This prevents the model from merging layers or misinterpreting syntax.
+
+## 3. Explicitly instruct ChatGPT not to run or interpret Codex prompts
+Nested LLM instructions often fail because ChatGPT tries to help by summarizing or fixing formatting. The Phase 4 template must include a strict rule: ChatGPT must not interpret, paraphrase, alter, execute, or reformulate Codex prompts.
+
+## 4. Forbid commentary inside Codex prompts
+Codex prompts must be pure instructions, with no meta-comments or explanations. ChatGPT must not include analysis, apologies, or commentary inside the Codex prompt block.
+
+## 5. Require a rigid milestone structure
+Each milestone must follow a fixed structure with sections for goals, implementation details, and the Codex prompt. Instruct ChatGPT to follow this structure exactly for every milestone and not to modify or add headings.
+
+## 6. Prohibit formatting inside Codex prompts unless explicitly intended
+Markdown formatting inside Codex prompts can break parsing. The template must state that no headings, bullets, or emphasis should appear inside the Codex prompt. Codex prompts should be plain text.
+
+## 7. Use literal filenames and function names
+Instruct ChatGPT to quote filenames, functions, DOM elements, and IDs exactly as they appear in the codebase. This avoids drift and ensures that Codex modifies the correct locations.
+
+## 8. Avoid vague directives
+Codex cannot interpret vague instructions like "improve data handling" or "clean up logic." The Phase 4 template must require precise specifications of files, functions, and behaviors for each milestone.
+
+## 9. Explicitly manage error handling
+Codex should not refactor code, rename variables, or reorganize project structure unless explicitly instructed. State this clearly in the Phase 4 template to avoid unintended modifications.
+
+## 10. Forbid merging milestones
+Each milestone must contain exactly one Codex prompt and must be implementable independently. This prevents ChatGPT from combining tasks that should be separated.
+
+## 11. Prevent ChatGPT from executing the plan
+ChatGPT may try to implement changes or generate code proactively. The Phase 4 template must clearly state that its role is to generate the plan, not to execute it or generate code.
+
+## 12. End the plan explicitly
+After listing the milestones, ChatGPT must end the Implementation Plan without moving on to subsequent phases.
+````
